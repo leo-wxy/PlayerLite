@@ -38,6 +38,9 @@ int ReadPacket(void* opaque, uint8_t* buf, int buf_size) {
         }
         return AVERROR(EIO);
     }
+    if (read_size == 0) {
+        return AVERROR_EOF;
+    }
     return read_size;
 }
 
@@ -130,6 +133,8 @@ bool OpenInputFromSource(
         }
         return false;
     }
+
+    avio_context->seekable = AVIO_SEEKABLE_NORMAL;
 
     format_context->pb = avio_context;
     format_context->flags |= AVFMT_FLAG_CUSTOM_IO;

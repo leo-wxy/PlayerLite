@@ -1,6 +1,8 @@
 #include "ffmpeg_decoder.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 namespace {
@@ -114,11 +116,48 @@ int ApplyPendingSeek(
         return 0;
     }
 
-    const int64_t seek_target = av_rescale_q(seek_ms, AVRational{1, 1000}, audio_time_base);
-    int result = av_seek_frame(format_context, audio_stream_index, seek_target, AVSEEK_FLAG_BACKWARD);
+    int64_t seek_target = av_rescale_q(seek_ms, AVRational{1, 1000}, audio_time_base);
+    if (seek_target < 0) {
+        seek_target = 0;
+    }
+
+    if (audio_stream_index >= 0 && audio_stream_index < static_cast<int>(format_context->nb_streams)) {
+        AVStream* audio_stream = format_context->streams[audio_stream_index];
+        if (audio_stream != nullptr &&
+            audio_stream->duration != AV_NOPTS_VALUE &&
+            audio_stream->duration > 0) {
+            seek_target = std::min(seek_target, audio_stream->duration - 1);
+        }
+    }
+
+    int result = av_seek_frame(
+            format_context,
+            audio_stream_index,
+            seek_target,
+            AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY);
+
+    if (result < 0) {
+        const int64_t global_seek_target = av_rescale_q(seek_ms, AVRational{1, 1000}, AV_TIME_BASE_Q);
+        result = av_seek_frame(
+                format_context,
+                -1,
+                global_seek_target,
+                AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_ANY);
+    }
+
+    if (result < 0) {
+        result = avformat_seek_file(
+                format_context,
+                audio_stream_index,
+                std::numeric_limits<int64_t>::min(),
+                seek_target,
+                std::numeric_limits<int64_t>::max(),
+                AVSEEK_FLAG_ANY);
+    }
+
     if (result < 0) {
         if (error_message != nullptr) {
-            *error_message = "av_seek_frame failed: " + FfErrorToString(result);
+            *error_message = "seek failed: " + FfErrorToString(result);
         }
         return result;
     }
