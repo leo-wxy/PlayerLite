@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
                         fileName = state.selectedFileName,
                         status = state.statusText,
                         audioMeta = state.audioMeta,
+                        playbackOutputInfo = state.playbackOutputInfoText,
                         hasSelection = state.hasSelection,
                         playlistItems = state.playlistItems,
                         activePlaylistIndex = state.activePlaylistIndex,

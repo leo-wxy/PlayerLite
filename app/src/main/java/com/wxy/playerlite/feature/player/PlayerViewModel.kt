@@ -4,10 +4,12 @@ import android.app.Application
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.wxy.playerlite.player.INativePlayer
 import com.wxy.playerlite.player.NativePlayer
+import com.wxy.playerlite.player.PlaybackOutputInfo
 import com.wxy.playerlite.player.source.IPlaysource
 import com.wxy.playerlite.player.source.LocalFileSource
 import com.wxy.playerlite.playlist.PlaylistController
@@ -68,6 +70,12 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
             if (!uiState.isSeekDragging) {
                 uiState = uiState.copy(seekPositionMs = bounded)
             }
+        }
+
+        player.setPlaybackOutputInfoListener { info ->
+            val routeText = formatPlaybackOutputInfo(info)
+            Log.i(TAG, "Native playback route: $routeText")
+            uiState = uiState.copy(playbackOutputInfoText = routeText)
         }
 
         restorePlaylistState()
@@ -390,7 +398,11 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
                 stopPlaybackOnly(updateStatus = false)
             }
             releaseSelectedSource()
-            uiState = uiState.copy(isPreparing = true, statusText = "Preparing file...")
+            uiState = uiState.copy(
+                isPreparing = true,
+                statusText = "Preparing file...",
+                playbackOutputInfoText = "-"
+            )
 
             try {
                 val sourceUri = Uri.parse(activeItem.uri)
@@ -459,6 +471,7 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
     private fun resetAudioMetaState() {
         uiState = uiState.copy(
             audioMeta = emptyAudioMeta(),
+            playbackOutputInfoText = "-",
             durationMs = 0L,
             seekPositionMs = 0L,
             seekDragPositionMs = 0L,
@@ -632,5 +645,32 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
         playbackStateJob?.cancel()
         playbackStateJob = null
         super.onCleared()
+    }
+
+    private fun formatPlaybackOutputInfo(info: PlaybackOutputInfo): String {
+        val inputText = "${formatSampleRate(info.inputSampleRateHz)}/${formatChannels(info.inputChannels)}/${info.inputEncoding}"
+        val outputText = "${formatSampleRate(info.outputSampleRateHz)}/${formatChannels(info.outputChannels)}/${info.outputEncoding}"
+        val modeText = if (info.usesResampler) "重采样" else "直通"
+        return "输入 $inputText -> 输出 $outputText ($modeText)"
+    }
+
+    private fun formatSampleRate(sampleRateHz: Int): String {
+        return if (sampleRateHz > 0) {
+            "${sampleRateHz}Hz"
+        } else {
+            "?Hz"
+        }
+    }
+
+    private fun formatChannels(channels: Int): String {
+        return if (channels > 0) {
+            "${channels}ch"
+        } else {
+            "?ch"
+        }
+    }
+
+    private companion object {
+        private const val TAG = "PlayerViewModel"
     }
 }

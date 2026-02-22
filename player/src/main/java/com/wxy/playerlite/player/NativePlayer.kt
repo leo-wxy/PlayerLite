@@ -8,6 +8,8 @@ class NativePlayer : INativePlayer {
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile
     private var progressListener: ((Long) -> Unit)? = null
+    @Volatile
+    private var playbackOutputInfoListener: ((PlaybackOutputInfo) -> Unit)? = null
     @Suppress("unused")
     private var nativeContextHandle: Long = 0L
 
@@ -33,6 +35,10 @@ class NativePlayer : INativePlayer {
 
     override fun setProgressListener(listener: ((Long) -> Unit)?) {
         progressListener = listener
+    }
+
+    override fun setPlaybackOutputInfoListener(listener: ((PlaybackOutputInfo) -> Unit)?) {
+        playbackOutputInfoListener = listener
     }
 
     override fun playFromSource(source: IPlaysource): Int {
@@ -91,6 +97,7 @@ class NativePlayer : INativePlayer {
         nativeResume()
         nativeRelease()
         progressListener = null
+        playbackOutputInfoListener = null
     }
 
     override fun lastError(): String {
@@ -102,9 +109,23 @@ class NativePlayer : INativePlayer {
             codec = meta.codec.ifBlank { "-" },
             sampleRate = if (meta.sampleRateHz > 0) "${meta.sampleRateHz} Hz" else "-",
             channels = if (meta.channels > 0) meta.channels.toString() else "-",
-            bitRate = if (meta.bitRate > 0L) "${meta.bitRate} bps" else "-",
+            bitRate = formatBitRateKbps(meta.bitRate),
             durationMs = meta.durationMs
         )
+    }
+
+    private fun formatBitRateKbps(bitRate: Long): String {
+        if (bitRate <= 0L) {
+            return "-"
+        }
+        val kbpsTimes10 = (bitRate * 10L + 500L) / 1000L
+        val whole = kbpsTimes10 / 10L
+        val decimal = kbpsTimes10 % 10L
+        return if (decimal == 0L) {
+            "${whole} kbps"
+        } else {
+            "${whole}.${decimal} kbps"
+        }
     }
 
     @Suppress("unused")
@@ -115,7 +136,43 @@ class NativePlayer : INativePlayer {
         }
     }
 
+    @Suppress("unused")
+    fun onNativeOutputConfig(
+        inputSampleRateHz: Int,
+        inputChannels: Int,
+        inputEncodingCode: Int,
+        outputSampleRateHz: Int,
+        outputChannels: Int,
+        outputEncodingCode: Int,
+        usesResampler: Boolean
+    ) {
+        val listener = playbackOutputInfoListener ?: return
+        val info = PlaybackOutputInfo(
+            inputSampleRateHz = inputSampleRateHz,
+            inputChannels = inputChannels,
+            inputEncoding = encodeName(inputEncodingCode),
+            outputSampleRateHz = outputSampleRateHz,
+            outputChannels = outputChannels,
+            outputEncoding = encodeName(outputEncodingCode),
+            usesResampler = usesResampler
+        )
+        mainHandler.post {
+            listener(info)
+        }
+    }
+
+    private fun encodeName(code: Int): String {
+        return when (code) {
+            ENCODING_PCM_16 -> "pcm16"
+            ENCODING_PCM_FLOAT -> "pcmFloat"
+            else -> "unknown"
+        }
+    }
+
     companion object {
+        private const val ENCODING_PCM_16 = 0
+        private const val ENCODING_PCM_FLOAT = 1
+
         init {
             System.loadLibrary("player")
         }

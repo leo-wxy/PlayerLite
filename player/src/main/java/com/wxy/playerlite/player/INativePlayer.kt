@@ -18,8 +18,20 @@ data class AudioMetaDisplay(
     val durationMs: Long
 )
 
+data class PlaybackOutputInfo(
+    val inputSampleRateHz: Int,
+    val inputChannels: Int,
+    val inputEncoding: String,
+    val outputSampleRateHz: Int,
+    val outputChannels: Int,
+    val outputEncoding: String,
+    val usesResampler: Boolean
+)
+
 interface INativePlayer {
     fun setProgressListener(listener: ((Long) -> Unit)?)
+
+    fun setPlaybackOutputInfoListener(listener: ((PlaybackOutputInfo) -> Unit)?)
 
     fun playFromSource(source: IPlaysource): Int
 

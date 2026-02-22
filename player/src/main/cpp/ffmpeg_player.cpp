@@ -15,6 +15,7 @@ namespace {
 constexpr int kAvioBufferSize = 64 * 1024;
 
 struct SourceIoContext {
+    // 传给 FFmpeg 自定义 AVIO 回调的上下文桥接对象。
     IPlaySource* source = nullptr;
     std::string* error_message = nullptr;
 };
@@ -38,6 +39,7 @@ int ReadPacket(void* opaque, uint8_t* buf, int buf_size) {
         }
         return AVERROR(EIO);
     }
+    // 自定义 IO 到达结尾时，需要返回 AVERROR_EOF 而不是 0。
     if (read_size == 0) {
         return AVERROR_EOF;
     }
@@ -134,9 +136,11 @@ bool OpenInputFromSource(
         return false;
     }
 
+    // 显式声明可 seek，允许 FFmpeg 使用 seek 相关能力。
     avio_context->seekable = AVIO_SEEKABLE_NORMAL;
 
     format_context->pb = avio_context;
+    // 输入来源于回调，不是 URL/文件路径。
     format_context->flags |= AVFMT_FLAG_CUSTOM_IO;
 
     const int open_result = avformat_open_input(&format_context, nullptr, nullptr, nullptr);

@@ -7,14 +7,24 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "ffmpeg_player.h"
 #include "jni_play_source.h"
 
 namespace {
-constexpr jint kSampleRate = 44100;
+constexpr jint kFallbackSampleRate = 44100;
+constexpr jint kDeviceNativeCommonSampleRate = 48000;
+constexpr jint kChannelConfigMono = 4;      // AudioFormat.CHANNEL_OUT_MONO
 constexpr jint kChannelConfigStereo = 12;  // AudioFormat.CHANNEL_OUT_STEREO
+constexpr jint kChannelConfigQuad = 204;    // AudioFormat.CHANNEL_OUT_QUAD
+constexpr jint kChannelConfig5Point1 = 252; // AudioFormat.CHANNEL_OUT_5POINT1
+constexpr jint kChannelConfig7Point1 = 6396; // AudioFormat.CHANNEL_OUT_7POINT1_SURROUND
 constexpr jint kEncodingPcm16Bit = 2;      // AudioFormat.ENCODING_PCM_16BIT
+constexpr jint kEncodingPcmFloat = 4;      // AudioFormat.ENCODING_PCM_FLOAT
+constexpr jint kOutputEncodingCodePcm16 = 0;
+constexpr jint kOutputEncodingCodePcmFloat = 1;
 constexpr jint kStreamMusic = 3;           // AudioManager.STREAM_MUSIC
 constexpr jint kModeStream = 1;            // AudioTrack.MODE_STREAM
 constexpr jint kWriteBlocking = 0;         // AudioTrack.WRITE_BLOCKING
@@ -25,7 +35,29 @@ constexpr jint kSeekUnavailableCode = -2006;
 constexpr jint kContextUnavailableCode = -6;
 constexpr int64_t kProgressNotifyIntervalMs = 500;
 
+jint ResolveChannelConfig(int channels) {
+    switch (channels) {
+        case 1:
+            return kChannelConfigMono;
+        case 2:
+            return kChannelConfigStereo;
+        case 4:
+            return kChannelConfigQuad;
+        case 6:
+            return kChannelConfig5Point1;
+        case 8:
+            return kChannelConfig7Point1;
+        default:
+            return 0;
+    }
+}
+
+// NativePlayer 的共享上下文：
+// - 由 Kotlin 层的 nativeContextHandle 持有指针。
+// - 多个 JNI 接口共用该状态（播放控制、查询、错误信息）。
+// - 通过 active_calls/active_playbacks + release_requested 做延迟释放。
 struct PlayerContext {
+    // 每个 NativePlayer 实例在 JNI 调用间共享的运行状态。
     std::mutex error_mutex;
     std::string last_error = "ok";
 
@@ -48,6 +80,8 @@ std::mutex g_context_init_mutex;
 std::mutex g_native_field_init_mutex;
 std::atomic<jfieldID> g_native_context_field{nullptr};
 
+// 获取并缓存 Kotlin 字段 nativeContextHandle 的 field id。
+// 该字段用于保存 native PlayerContext* 指针。
 jfieldID ResolveNativeContextField(JNIEnv* env, jobject thiz) {
     if (env == nullptr || thiz == nullptr) {
         return nullptr;
@@ -58,6 +92,7 @@ jfieldID ResolveNativeContextField(JNIEnv* env, jobject thiz) {
         return cached;
     }
 
+    // 缓存 field id，避免在高频路径重复反射查找。
     std::lock_guard<std::mutex> lock(g_native_field_init_mutex);
     cached = g_native_context_field.load(std::memory_order_relaxed);
     if (cached != nullptr) {
@@ -112,6 +147,7 @@ PlayerContext* GetOrCreateContext(JNIEnv* env, jobject thiz) {
         return reinterpret_cast<PlayerContext*>(handle);
     }
 
+    // 首次访问时懒初始化 context。
     auto* context = new PlayerContext();
     env->SetLongField(thiz, context_field, reinterpret_cast<jlong>(context));
     return context;
@@ -138,10 +174,12 @@ void TryReleaseContext(JNIEnv* env, jobject thiz, PlayerContext* context) {
         return;
     }
 
+    // 仅在没有活动 JNI 调用时尝试释放。
     if (context->active_calls.load(std::memory_order_relaxed) != 0) {
         return;
     }
 
+    // 仅在没有活跃播放流程时尝试释放。
     if (context->active_playbacks.load(std::memory_order_relaxed) != 0) {
         return;
     }
@@ -182,6 +220,7 @@ public:
             return;
         }
 
+        // 延迟释放，确保没有 JNI 调用仍在使用该 context。
         const int active = context_->active_calls.fetch_sub(1, std::memory_order_relaxed) - 1;
         if (active == 0 && context_->release_requested.load(std::memory_order_relaxed)) {
             TryReleaseContext(env_, thiz_, context_);
@@ -262,6 +301,7 @@ public:
     }
 
     bool Init(std::string* error_message) {
+        // 解析并缓存 AudioTrack 所需 JNI 类/方法，后续播放循环直接调用。
         jclass local_audio_track_class = env_->FindClass("android/media/AudioTrack");
         if (local_audio_track_class == nullptr) {
             return Fail(error_message, "failed to find AudioTrack class");
@@ -304,67 +344,160 @@ public:
             return Fail(error_message, "failed to resolve callback owner class");
         }
         on_native_progress_mid_ = env_->GetMethodID(callback_owner_class, "onNativeProgress", "(J)V");
+        on_native_output_config_mid_ = env_->GetMethodID(
+                callback_owner_class,
+                "onNativeOutputConfig",
+                "(IIIIIIZ)V");
         env_->DeleteLocalRef(callback_owner_class);
 
         if (get_min_buffer_size_mid_ == nullptr || ctor_mid_ == nullptr || play_mid_ == nullptr ||
             pause_mid_ == nullptr ||
             get_playback_head_position_mid_ == nullptr ||
             write_array_mid_ == nullptr || stop_mid_ == nullptr || flush_mid_ == nullptr ||
-            release_mid_ == nullptr || on_native_progress_mid_ == nullptr) {
+            release_mid_ == nullptr || on_native_progress_mid_ == nullptr ||
+            on_native_output_config_mid_ == nullptr) {
             return Fail(error_message, "failed to resolve AudioTrack methods");
         }
 
-        jint min_buffer_size = env_->CallStaticIntMethod(
-                audio_track_class_,
-                get_min_buffer_size_mid_,
-                kSampleRate,
-                kChannelConfigStereo,
-                kEncodingPcm16Bit);
-        if (env_->ExceptionCheck()) {
-            env_->ExceptionClear();
-            return Fail(error_message, "AudioTrack.getMinBufferSize threw exception");
-        }
-
-        const jint buffer_size = min_buffer_size > 0 ? min_buffer_size * 2 : 8192;
-        jobject local_audio_track = env_->NewObject(
-                audio_track_class_,
-                ctor_mid_,
-                kStreamMusic,
-                kSampleRate,
-                kChannelConfigStereo,
-                kEncodingPcm16Bit,
-                buffer_size,
-                kModeStream);
-        if (local_audio_track == nullptr || env_->ExceptionCheck()) {
-            env_->ExceptionClear();
-            if (local_audio_track != nullptr) {
-                env_->DeleteLocalRef(local_audio_track);
-            }
-            return Fail(error_message, "failed to create AudioTrack instance");
-        }
-
-        audio_track_ = env_->NewGlobalRef(local_audio_track);
-        env_->DeleteLocalRef(local_audio_track);
-        if (audio_track_ == nullptr) {
-            return Fail(error_message, "failed to create global ref for AudioTrack object");
-        }
-
-        env_->CallVoidMethod(audio_track_, play_mid_);
-        if (env_->ExceptionCheck()) {
-            env_->ExceptionClear();
-            return Fail(error_message, "AudioTrack.play threw exception");
-        }
-
-        {
-            if (context_ != nullptr) {
-                std::lock_guard<std::mutex> lock(context_->audio_track_mutex);
-                context_->active_audio_track = audio_track_;
-            }
-        }
-
-        NotifyProgressIfNeeded(true, nullptr);
-
         return true;
+    }
+
+    bool ConfigureOutput(
+            const PcmOutputConfig& preferred,
+            PcmOutputConfig* applied,
+            std::string* error_message) override {
+        const jint preferred_channel_config = ResolveChannelConfig(preferred.channels);
+        const jint preferred_encoding =
+                preferred.encoding == PcmOutputEncoding::kPcmFloat ? kEncodingPcmFloat : kEncodingPcm16Bit;
+
+        std::vector<OutputCandidate> candidates;
+
+        auto append_candidate = [&candidates](const OutputCandidate& candidate) {
+            for (const OutputCandidate& existing : candidates) {
+                if (existing.sample_rate == candidate.sample_rate &&
+                    existing.channels == candidate.channels &&
+                    existing.channel_config == candidate.channel_config &&
+                    existing.encoding == candidate.encoding) {
+                    return;
+                }
+            }
+            candidates.push_back(candidate);
+        };
+
+        auto make_candidate = [](jint sample_rate, int channels, jint channel_config, jint encoding) {
+            OutputCandidate candidate;
+            candidate.sample_rate = sample_rate;
+            candidate.channels = channels;
+            candidate.channel_config = channel_config;
+            candidate.encoding = encoding;
+            return candidate;
+        };
+
+        std::vector<jint> sample_rate_candidates;
+        auto append_sample_rate = [&sample_rate_candidates](jint sample_rate) {
+            if (sample_rate <= 0) {
+                return;
+            }
+            for (jint existing_rate : sample_rate_candidates) {
+                if (existing_rate == sample_rate) {
+                    return;
+                }
+            }
+            sample_rate_candidates.push_back(sample_rate);
+        };
+        append_sample_rate(preferred.sample_rate > 0 ? preferred.sample_rate : kFallbackSampleRate);
+        append_sample_rate(kDeviceNativeCommonSampleRate);
+        append_sample_rate(kFallbackSampleRate);
+
+        std::vector<jint> encoding_candidates;
+        encoding_candidates.push_back(preferred_encoding);
+        if (preferred_encoding == kEncodingPcmFloat) {
+            encoding_candidates.push_back(kEncodingPcm16Bit);
+        }
+
+        std::vector<std::pair<int, jint>> channel_candidates;
+        if (preferred.channels > 0 && preferred_channel_config != 0) {
+            channel_candidates.emplace_back(preferred.channels, preferred_channel_config);
+        }
+        if (preferred.channels != 2 || preferred_channel_config == 0) {
+            channel_candidates.emplace_back(2, kChannelConfigStereo);
+        }
+        if (channel_candidates.empty()) {
+            channel_candidates.emplace_back(2, kChannelConfigStereo);
+        }
+
+        // 降级顺序：先格式，再采样率，最后才降声道。
+        for (const auto& channel_candidate : channel_candidates) {
+            for (jint sample_rate_candidate : sample_rate_candidates) {
+                for (jint encoding_candidate : encoding_candidates) {
+                    append_candidate(make_candidate(
+                            sample_rate_candidate,
+                            channel_candidate.first,
+                            channel_candidate.second,
+                            encoding_candidate));
+                }
+            }
+        }
+
+        append_candidate(make_candidate(
+                kFallbackSampleRate,
+                2,
+                kChannelConfigStereo,
+                kEncodingPcm16Bit));
+
+        std::string last_error = "AudioTrack output configuration unsupported";
+        for (const OutputCandidate& candidate : candidates) {
+            std::string candidate_error;
+            if (TryStartAudioTrack(candidate, &candidate_error)) {
+                output_sample_rate_ = candidate.sample_rate;
+                output_channel_count_ = candidate.channels;
+                output_encoding_ = candidate.encoding;
+
+                if (applied != nullptr) {
+                    applied->sample_rate = candidate.sample_rate;
+                    applied->channels = candidate.channels;
+                    applied->encoding =
+                            candidate.encoding == kEncodingPcmFloat
+                                    ? PcmOutputEncoding::kPcmFloat
+                                    : PcmOutputEncoding::kPcm16;
+                }
+
+                const jint input_encoding_code =
+                        preferred.encoding == PcmOutputEncoding::kPcmFloat
+                                ? kOutputEncodingCodePcmFloat
+                                : kOutputEncodingCodePcm16;
+                const jint output_encoding_code =
+                        candidate.encoding == kEncodingPcmFloat
+                                ? kOutputEncodingCodePcmFloat
+                                : kOutputEncodingCodePcm16;
+                const jboolean uses_resampler =
+                        preferred.sample_rate != candidate.sample_rate ||
+                        preferred.channels != candidate.channels ||
+                        input_encoding_code != output_encoding_code;
+                env_->CallVoidMethod(
+                        callback_owner_,
+                        on_native_output_config_mid_,
+                        static_cast<jint>(preferred.sample_rate),
+                        static_cast<jint>(preferred.channels),
+                        input_encoding_code,
+                        static_cast<jint>(candidate.sample_rate),
+                        static_cast<jint>(candidate.channels),
+                        output_encoding_code,
+                        uses_resampler);
+                if (env_->ExceptionCheck()) {
+                    env_->ExceptionClear();
+                }
+
+                NotifyProgressIfNeeded(true, nullptr);
+                return true;
+            }
+
+            if (!candidate_error.empty()) {
+                last_error = candidate_error;
+            }
+        }
+
+        return Fail(error_message, last_error.c_str());
     }
 
     bool Consume(const uint8_t* data, int size, std::string* error_message) override {
@@ -388,6 +521,7 @@ public:
             return Fail(error_message, "AudioTrack is not initialized");
         }
 
+        // 可能出现分段写入，循环直到整块 PCM 写完。
         int offset = 0;
         while (offset < size) {
             if (!HandlePauseState(error_message)) {
@@ -400,6 +534,7 @@ public:
 
             jint written = 0;
             if (write_direct_mid_ != nullptr) {
+                // 快路径：尽量直接把 native buffer 写入 AudioTrack，减少拷贝。
                 jobject chunk_buffer = env_->NewDirectByteBuffer(
                         const_cast<uint8_t*>(data) + offset,
                         static_cast<jlong>(size - offset));
@@ -426,6 +561,7 @@ public:
                 }
             }
 
+            // 回退路径：不支持 direct ByteBuffer 写入时走 byte[]。
             if (!EnsureWriteArrayBuffer(size - offset, error_message)) {
                 return false;
             }
@@ -467,6 +603,7 @@ public:
         }
         const int64_t seek_ms = context_->seek_position_ms.exchange(-1, std::memory_order_relaxed);
         if (seek_ms >= 0) {
+            // 通知后续输出侧在 seek 后执行 AudioTrack flush，避免旧缓冲残留。
             pending_seek_base_ms_ = seek_ms;
             has_pending_seek_base_ = true;
             pending_audio_track_flush_ = true;
@@ -475,6 +612,111 @@ public:
     }
 
 private:
+    struct OutputCandidate {
+        jint sample_rate = 0;
+        int channels = 0;
+        jint channel_config = 0;
+        jint encoding = 0;
+    };
+
+    void DetachContextAudioTrackRef() {
+        if (context_ == nullptr) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(context_->audio_track_mutex);
+        if (context_->active_audio_track == audio_track_) {
+            context_->active_audio_track = nullptr;
+        }
+    }
+
+    void ReleaseAudioTrackInstance() {
+        if (audio_track_ == nullptr) {
+            return;
+        }
+
+        DetachContextAudioTrackRef();
+
+        env_->CallVoidMethod(audio_track_, stop_mid_);
+        if (env_->ExceptionCheck()) {
+            env_->ExceptionClear();
+        }
+        env_->CallVoidMethod(audio_track_, flush_mid_);
+        if (env_->ExceptionCheck()) {
+            env_->ExceptionClear();
+        }
+        env_->CallVoidMethod(audio_track_, release_mid_);
+        if (env_->ExceptionCheck()) {
+            env_->ExceptionClear();
+        }
+
+        env_->DeleteGlobalRef(audio_track_);
+        audio_track_ = nullptr;
+    }
+
+    bool TryStartAudioTrack(const OutputCandidate& candidate, std::string* error_message) {
+        ReleaseAudioTrackInstance();
+
+        const jint min_buffer_size = env_->CallStaticIntMethod(
+                audio_track_class_,
+                get_min_buffer_size_mid_,
+                candidate.sample_rate,
+                candidate.channel_config,
+                candidate.encoding);
+        if (env_->ExceptionCheck()) {
+            env_->ExceptionClear();
+            return Fail(error_message, "AudioTrack.getMinBufferSize threw exception");
+        }
+        if (min_buffer_size <= 0) {
+            return Fail(error_message, "AudioTrack.getMinBufferSize unsupported for target format");
+        }
+
+        const jint buffer_size = min_buffer_size * 2;
+        jobject local_audio_track = env_->NewObject(
+                audio_track_class_,
+                ctor_mid_,
+                kStreamMusic,
+                candidate.sample_rate,
+                candidate.channel_config,
+                candidate.encoding,
+                buffer_size,
+                kModeStream);
+        if (local_audio_track == nullptr || env_->ExceptionCheck()) {
+            env_->ExceptionClear();
+            if (local_audio_track != nullptr) {
+                env_->DeleteLocalRef(local_audio_track);
+            }
+            return Fail(error_message, "failed to create AudioTrack instance");
+        }
+
+        audio_track_ = env_->NewGlobalRef(local_audio_track);
+        env_->DeleteLocalRef(local_audio_track);
+        if (audio_track_ == nullptr) {
+            return Fail(error_message, "failed to create global ref for AudioTrack object");
+        }
+
+        env_->CallVoidMethod(audio_track_, play_mid_);
+        if (env_->ExceptionCheck()) {
+            env_->ExceptionClear();
+            ReleaseAudioTrackInstance();
+            return Fail(error_message, "AudioTrack.play threw exception");
+        }
+
+        if (context_ != nullptr) {
+            std::lock_guard<std::mutex> lock(context_->audio_track_mutex);
+            context_->active_audio_track = audio_track_;
+        }
+
+        has_playback_head_ = false;
+        last_playback_head_u32_ = 0;
+        playback_head_wrap_count_ = 0;
+        seek_anchor_head_frames_ = 0;
+        last_notified_progress_ms_ = -1;
+        pending_audio_track_flush_ = false;
+        is_paused_ = false;
+
+        return true;
+    }
+
     bool HandlePauseState(std::string* error_message) {
         if (context_ == nullptr || audio_track_ == nullptr) {
             return true;
@@ -569,6 +811,7 @@ private:
 
         const uint32_t head_u32 = static_cast<uint32_t>(head_position);
         if (has_playback_head_) {
+            // 播放头是 32 位计数器，需处理回绕以保持进度单调递增。
             if (head_u32 < last_playback_head_u32_) {
                 playback_head_wrap_count_ += 1;
             }
@@ -606,7 +849,9 @@ private:
             delta_frames = 0;
         }
 
-        const int64_t progress_ms = seek_base_ms_ + (delta_frames * 1000) / kSampleRate;
+        const int64_t progress_sample_rate =
+                output_sample_rate_ > 0 ? output_sample_rate_ : kFallbackSampleRate;
+        const int64_t progress_ms = seek_base_ms_ + (delta_frames * 1000) / progress_sample_rate;
         if (!force &&
             last_notified_progress_ms_ >= 0 &&
             progress_ms >= last_notified_progress_ms_ &&
@@ -660,31 +905,7 @@ private:
     }
 
     void Shutdown() {
-        if (audio_track_ != nullptr) {
-            {
-                if (context_ != nullptr) {
-                    std::lock_guard<std::mutex> lock(context_->audio_track_mutex);
-                    if (context_->active_audio_track == audio_track_) {
-                        context_->active_audio_track = nullptr;
-                    }
-                }
-            }
-
-            env_->CallVoidMethod(audio_track_, stop_mid_);
-            if (env_->ExceptionCheck()) {
-                env_->ExceptionClear();
-            }
-            env_->CallVoidMethod(audio_track_, flush_mid_);
-            if (env_->ExceptionCheck()) {
-                env_->ExceptionClear();
-            }
-            env_->CallVoidMethod(audio_track_, release_mid_);
-            if (env_->ExceptionCheck()) {
-                env_->ExceptionClear();
-            }
-            env_->DeleteGlobalRef(audio_track_);
-            audio_track_ = nullptr;
-        }
+        ReleaseAudioTrackInstance();
 
         if (audio_track_class_ != nullptr) {
             env_->DeleteGlobalRef(audio_track_class_);
@@ -721,6 +942,7 @@ private:
     jmethodID flush_mid_ = nullptr;
     jmethodID release_mid_ = nullptr;
     jmethodID on_native_progress_mid_ = nullptr;
+    jmethodID on_native_output_config_mid_ = nullptr;
     jbyteArray write_array_buffer_ = nullptr;
 
     bool has_playback_head_ = false;
@@ -735,6 +957,9 @@ private:
     bool pending_audio_track_flush_ = false;
 
     bool is_paused_ = false;
+    int output_sample_rate_ = kFallbackSampleRate;
+    int output_channel_count_ = 2;
+    jint output_encoding_ = kEncodingPcm16Bit;
 };
 
 int RunPlaybackInternal(JNIEnv* env, jobject thiz, PlayerContext* context, IPlaySource* source) {
@@ -743,6 +968,7 @@ int RunPlaybackInternal(JNIEnv* env, jobject thiz, PlayerContext* context, IPlay
     }
 
     int expected = 0;
+    // 单实例同一时刻仅允许一个活跃播放流程。
     if (!context->active_playbacks.compare_exchange_strong(
                 expected,
                 1,
@@ -772,6 +998,7 @@ int RunPlaybackInternal(JNIEnv* env, jobject thiz, PlayerContext* context, IPlay
         }
     } guard{env, thiz, context};
 
+    // 组装播放核心：FFmpeg 播放器 + PCM 消费器（AudioTrack）。
     std::unique_ptr<INativePlayer> player_core = std::make_unique<FfmpegPlayer>();
     AudioTrackConsumer consumer(env, thiz, context);
     std::string decoder_error;
@@ -797,6 +1024,7 @@ Java_com_wxy_playerlite_player_NativePlayer_nativePlayFromSource(
         JNIEnv* env,
         jobject thiz,
         jobject source_object) {
+    // JNI 播放入口：构建 Source 桥接，进入统一播放流程。
     PlayerContext* context = GetOrCreateContext(env, thiz);
     if (context == nullptr) {
         return kContextUnavailableCode;
@@ -821,6 +1049,7 @@ Java_com_wxy_playerlite_player_NativePlayer_nativePlayFromSource(
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_wxy_playerlite_player_NativePlayer_nativeStop(JNIEnv* env, jobject thiz) {
+    // 控制接口：请求停止，并唤醒可能处于 pause wait 的线程。
     PlayerContext* context = GetContextNoCreate(env, thiz);
     if (context == nullptr) {
         return;
@@ -834,6 +1063,7 @@ Java_com_wxy_playerlite_player_NativePlayer_nativeStop(JNIEnv* env, jobject thiz
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_wxy_playerlite_player_NativePlayer_nativePause(JNIEnv* env, jobject thiz) {
+    // 控制接口：仅设置 pause 标记，实际暂停由消费循环处理。
     PlayerContext* context = GetContextNoCreate(env, thiz);
     if (context == nullptr) {
         return kContextUnavailableCode;
@@ -846,6 +1076,7 @@ Java_com_wxy_playerlite_player_NativePlayer_nativePause(JNIEnv* env, jobject thi
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_wxy_playerlite_player_NativePlayer_nativeResume(JNIEnv* env, jobject thiz) {
+    // 控制接口：清除 pause 标记并通知等待线程继续。
     PlayerContext* context = GetContextNoCreate(env, thiz);
     if (context == nullptr) {
         return kContextUnavailableCode;
@@ -862,6 +1093,7 @@ Java_com_wxy_playerlite_player_NativePlayer_nativeSeek(
         JNIEnv* env,
         jobject thiz,
         jlong position_ms) {
+    // 控制接口：写入一次性 seek 请求，由解码循环轮询消费。
     PlayerContext* context = GetContextNoCreate(env, thiz);
     if (context == nullptr) {
         return kContextUnavailableCode;
@@ -874,6 +1106,7 @@ Java_com_wxy_playerlite_player_NativePlayer_nativeSeek(
     }
 
     if (context->active_playbacks.load(std::memory_order_relaxed) == 0) {
+        // 仅在播放循环活跃时允许 seek。
         SetLastError(context, "seek is available only while playback is active");
         return kSeekUnavailableCode;
     }
@@ -887,6 +1120,7 @@ Java_com_wxy_playerlite_player_NativePlayer_nativeGetDurationFromSource(
         JNIEnv* env,
         jobject thiz,
         jobject source_object) {
+    // 查询接口：仅打开 source 读取时长，不进入播放循环。
     PlayerContext* context = GetOrCreateContext(env, thiz);
     if (context == nullptr) {
         return kContextUnavailableCode;
@@ -923,6 +1157,7 @@ Java_com_wxy_playerlite_player_NativePlayer_nativeGetAudioMetadataFromSource(
         JNIEnv* env,
         jobject thiz,
         jobject source_object) {
+    // 查询接口：读取音频元信息并映射为 Kotlin AudioMeta 对象。
     PlayerContext* context = GetOrCreateContext(env, thiz);
     if (context == nullptr) {
         return nullptr;
@@ -964,6 +1199,7 @@ extern "C" JNIEXPORT jint JNICALL
 Java_com_wxy_playerlite_player_NativePlayer_nativeGetPlaybackState(
         JNIEnv* env,
         jobject thiz) {
+    // 查询接口：从当前活跃 AudioTrack 读取 playState。
     PlayerContext* context = GetContextNoCreate(env, thiz);
     if (context == nullptr) {
         return -1;
@@ -1013,6 +1249,7 @@ Java_com_wxy_playerlite_player_NativePlayer_nativeGetPlaybackState(
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_wxy_playerlite_player_NativePlayer_nativeRelease(JNIEnv* env, jobject thiz) {
+    // 释放接口：打停止标记 + release 标记，触发延迟释放流程。
     PlayerContext* context = GetContextNoCreate(env, thiz);
     if (context == nullptr) {
         return;
@@ -1027,6 +1264,7 @@ Java_com_wxy_playerlite_player_NativePlayer_nativeRelease(JNIEnv* env, jobject t
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_wxy_playerlite_player_NativePlayer_nativeLastError(JNIEnv* env, jobject thiz) {
+    // 查询接口：返回最近一次 native 错误文本。
     PlayerContext* context = GetContextNoCreate(env, thiz);
     ScopedContextUse scoped_context(env, thiz, context);
     const std::string message = GetLastError(context);

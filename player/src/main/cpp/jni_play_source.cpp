@@ -125,6 +125,7 @@ int JniPlaySource::Read(uint8_t* buffer, int size, std::string* error_message) {
     }
 
     if (read_direct_mid_ != nullptr) {
+        // 首选路径：让 Source 直接写入 native buffer，减少一次拷贝。
         jobject direct_buffer = env_->NewDirectByteBuffer(buffer, static_cast<jlong>(size));
         if (direct_buffer != nullptr) {
             const jint read_size = env_->CallIntMethod(
@@ -158,6 +159,7 @@ int JniPlaySource::Read(uint8_t* buffer, int size, std::string* error_message) {
         }
     }
 
+    // 兼容回退：走 byte[] 读取，再拷贝到 native buffer。
     if (read_array_mid_ == nullptr) {
         return FailWithCode(error_message, "source.read is unavailable", -1);
     }
@@ -221,6 +223,7 @@ bool JniPlaySource::EnsureReadArrayBuffer(int size, std::string* error_message) 
         if (current_capacity >= size) {
             return true;
         }
+        // 仅在容量不足时重建缓冲区，降低 JNI 分配抖动。
         env_->DeleteGlobalRef(read_array_buffer_);
         read_array_buffer_ = nullptr;
     }

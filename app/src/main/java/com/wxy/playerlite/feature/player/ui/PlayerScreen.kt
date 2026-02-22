@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,6 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.wxy.playerlite.feature.player.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.AUDIO_TRACK_PLAYSTATE_PLAYING
@@ -66,6 +68,7 @@ internal fun PlayerScreen(
     fileName: String,
     status: String,
     audioMeta: AudioMetaDisplay,
+    playbackOutputInfo: String,
     hasSelection: Boolean,
     playlistItems: List<PlaylistItem>,
     activePlaylistIndex: Int,
@@ -104,6 +107,28 @@ internal fun PlayerScreen(
         val seekEnabled = durationMs > 0L && isPlaying && !isPaused
         val progressRatio = if (durationMs > 0L) sliderValue / sliderMax else 0f
         val progressPercent = (progressRatio * 100f).toInt().coerceIn(0, 100)
+        val routeSourceText = playbackOutputInfo
+        val fallbackInputText = if (audioMeta.sampleRate != "-" || audioMeta.channels != "-") {
+            val channelsText = if (audioMeta.channels == "-") "?ch" else "${audioMeta.channels}ch"
+            "${audioMeta.sampleRate}/$channelsText"
+        } else {
+            "-"
+        }
+        val routeInputText = if (routeSourceText == "-") {
+            fallbackInputText
+        } else {
+            routeSourceText.substringAfter("输入", "-").substringBefore("->").trim().ifBlank { "-" }
+        }
+        val routeOutputText = if (routeSourceText == "-") {
+            "-"
+        } else {
+            routeSourceText.substringAfter("输出", routeSourceText).substringBefore("(").trim().ifBlank { "-" }
+        }
+        val routeModeText = if (routeSourceText == "-") {
+            "-"
+        } else {
+            routeSourceText.substringAfter("(", "-").substringBefore(")").trim().ifBlank { "-" }
+        }
 
         var reveal by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
@@ -169,144 +194,168 @@ internal fun PlayerScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(20.dp)
-                    .verticalScroll(rememberScrollState())
                     .graphicsLayer {
                         alpha = contentAlpha
                         translationY = contentOffset.toPx()
                     },
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Box(
+                Column(
                     modifier = Modifier
+                        .weight(1f)
                         .fillMaxWidth()
-                        .padding(top = 12.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(28.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                        tonalElevation = 6.dp,
-                        shadowElevation = 6.dp
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        Surface(
+                            shape = RoundedCornerShape(28.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                            tonalElevation = 6.dp,
+                            shadowElevation = 6.dp
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Column(
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = "PLAYER LITE",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "PLAYER LITE",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
 
-                                    Text(
-                                        text = "Local Audio Deck",
-                                        style = MaterialTheme.typography.headlineSmall
-                                    )
-                                    Text(
-                                        text = fileName,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = status,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    PlaybackBadge(
-                                        isPreparing = isPreparing,
-                                        playbackState = playbackState
-                                    )
+                                        Text(
+                                            text = "Local Audio Deck",
+                                            style = MaterialTheme.typography.headlineSmall
+                                        )
+                                        Text(
+                                            text = fileName,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = status,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        PlaybackBadge(
+                                            isPreparing = isPreparing,
+                                            playbackState = playbackState
+                                        )
+                                    }
+
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        DeckDisc(
+                                            isPlaying = isPlaying,
+                                            isPaused = isPaused,
+                                            modifier = Modifier.size(108.dp)
+                                        )
+                                        Text(
+                                            text = "$progressPercent%",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
 
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    DeckDisc(
-                                        isPlaying = isPlaying,
-                                        isPaused = isPaused,
-                                        modifier = Modifier.size(108.dp)
-                                    )
-                                    Text(
-                                        text = "$progressPercent%",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
+                                Text(
+                                    text = if (isPlaying && !isPaused) "Native AudioTrack route active" else "Cue loaded and waiting",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                DeckProgressBar(
+                                    progressPercent = progressPercent,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(10.dp)
+                                )
                             }
-
-                            Text(
-                                text = if (isPlaying && !isPaused) "Native AudioTrack route active" else "Cue loaded and waiting",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            DeckProgressBar(
-                                progressPercent = progressPercent,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(10.dp)
-                            )
                         }
+
+                        FloatingPickButton(
+                            enabled = !isPreparing,
+                            onClick = onPickAudio,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(y = (-8).dp)
+                        )
                     }
 
-                    FloatingPickButton(
-                        enabled = !isPreparing,
-                        onClick = onPickAudio,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(y = (-8).dp)
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                    tonalElevation = 4.dp
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                        tonalElevation = 4.dp
                     ) {
-                        Text(
-                            text = "Audio Info",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            StatTile(
-                                label = "Codec",
-                                value = audioMeta.codec,
-                                modifier = Modifier.weight(1f)
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "Audio Info",
+                                style = MaterialTheme.typography.titleMedium
                             )
-                            StatTile(
-                                label = "Sample Rate",
-                                value = audioMeta.sampleRate,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            StatTile(
-                                label = "Channels",
-                                value = audioMeta.channels,
-                                modifier = Modifier.weight(1f)
-                            )
-                            StatTile(
-                                label = "Bit Rate",
-                                value = audioMeta.bitRate,
-                                modifier = Modifier.weight(1f)
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                StatTile(
+                                    label = "Codec",
+                                    value = audioMeta.codec,
+                                    modifier = Modifier.weight(1f),
+                                    minHeight = 74.dp,
+                                    valueMaxLines = 1
+                                )
+                                StatTile(
+                                    label = "Bit Rate",
+                                    value = audioMeta.bitRate,
+                                    modifier = Modifier.weight(1f),
+                                    minHeight = 74.dp,
+                                    valueMaxLines = 1
+                                )
+                                StatTile(
+                                    label = "Output Mode",
+                                    value = routeModeText,
+                                    modifier = Modifier.weight(1f),
+                                    minHeight = 74.dp,
+                                    valueMaxLines = 1
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                StatTile(
+                                    label = "Output Input",
+                                    value = routeInputText,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                StatTile(
+                                    label = "Output Final",
+                                    value = routeOutputText,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }
@@ -373,7 +422,7 @@ internal fun PlayerScreen(
                 onClick = onTogglePlaylistSheet,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 20.dp, bottom = 20.dp)
+                    .padding(end = 20.dp, bottom = 132.dp)
             )
 
             PlaylistBottomSheet(
@@ -536,10 +585,12 @@ private fun DeckProgressBar(
 private fun StatTile(
     label: String,
     value: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    minHeight: Dp = 0.dp,
+    valueMaxLines: Int = Int.MAX_VALUE
 ) {
     Surface(
-        modifier = modifier,
+        modifier = modifier.defaultMinSize(minHeight = minHeight),
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     ) {
@@ -555,7 +606,9 @@ private fun StatTile(
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                maxLines = valueMaxLines,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
