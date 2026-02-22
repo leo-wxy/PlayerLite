@@ -1,0 +1,4 @@
+[submodule "third_party/FFmpeg-n6.1.4"]
+	path = third_party/FFmpeg-n6.1.4
+	url = https://github.com/FFmpeg/FFmpeg.git
+	ignore = dirty
