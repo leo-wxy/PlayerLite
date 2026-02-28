@@ -1,4 +1,4 @@
-package com.wxy.playerlite.playlist
+package com.wxy.playerlite.core.playlist
 
 data class PlaylistItem(
     val id: String,

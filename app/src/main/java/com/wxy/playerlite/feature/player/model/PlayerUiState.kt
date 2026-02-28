@@ -1,13 +1,14 @@
-package com.wxy.playerlite.feature.player
+package com.wxy.playerlite.feature.player.model
 
+import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.player.AudioMetaDisplay
-import com.wxy.playerlite.playlist.PlaylistItem
+import com.wxy.playerlite.player.PlaybackOutputInfo
 
 internal data class PlayerUiState(
     val selectedFileName: String = "No audio selected",
     val statusText: String = "Pick a local audio file, then tap Play",
     val audioMeta: AudioMetaDisplay = emptyAudioMeta(),
-    val playbackOutputInfoText: String = "-",
+    val playbackOutputInfo: PlaybackOutputInfo? = null,
     val hasSelection: Boolean = false,
     val playlistItems: List<PlaylistItem> = emptyList(),
     val activePlaylistIndex: Int = -1,

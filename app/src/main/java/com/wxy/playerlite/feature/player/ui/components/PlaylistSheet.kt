@@ -54,7 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import com.wxy.playerlite.playlist.PlaylistItem
+import com.wxy.playerlite.core.playlist.PlaylistItem
 
 @Composable
 internal fun PlaylistFloatingButton(

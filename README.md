@@ -1,15 +1,19 @@
 # PlayerLite
 
-一个基于 Android + FFmpeg + JNI 的轻量播放器示例工程，当前已实现播放列表、持久化恢复与现代 Compose UI 播控。
+一个基于 Android + FFmpeg + JNI 的轻量播放器示例工程，当前已实现独立后台播放进程、MediaSession 系统控制、播放列表与持久化恢复。
 
 ## 模块划分
 
-- `app`：应用层（Compose UI、ViewModel、播放列表业务）
+- `app`：应用层（Compose UI、ViewModel、播放列表与业务状态）
+- `playback-service`：后台播放层（`MediaSessionService`、跨进程桥接、播放进程运行时）
 - `player`：播放器内核（Kotlin API + Native C++ + FFmpeg）
 
 ## 功能特性
 
 - 本地音频文件选择与播放（`audio/*`）
+- 后台播放进程（`:playback`）与 `MediaSession` 系统媒体控制
+- 系统媒体卡片点击回到 App（`sessionActivity`）
+- `PlaybackOutputInfo` 与状态文本的跨进程透传展示
 - Native 解码 + Native `AudioTrack` 输出
 - 播放控制：`上一首 / 播放 / 暂停 / 继续 / 下一首 / seek`
 - 播放完成后自动切换下一首（若存在）
@@ -28,19 +32,45 @@ player-lite/
 ├── app/
 │   └── src/main/java/com/wxy/playerlite/
 │       ├── MainActivity.kt
+│       ├── core/playlist/
+│       │   ├── PlaylistController.kt
+│       │   ├── PlaylistModels.kt
+│       │   └── PlaylistStorage.kt
 │       ├── feature/player/
-│       │   ├── PlaybackState.kt
-│       │   ├── PlayerUiState.kt
 │       │   ├── PlayerViewModel.kt
+│       │   ├── model/
+│       │   │   ├── PlaybackState.kt
+│       │   │   └── PlayerUiState.kt
+│       │   ├── runtime/
+│       │   │   ├── PlayerRuntime.kt
+│       │   │   ├── PlayerRuntimeRegistry.kt
+│       │   │   ├── PlayerUiFormatter.kt
+│       │   │   ├── PlaybackCoordinator.kt
+│       │   │   ├── PlaylistSessionCoordinator.kt
+│       │   │   ├── PreparedSourceSession.kt
+│       │   │   ├── TrackPreparationCoordinator.kt
+│       │   │   ├── MediaSourceRepository.kt
+│       │   │   └── action/
+│       │   │       ├── PlayActionHandler.kt
+│       │   │       ├── PlaybackControlActionHandler.kt
+│       │   │       ├── PlaylistActionHandler.kt
+│       │   │       └── PreparationActionHandler.kt
 │       │   └── ui/
 │       │       ├── PlayerScreen.kt
 │       │       └── components/
 │       │           ├── PlaybackControls.kt
 │       │           └── PlaylistSheet.kt
-│       └── playlist/
-│           ├── PlaylistController.kt
-│           ├── PlaylistModels.kt
-│           └── PlaylistStorage.kt
+├── playback-service/
+│   └── src/main/java/com/wxy/playerlite/playback/
+│       ├── client/
+│       │   └── PlayerServiceBridge.kt
+│       ├── model/
+│       │   ├── MusicInfo.kt
+│       │   └── PlaybackMetadataExtras.kt
+│       └── process/
+│           ├── PlayerMediaSessionService.kt
+│           ├── PlayerSessionPlayer.kt
+│           └── PlaybackProcessRuntime.kt
 ├── player/
 │   ├── src/main/java/com/wxy/playerlite/player/
 │   │   ├── INativePlayer.kt
@@ -55,12 +85,19 @@ player-lite/
 │       ├── ffmpeg_decoder.*
 │       ├── jni_play_source.*
 │       └── CMakeLists.txt
-├── app/src/test/java/com/wxy/playerlite/playlist/
+├── app/src/test/java/com/wxy/playerlite/core/playlist/
 │   └── PlaylistControllerTest.kt
+├── app/src/test/java/com/wxy/playerlite/feature/player/runtime/
+│   ├── PlayerUiFormatterTest.kt
+│   └── PreparedSourceSessionTest.kt
 ├── openspec/
-│   └── specs/
-│       ├── playlist-management/spec.md
-│       └── playlist-persistence/spec.md
+│   ├── specs/
+│   │   ├── background-playback-service/spec.md
+│   │   ├── media-session-integration/spec.md
+│   │   ├── playlist-management/spec.md
+│   │   └── playlist-persistence/spec.md
+│   └── changes/archive/
+│       └── 2026-02-28-add-background-playback-service-mediasession/
 ├── third_party/
 │   └── FFmpeg-n6.1.4/
 └── scripts/
@@ -75,6 +112,9 @@ UI 与业务主链路（简化）：
 MainActivity
   -> PlayerViewModel (StateFlow<PlayerUiState>)
   -> PlaylistController (列表状态/持久化)
+  -> PlayerServiceBridge (MediaController)
+  -> PlayerMediaSessionService (:playback)
+  -> PlaybackProcessRuntime
   -> NativePlayer
   -> JNI / FFmpeg
   -> AudioTrack
@@ -96,10 +136,17 @@ IPlaysource (Kotlin)
 
 - `PlayerViewModel` 负责 UI 状态、播放流程与播放列表协同。
 - `PlaylistController` 使用版本化 JSON 进行防抖持久化与恢复校验。
+- 播放请求通过 `PlayerServiceBridge` 发送到 `:playback` 进程内的 `PlayerMediaSessionService`。
 - `NativePlayer` 使用实例级 `PlayerContext`，避免多实例互相污染。
 - 读取路径支持双通道：
   - 基线兼容：`IPlaysource.read(ByteArray, size)`
   - Android 优化：`IDirectReadableSource.readDirect(ByteBuffer, size)`（JNI 优先直通，失败自动回退）
+
+## 最近一次架构变更
+
+- 将播放能力拆分到独立模块 `:playback-service`，并以 `MediaSessionService` 运行在 `:playback` 进程。
+- 重整 `app` 内部目录到 `core/playlist`、`feature/player/model`、`feature/player/runtime`、`feature/player/runtime/action`。
+- 完成 OpenSpec 变更 `add-background-playback-service-mediasession` 的主规范同步并归档。
 
 ## 构建
 
@@ -124,6 +171,7 @@ bash scripts/build_ffmpeg_android.sh
 构建与测试：
 
 ```bash
+./gradlew :playback-service:testDebugUnitTest
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:assembleDebug
 ```

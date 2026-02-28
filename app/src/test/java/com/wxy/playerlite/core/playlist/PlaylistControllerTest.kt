@@ -1,4 +1,4 @@
-package com.wxy.playerlite.playlist
+package com.wxy.playerlite.core.playlist
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

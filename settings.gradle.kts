@@ -25,3 +25,4 @@ dependencyResolutionManagement {
 rootProject.name = "PlayerLite"
 include(":app")
 include(":player")
+include(":playback-service")
