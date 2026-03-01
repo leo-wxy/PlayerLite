@@ -184,6 +184,45 @@ CacheCore.init(config)
 
 回调原则：异步派发，不阻塞 read 主路径；同 key 顺序可控。
 
+### 8.1 查询能力（统一接口）
+
+提供查询接口，覆盖全局统计与资源级查询场景：
+
+1. `getGlobalCacheStats()`: 返回全局缓存快照（`usedBytes`、`maxDiskBytes`、`memoryUsedBytes`、`resourceCount`、水位状态）。
+2. `getResourceCache(resourceKeyOrPrefix: String, includePrefixMatches: Boolean = false)`: 统一资源查询接口。
+
+`getResourceCache(...)` 语义：
+
+1. `includePrefixMatches = false`：按精确 `resourceKey` 查询，能力等价并覆盖原 `getResourceCacheStats`。
+2. `includePrefixMatches = true`：按前缀查询，返回同前缀下资源列表，便于查看同一歌曲不同音质缓存情况。
+
+返回结构建议：
+
+1. `queryMode`: `EXACT` 或 `PREFIX`
+2. `requestKey`: 请求入参
+3. `matchedResources: List<ResourceCacheEntry>`
+4. `summary`: 聚合统计（命中数量、总缓存字节、磁盘占用）
+
+`ResourceCacheEntry` 字段建议：
+
+1. `resourceKey`
+2. `cacheMode`
+3. `blockSizeBytes`
+4. `cachedBytesMemory`
+5. `cachedBytesDisk`
+6. `completionPercent`
+7. `cachedRanges`
+8. `isActivePinned`
+9. `lastAccessAt`
+
+说明：音质维度不是本期强制字段。如果业务有需求，可通过 `metadata` 扩展字段承载，不作为接口硬约束。
+
+实现约束：
+
+1. 查询走只读快照，不阻塞播放 read 主路径。
+2. 前缀查询默认分页（避免单次返回过大），支持 `limit/cursor`。
+3. 不存在 key 返回空结果，不抛异常。
+
 ## 9. 错误处理与降级
 
 ### 9.1 错误码分层
@@ -209,6 +248,7 @@ CacheCore.init(config)
 2. 配置异常回退默认值
 3. 阻塞式候选回调与超时兜底
 4. `closeSessionPolicy` 三模式
+5. `getResourceCache` 精确查询与前缀查询模式
 
 ### 10.2 集成测试
 
@@ -216,6 +256,7 @@ CacheCore.init(config)
 2. 重启后 `DISK_READY` 命中
 3. selector 返回 key 后删除正确性
 4. `clearAll` 批量回调 payload 正确
+5. 同歌曲多音质缓存查询可见性（前缀查询）
 
 ### 10.3 验收标准
 
