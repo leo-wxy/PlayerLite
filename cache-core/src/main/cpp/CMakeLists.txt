@@ -10,7 +10,8 @@ add_library(
     cachecore
     SHARED
     cache_core_jni.cpp
-    core/cache_runtime.cpp
+    core/cache_runtime_lifecycle.cpp
+    core/cache_runtime_session.cpp
 )
 
 find_library(log-lib log)

@@ -11,12 +11,29 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
 
+data class CacheLookupSnapshot(
+    val resourceKey: String,
+    val dataFilePath: String,
+    val configFilePath: String,
+    val extraFilePath: String,
+    val dataFileSizeBytes: Long,
+    val blockSizeBytes: Int,
+    val contentLength: Long,
+    val durationMs: Long,
+    val cachedBlocks: Set<Long>,
+    val lastAccessEpochMs: Long
+)
+
 object CacheCore {
     @Volatile
     private var initialized: Boolean = false
     private var config: CacheCoreConfig? = null
     private val nextSessionId: AtomicLong = AtomicLong(1L)
     private val sessions: MutableMap<Long, CacheSessionImpl> = ConcurrentHashMap()
+    private const val DATA_FILE_SUFFIX = ".data"
+    private const val CONFIG_FILE_SUFFIX = "_config.json"
+    private const val EXTRA_FILE_SUFFIX = "_extra.json"
+    private const val DEFAULT_BLOCK_SIZE_BYTES = 64 * 1024
 
     fun init(config: CacheCoreConfig): Result<Unit> {
         val rootPath = config.cacheRootDirPath.trim()
@@ -42,6 +59,62 @@ object CacheCore {
 
     fun isInitialized(): Boolean = initialized
 
+    fun clearAll(): Result<Unit> {
+        if (!initialized) {
+            return Result.failure(IllegalStateException("cache core not initialized"))
+        }
+        return runCatching {
+            closeAllSessions()
+
+            val rootDir = requireRootDir()
+            rootDir.listFiles()?.forEach { entry ->
+                if (!entry.deleteRecursively()) {
+                    error("failed to delete cache entry: ${entry.absolutePath}")
+                }
+            }
+            if (!rootDir.exists() && !rootDir.mkdirs()) {
+                error("failed to recreate cache root: ${rootDir.absolutePath}")
+            }
+        }
+    }
+
+    fun lookup(resourceKey: String): Result<CacheLookupSnapshot?> {
+        if (!initialized) {
+            return Result.failure(IllegalStateException("cache core not initialized"))
+        }
+        if (resourceKey.isBlank()) {
+            return Result.failure(IllegalArgumentException("resourceKey cannot be blank"))
+        }
+        return runCatching {
+            lookupInternal(
+                rootDir = requireRootDir(),
+                resourceKey = resourceKey
+            )
+        }
+    }
+
+    fun lookupByPrefix(
+        prefix: String,
+        limit: Int = 200
+    ): Result<List<CacheLookupSnapshot>> {
+        if (!initialized) {
+            return Result.failure(IllegalStateException("cache core not initialized"))
+        }
+        if (limit <= 0) {
+            return Result.success(emptyList())
+        }
+        return runCatching {
+            val rootDir = requireRootDir()
+            collectResourceKeys(rootDir)
+                .asSequence()
+                .filter { key -> key.startsWith(prefix) }
+                .sorted()
+                .take(limit)
+                .mapNotNull { key -> lookupInternal(rootDir = rootDir, resourceKey = key) }
+                .toList()
+        }
+    }
+
     fun openSession(params: OpenSessionParams): Result<CacheSession> {
         if (!initialized) {
             return Result.failure(IllegalStateException("cache core not initialized"))
@@ -65,11 +138,8 @@ object CacheCore {
     }
 
     private fun ensureStorageFiles(params: OpenSessionParams): Result<SessionStorageFiles> {
-        val currentConfig = config ?: return Result.failure(IllegalStateException("cache core config missing"))
-        val rootDir = File(currentConfig.cacheRootDirPath)
-        if (!rootDir.exists() && !rootDir.mkdirs()) {
-            return Result.failure(IllegalStateException("failed to create cache root: ${rootDir.absolutePath}"))
-        }
+        val rootDir = requireRootDirOrNull()
+            ?: return Result.failure(IllegalStateException("cache core config missing"))
         val dataFile = File(rootDir, "${params.resourceKey}.data")
         val configFile = File(rootDir, "${params.resourceKey}_config.json")
         val extraFile = File(rootDir, "${params.resourceKey}_extra.json")
@@ -120,6 +190,91 @@ object CacheCore {
         }
     }
 
+    private fun closeAllSessions() {
+        val snapshot = sessions.values.toList()
+        snapshot.forEach { session ->
+            session.closeInternal(removeSession = false)
+        }
+        sessions.clear()
+    }
+
+    private fun requireRootDirOrNull(): File? {
+        val currentConfig = config ?: return null
+        val rootDir = File(currentConfig.cacheRootDirPath)
+        if (!rootDir.exists() && !rootDir.mkdirs()) {
+            return null
+        }
+        return rootDir
+    }
+
+    private fun requireRootDir(): File {
+        return requireRootDirOrNull() ?: error("failed to resolve cache root")
+    }
+
+    private fun lookupInternal(
+        rootDir: File,
+        resourceKey: String
+    ): CacheLookupSnapshot? {
+        val dataFile = File(rootDir, "$resourceKey$DATA_FILE_SUFFIX")
+        val configFile = File(rootDir, "$resourceKey$CONFIG_FILE_SUFFIX")
+        val extraFile = File(rootDir, "$resourceKey$EXTRA_FILE_SUFFIX")
+        if (!dataFile.exists() && !configFile.exists() && !extraFile.exists()) {
+            return null
+        }
+
+        val storage = if (configFile.exists()) {
+            readStorageSnapshot(
+                configFile = configFile,
+                fallbackBlockSizeBytes = DEFAULT_BLOCK_SIZE_BYTES,
+                fallbackContentLength = -1L,
+                fallbackDurationMs = -1L
+            )
+        } else {
+            StorageSnapshot(
+                blockSizeBytes = DEFAULT_BLOCK_SIZE_BYTES,
+                contentLength = -1L,
+                durationMs = -1L,
+                blockIndexes = emptySet(),
+                lastAccessEpochMs = -1L
+            )
+        }
+
+        return CacheLookupSnapshot(
+            resourceKey = resourceKey,
+            dataFilePath = dataFile.absolutePath,
+            configFilePath = configFile.absolutePath,
+            extraFilePath = extraFile.absolutePath,
+            dataFileSizeBytes = if (dataFile.exists()) dataFile.length() else 0L,
+            blockSizeBytes = storage.blockSizeBytes,
+            contentLength = storage.contentLength,
+            durationMs = storage.durationMs,
+            cachedBlocks = storage.blockIndexes,
+            lastAccessEpochMs = storage.lastAccessEpochMs
+        )
+    }
+
+    private fun collectResourceKeys(rootDir: File): Set<String> {
+        val files = rootDir.listFiles() ?: return emptySet()
+        return buildSet {
+            files.forEach { file ->
+                parseResourceKeyFromFileName(file.name)?.let { key ->
+                    if (key.isNotBlank()) {
+                        add(key)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun parseResourceKeyFromFileName(fileName: String): String? {
+        return when {
+            fileName.endsWith(CONFIG_FILE_SUFFIX) -> fileName.removeSuffix(CONFIG_FILE_SUFFIX)
+            fileName.endsWith(EXTRA_FILE_SUFFIX) -> fileName.removeSuffix(EXTRA_FILE_SUFFIX)
+            fileName.endsWith(DATA_FILE_SUFFIX) -> fileName.removeSuffix(DATA_FILE_SUFFIX)
+            else -> null
+        }
+    }
+
     private fun readStorageSnapshot(
         configFile: File,
         fallbackBlockSizeBytes: Int,
@@ -135,11 +290,13 @@ object CacheCore {
         val blocks = parseLongArrayField(json, "blocks")
             .filter { it >= 0L }
             .toSet()
+        val lastAccessEpochMs = parseLongField(json, "lastAccessEpochMs") ?: -1L
         return StorageSnapshot(
             blockSizeBytes = blockSize,
             contentLength = contentLength,
             durationMs = durationMs,
-            blockIndexes = blocks
+            blockIndexes = blocks,
+            lastAccessEpochMs = lastAccessEpochMs
         )
     }
 
@@ -418,6 +575,7 @@ object CacheCore {
         val blockSizeBytes: Int,
         val contentLength: Long,
         val durationMs: Long,
-        val blockIndexes: Set<Long>
+        val blockIndexes: Set<Long>,
+        val lastAccessEpochMs: Long
     )
 }
