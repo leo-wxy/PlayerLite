@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material3.Icon
@@ -132,6 +133,48 @@ internal fun UiTestEntryButton(
             Icon(
                 imageVector = Icons.Rounded.Science,
                 contentDescription = "UI测试入口",
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+internal fun ClearCacheButton(
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val buttonScale by animateFloatAsState(
+        targetValue = if (enabled) 1f else 0.94f,
+        animationSpec = tween(durationMillis = 200),
+        label = "clear_cache_button_scale"
+    )
+
+    Surface(
+        modifier = modifier.graphicsLayer {
+            scaleX = buttonScale
+            scaleY = buttonScale
+        },
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 6.dp,
+        shadowElevation = 12.dp
+    ) {
+        IconButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.size(42.dp),
+            colors = IconButtonDefaults.iconButtonColors(
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.primary,
+                disabledContainerColor = Color.Transparent,
+                disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Delete,
+                contentDescription = "清理缓存",
                 modifier = Modifier.size(20.dp)
             )
         }

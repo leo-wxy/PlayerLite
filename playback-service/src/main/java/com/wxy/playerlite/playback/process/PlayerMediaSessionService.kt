@@ -9,8 +9,13 @@ import android.os.Bundle
 import androidx.core.app.NotificationCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.media3.session.MediaSessionService
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
+import com.wxy.playerlite.playback.model.PlaybackSessionCommands
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,6 +45,7 @@ class PlayerMediaSessionService : MediaSessionService() {
         )
         val sessionBuilder = MediaSession.Builder(this, sessionPlayer)
             .setId(SESSION_ID)
+            .setCallback(ServiceSessionCallback(playbackRuntime))
         buildContentIntent()?.let { sessionBuilder.setSessionActivity(it) }
         mediaSession = sessionBuilder.build()
 
@@ -170,5 +176,42 @@ class PlayerMediaSessionService : MediaSessionService() {
         private const val SESSION_ID = "player-lite-main-session"
         private const val CHANNEL_ID = "player_lite_playback"
         private const val NOTIFICATION_ID = 1001
+    }
+
+    private class ServiceSessionCallback(
+        private val runtime: PlaybackProcessRuntime
+    ) : MediaSession.Callback {
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): MediaSession.ConnectionResult {
+            val baseResult = super.onConnect(session, controller)
+            val sessionCommands = baseResult.availableSessionCommands
+                .buildUpon()
+                .add(SessionCommand(PlaybackSessionCommands.ACTION_CLEAR_CACHE, Bundle.EMPTY))
+                .build()
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(sessionCommands)
+                .setAvailablePlayerCommands(baseResult.availablePlayerCommands)
+                .build()
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle
+        ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction != PlaybackSessionCommands.ACTION_CLEAR_CACHE) {
+                return super.onCustomCommand(session, controller, customCommand, args)
+            }
+            val success = runtime.clearCache()
+            val resultCode = if (success) {
+                SessionResult.RESULT_SUCCESS
+            } else {
+                SessionResult.RESULT_ERROR_UNKNOWN
+            }
+            return Futures.immediateFuture(SessionResult(resultCode))
+        }
     }
 }

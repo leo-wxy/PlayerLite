@@ -3,9 +3,12 @@ package com.wxy.playerlite.playback.process
 import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import com.wxy.playerlite.cache.core.CacheCore
+import com.wxy.playerlite.cache.core.config.CacheCoreConfig
 import com.wxy.playerlite.player.NativePlayer
 import com.wxy.playerlite.player.PlaybackOutputInfo
 import com.wxy.playerlite.player.source.IPlaysource
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +34,7 @@ internal class PlaybackProcessRuntime(
     appContext: Context,
     serviceScope: CoroutineScope
 ) {
+    private val cacheRootDirPath = File(appContext.cacheDir, "cache_core").absolutePath
     private val mediaSourceRepository = MediaSourceRepository(appContext)
     private val playbackCoordinator = PlaybackCoordinator(
         player = NativePlayer(),
@@ -46,6 +50,8 @@ internal class PlaybackProcessRuntime(
     val state: StateFlow<PlaybackProcessState> = _state.asStateFlow()
 
     init {
+        ensureCacheCoreReady()
+
         playbackCoordinator.setPlaybackOutputInfoListener { outputInfo ->
             _state.value = _state.value.copy(playbackOutputInfo = outputInfo)
         }
@@ -255,9 +261,29 @@ internal class PlaybackProcessRuntime(
         clearQueue(statusText = "Idle")
     }
 
+    fun clearCache(): Boolean {
+        stop()
+        sourceSession.release()
+
+        val clearResult = CacheCore.clearAll()
+        val success = clearResult.isSuccess
+        _state.value = _state.value.copy(
+            playbackOutputInfo = null,
+            durationMs = 0L,
+            positionMs = 0L,
+            statusText = if (success) {
+                "缓存已清理"
+            } else {
+                "清理缓存失败: ${clearResult.exceptionOrNull()?.message ?: "unknown"}"
+            }
+        )
+        return success
+    }
+
     fun release() {
         sourceSession.release()
         playbackCoordinator.close()
+        CacheCore.shutdown()
     }
 
     private suspend fun ensurePrepared(item: PlaybackTrack): Boolean {
@@ -332,5 +358,17 @@ internal class PlaybackProcessRuntime(
             isPreparing = false,
             statusText = statusText
         )
+    }
+
+    private fun ensureCacheCoreReady() {
+        if (CacheCore.isInitialized()) {
+            return
+        }
+        val initResult = CacheCore.init(CacheCoreConfig(cacheRootDirPath = cacheRootDirPath))
+        if (initResult.isFailure) {
+            _state.value = _state.value.copy(
+                statusText = "缓存初始化失败: ${initResult.exceptionOrNull()?.message ?: "unknown"}"
+            )
+        }
     }
 }

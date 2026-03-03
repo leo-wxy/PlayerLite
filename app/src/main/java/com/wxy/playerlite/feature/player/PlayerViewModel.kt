@@ -14,6 +14,7 @@ import com.wxy.playerlite.feature.player.runtime.PlayerRuntimeRegistry
 import com.wxy.playerlite.playback.client.PlayerServiceBridge
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.MusicInfo
+import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
@@ -113,10 +114,11 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
     fun runUiTestEntry() {
         serviceBridge.ensureServiceStarted()
         serviceBridge.connectIfNeeded()
+        val resourceKey = "ui-test-${UUID.randomUUID()}"
         val synced = serviceBridge.syncQueue(
             queue = listOf(
                 MusicInfo(
-                    id = UI_TEST_MEDIA_ID,
+                    id = resourceKey,
                     title = UI_TEST_TITLE,
                     playbackUri = UI_TEST_MP3_URL
                 )
@@ -127,9 +129,22 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
 
         runtime.setStatusText(
             if (synced) {
-                "已启动 UI 测试流: $UI_TEST_TITLE"
+                "已启动 UI 测试流: $UI_TEST_TITLE ($resourceKey)"
             } else {
                 "UI 测试流启动失败：后台播放进程未连接"
+            }
+        )
+    }
+
+    fun clearCache() {
+        serviceBridge.ensureServiceStarted()
+        serviceBridge.connectIfNeeded()
+        val accepted = serviceBridge.clearCache()
+        runtime.setStatusText(
+            if (accepted) {
+                "已请求清理缓存"
+            } else {
+                "清理缓存请求失败：后台播放进程未连接"
             }
         )
     }
@@ -231,8 +246,7 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
 
     private companion object {
         private const val TAG = "PlayerViewModel"
-        private const val UI_TEST_MEDIA_ID = "ui-test-sample-mp3"
-        private const val UI_TEST_TITLE = "UI Seek Test MP3"
-        private const val UI_TEST_MP3_URL = "https://download.samplelib.com/mp3/sample-3s.mp3"
+        private const val UI_TEST_TITLE = "UI Seek Test Long MP3"
+        private const val UI_TEST_MP3_URL = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
     }
 }

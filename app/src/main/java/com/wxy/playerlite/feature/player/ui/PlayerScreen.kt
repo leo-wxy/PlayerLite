@@ -66,6 +66,7 @@ internal fun PlayerScreen(
     modifier: Modifier = Modifier,
     onPickAudio: () -> Unit,
     onRunUiTestEntry: () -> Unit,
+    onClearCache: () -> Unit,
     onTogglePlaylistSheet: () -> Unit,
     onDismissPlaylistSheet: () -> Unit,
     onSelectPlaylistItem: (Int) -> Unit,
@@ -285,6 +286,14 @@ internal fun PlayerScreen(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .offset(y = (-8).dp)
+                        )
+
+                        ClearCacheButton(
+                            enabled = !isPreparing,
+                            onClick = onClearCache,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = 48.dp, y = (-8).dp)
                         )
                     }
 

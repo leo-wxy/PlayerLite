@@ -3,14 +3,18 @@ package com.wxy.playerlite.playback.client
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.wxy.playerlite.playback.model.MusicInfo
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
+import com.wxy.playerlite.playback.model.PlaybackSessionCommands
 import com.wxy.playerlite.playback.process.PlayerMediaSessionService
 import com.wxy.playerlite.player.PlaybackOutputInfo
 
@@ -117,6 +121,31 @@ class PlayerServiceBridge(
 
     fun stop(): Boolean {
         return withController { it.stop() }
+    }
+
+    fun clearCache(): Boolean {
+        return withController { controller ->
+            val future = controller.sendCustomCommand(
+                SessionCommand(PlaybackSessionCommands.ACTION_CLEAR_CACHE, Bundle.EMPTY),
+                Bundle.EMPTY
+            )
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess { result ->
+                            if (result.resultCode != SessionResult.RESULT_SUCCESS) {
+                                onControllerError("Clear cache rejected: ${result.resultCode}")
+                            }
+                        }
+                        .onFailure { error ->
+                            onControllerError(
+                                "Clear cache failed: ${error.message ?: "unknown"}"
+                            )
+                        }
+                },
+                mainExecutor
+            )
+        }
     }
 
     fun currentSnapshot(): RemotePlaybackSnapshot? {
