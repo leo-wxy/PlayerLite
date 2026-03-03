@@ -110,6 +110,30 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
         syncQueueToPlaybackProcess(playWhenReady = true)
     }
 
+    fun runUiTestEntry() {
+        serviceBridge.ensureServiceStarted()
+        serviceBridge.connectIfNeeded()
+        val synced = serviceBridge.syncQueue(
+            queue = listOf(
+                MusicInfo(
+                    id = UI_TEST_MEDIA_ID,
+                    title = UI_TEST_TITLE,
+                    playbackUri = UI_TEST_MP3_URL
+                )
+            ),
+            activeIndex = 0,
+            playWhenReady = true
+        )
+
+        runtime.setStatusText(
+            if (synced) {
+                "已启动 UI 测试流: $UI_TEST_TITLE"
+            } else {
+                "UI 测试流启动失败：后台播放进程未连接"
+            }
+        )
+    }
+
     fun pausePlayback() {
         serviceBridge.connectIfNeeded()
         if (!serviceBridge.pause()) {
@@ -207,5 +231,8 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
 
     private companion object {
         private const val TAG = "PlayerViewModel"
+        private const val UI_TEST_MEDIA_ID = "ui-test-sample-mp3"
+        private const val UI_TEST_TITLE = "UI Seek Test MP3"
+        private const val UI_TEST_MP3_URL = "https://download.samplelib.com/mp3/sample-3s.mp3"
     }
 }

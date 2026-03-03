@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
                         onPickAudio = {
                             pickAudioLauncher.launch(arrayOf("audio/*"))
                         },
+                        onRunUiTestEntry = viewModel::runUiTestEntry,
                         onTogglePlaylistSheet = viewModel::onTogglePlaylistSheet,
                         onDismissPlaylistSheet = viewModel::onDismissPlaylistSheet,
                         onSelectPlaylistItem = { index ->

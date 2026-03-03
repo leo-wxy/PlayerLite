@@ -65,6 +65,7 @@ internal fun PlayerScreen(
     totalDurationText: String,
     modifier: Modifier = Modifier,
     onPickAudio: () -> Unit,
+    onRunUiTestEntry: () -> Unit,
     onTogglePlaylistSheet: () -> Unit,
     onDismissPlaylistSheet: () -> Unit,
     onSelectPlaylistItem: (Int) -> Unit,
@@ -275,6 +276,14 @@ internal fun PlayerScreen(
                             onClick = onPickAudio,
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
+                                .offset(y = (-8).dp)
+                        )
+
+                        UiTestEntryButton(
+                            enabled = !isPreparing,
+                            onClick = onRunUiTestEntry,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
                                 .offset(y = (-8).dp)
                         )
                     }
