@@ -279,6 +279,7 @@ object CacheCore {
                 return Result.failure(IllegalStateException("session already closed"))
             }
             return runCatching {
+                provider.cancelInFlightRead()
                 synchronized(lock) {
                     val base = when (whence) {
                         SEEK_SET -> 0L
