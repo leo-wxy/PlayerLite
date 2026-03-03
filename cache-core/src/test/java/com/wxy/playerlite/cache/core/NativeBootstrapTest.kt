@@ -11,7 +11,10 @@ class NativeBootstrapTest {
         val root = File(System.getProperty("java.io.tmpdir"), "cache-core-native-bootstrap-test")
         val available = CacheCoreNativeBridge.isAvailable()
 
-        val initOk = CacheCoreNativeBridge.init(root.absolutePath)
+        val initOk = CacheCoreNativeBridge.init(
+            cacheRootDirPath = root.absolutePath,
+            memoryCacheCapBytes = 5L * 1024L * 1024L
+        )
 
         if (available) {
             assertTrue(initOk)
