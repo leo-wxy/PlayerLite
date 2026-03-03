@@ -26,3 +26,4 @@ rootProject.name = "PlayerLite"
 include(":app")
 include(":player")
 include(":playback-service")
+include(":cache-core")
