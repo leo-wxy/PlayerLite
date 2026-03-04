@@ -18,6 +18,7 @@ public:
 
     int Read(uint8_t* buffer, int size, std::string* error_message) override;
     int64_t Seek(int64_t offset, int whence, std::string* error_message) override;
+    bool SupportsFastSeek() const override;
 
 private:
     bool Fail(std::string* error_message, const char* message);
@@ -32,7 +33,9 @@ private:
     jmethodID read_direct_mid_ = nullptr;
     jmethodID read_array_mid_ = nullptr;
     jmethodID seek_mid_ = nullptr;
+    jmethodID support_fast_seek_mid_ = nullptr;
     jmethodID close_mid_ = nullptr;
     jbyteArray read_array_buffer_ = nullptr;
     bool is_opened_ = false;
+    bool supports_fast_seek_ = true;
 };

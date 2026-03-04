@@ -47,10 +47,11 @@ bool JniPlaySource::Init(std::string* error_message) {
     }
 
     seek_mid_ = env_->GetMethodID(source_class, "seek", "(JI)J");
+    support_fast_seek_mid_ = env_->GetMethodID(source_class, "supportFastSeek", "()Z");
     close_mid_ = env_->GetMethodID(source_class, "close", "()V");
     env_->DeleteLocalRef(source_class);
 
-    if (open_mid_ == nullptr || seek_mid_ == nullptr || close_mid_ == nullptr ||
+    if (open_mid_ == nullptr || seek_mid_ == nullptr || support_fast_seek_mid_ == nullptr || close_mid_ == nullptr ||
         (read_direct_mid_ == nullptr && read_array_mid_ == nullptr)) {
         if (env_->ExceptionCheck()) {
             env_->ExceptionClear();
@@ -103,6 +104,13 @@ bool JniPlaySource::Open(std::string* error_message) {
     }
 
     is_opened_ = true;
+    const jboolean supports_fast_seek = env_->CallBooleanMethod(source_global_, support_fast_seek_mid_);
+    if (env_->ExceptionCheck()) {
+        env_->ExceptionClear();
+        supports_fast_seek_ = false;
+    } else {
+        supports_fast_seek_ = (supports_fast_seek == JNI_TRUE);
+    }
     return true;
 }
 
@@ -211,6 +219,10 @@ int64_t JniPlaySource::Seek(int64_t offset, int whence, std::string* error_messa
     }
 
     return static_cast<int64_t>(result);
+}
+
+bool JniPlaySource::SupportsFastSeek() const {
+    return supports_fast_seek_;
 }
 
 bool JniPlaySource::EnsureReadArrayBuffer(int size, std::string* error_message) {

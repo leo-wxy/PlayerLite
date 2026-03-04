@@ -113,6 +113,7 @@ class PlayerMediaSessionService : MediaSessionService() {
         val session = mediaSession ?: return
         val extras = Bundle().apply {
             PlaybackMetadataExtras.writeStatusText(this, state.statusText)
+            PlaybackMetadataExtras.writeSeekSupported(this, state.isSeekSupported)
             state.playbackOutputInfo?.let { info ->
                 PlaybackMetadataExtras.writePlaybackOutputInfo(this, info)
             }

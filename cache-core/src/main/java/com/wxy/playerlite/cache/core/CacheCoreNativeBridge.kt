@@ -1,5 +1,7 @@
 package com.wxy.playerlite.cache.core
 
+import com.wxy.playerlite.cache.core.provider.RangeDataProvider
+
 internal object CacheCoreNativeBridge {
     private const val LIB_NAME = "cachecore"
 
@@ -17,11 +19,27 @@ internal object CacheCoreNativeBridge {
         return runCatching { nativeIsAvailable() }.getOrDefault(false)
     }
 
-    fun init(cacheRootDirPath: String, memoryCacheCapBytes: Long): Boolean {
+    fun init(
+        cacheRootDirPath: String,
+        memoryCacheCapBytes: Long,
+        diskCacheMaxBytes: Long = 500L * 1024L * 1024L,
+        diskCacheCleanRangeMin: Double = 0.8,
+        diskCacheCleanRangeMax: Double = 1.0,
+        readRetryCount: Int = 3
+    ): Boolean {
         if (!nativeLoaded || cacheRootDirPath.isBlank()) {
             return false
         }
-        return runCatching { nativeInit(cacheRootDirPath, memoryCacheCapBytes) == 0 }.getOrDefault(false)
+        return runCatching {
+            nativeInit(
+                cacheRootDirPath = cacheRootDirPath,
+                memoryCacheCapBytes = memoryCacheCapBytes,
+                diskCacheMaxBytes = diskCacheMaxBytes,
+                diskCacheCleanRangeMin = diskCacheCleanRangeMin,
+                diskCacheCleanRangeMax = diskCacheCleanRangeMax,
+                readRetryCount = readRetryCount
+            ) == 0
+        }.getOrDefault(false)
     }
 
     fun shutdown() {
@@ -124,7 +142,45 @@ internal object CacheCoreNativeBridge {
 
     @JvmStatic
     fun providerReadAt(handle: Long, offset: Long, size: Int): ByteArray {
-        return NativeProviderRegistry.readAt(handle, offset, size)
+        return NativeProviderRegistry.readAtBytes(handle, offset, size)
+    }
+
+    @JvmStatic
+    fun providerReadAtStream(handle: Long, offset: Long, size: Int, requestId: Long): Boolean {
+        if (requestId <= 0L || size <= 0 || offset < 0L) {
+            if (requestId > 0L) {
+                runCatching { nativeProviderOnDataEnd(requestId, false) }
+            }
+            return false
+        }
+        var endSignaled = false
+        val callback = object : RangeDataProvider.ReadCallback {
+            override fun onDataBegin(offset: Long, requestedSize: Int) {
+                nativeProviderOnDataBegin(requestId, offset, requestedSize)
+            }
+
+            override fun onDataSend(data: ByteArray, length: Int): Boolean {
+                if (length <= 0 || data.isEmpty()) {
+                    return true
+                }
+                return nativeProviderOnDataSend(requestId, data, length.coerceAtMost(data.size))
+            }
+
+            override fun onDataEnd(success: Boolean) {
+                if (endSignaled) {
+                    return
+                }
+                endSignaled = true
+                nativeProviderOnDataEnd(requestId, success)
+            }
+        }
+        val completed = runCatching {
+            NativeProviderRegistry.readAtStream(handle, offset, size, callback)
+        }.getOrDefault(false)
+        if (!endSignaled) {
+            runCatching { nativeProviderOnDataEnd(requestId, completed) }
+        }
+        return completed
     }
 
     @JvmStatic
@@ -144,7 +200,14 @@ internal object CacheCoreNativeBridge {
 
     private external fun nativeIsAvailable(): Boolean
 
-    private external fun nativeInit(cacheRootDirPath: String, memoryCacheCapBytes: Long): Int
+    private external fun nativeInit(
+        cacheRootDirPath: String,
+        memoryCacheCapBytes: Long,
+        diskCacheMaxBytes: Long,
+        diskCacheCleanRangeMin: Double,
+        diskCacheCleanRangeMax: Double,
+        readRetryCount: Int
+    ): Int
 
     private external fun nativeShutdown()
 
@@ -175,5 +238,21 @@ internal object CacheCoreNativeBridge {
     private external fun nativeClearAll(): Boolean
 
     private external fun nativeReleaseProviderHandle(providerHandle: Long)
-}
 
+    private external fun nativeProviderOnDataBegin(
+        requestId: Long,
+        offset: Long,
+        requestedSize: Int
+    )
+
+    private external fun nativeProviderOnDataSend(
+        requestId: Long,
+        data: ByteArray,
+        length: Int
+    ): Boolean
+
+    private external fun nativeProviderOnDataEnd(
+        requestId: Long,
+        success: Boolean
+    )
+}

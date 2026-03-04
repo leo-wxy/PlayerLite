@@ -74,7 +74,10 @@ class CachePersistenceRecoveryTest {
     }
 
     private class EmptyProvider : RangeDataProvider {
-        override fun readAt(offset: Long, size: Int): ByteArray = ByteArray(0)
+        override fun readAt(offset: Long, size: Int, callback: RangeDataProvider.ReadCallback) {
+            callback.onDataBegin(offset, size)
+            callback.onDataEnd(false)
+        }
 
         override fun cancelInFlightRead() = Unit
 

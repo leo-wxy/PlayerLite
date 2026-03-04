@@ -14,6 +14,7 @@ add_library(
     jni/cache_core_jni_session.cpp
     jni/cache_core_jni_query.cpp
     jni/cache_core_jni_clear.cpp
+    jni/cache_core_jni_provider_stream.cpp
     core/cache_runtime_lifecycle.cpp
     core/cache_runtime_session.cpp
     core/cache_storage_files.cpp
@@ -23,6 +24,11 @@ add_library(
     core/cache_lookup.cpp
     core/cache_clear.cpp
     core/cache_provider_bridge.cpp
+    core/cache_task_loop.cpp
+    core/cache_ring_buffer.cpp
+    core/cache_trunk_index.cpp
+    core/cache_virtual_file.cpp
+    core/cache_control.cpp
 )
 
 find_library(log-lib log)

@@ -38,6 +38,7 @@ bool CacheRuntime::EnsureStorageFilesLocked(
                 content_length_hint,
                 duration_ms_hint,
                 {},
+                {},
                 NowEpochMs());
         config_output.close();
         if (!config_output.good()) {
@@ -76,6 +77,8 @@ bool CacheRuntime::EnsureStorageFilesLocked(
     out_storage->content_length = snapshot.content_length;
     out_storage->duration_ms = snapshot.duration_ms;
     out_storage->cached_blocks = snapshot.block_indexes;
+    out_storage->completed_ranges = snapshot.completed_ranges;
+    out_storage->last_access_epoch_ms = snapshot.last_access_epoch_ms;
     return true;
 }
 
@@ -110,7 +113,15 @@ CacheRuntime::StorageSnapshot CacheRuntime::ReadStorageSnapshotLocked(
     if (parsed_duration.has_value()) {
         snapshot.duration_ms = parsed_duration.value();
     }
+
     snapshot.block_indexes = ParseLongSetField(json, "blocks");
+    snapshot.completed_ranges = ParseRangesField(json, "completedRanges");
+    if (snapshot.completed_ranges.empty() && !snapshot.block_indexes.empty()) {
+        snapshot.completed_ranges = TrunkIndex::BuildRangesFromBlocks(
+                snapshot.block_indexes,
+                snapshot.block_size_bytes);
+    }
+
     const auto parsed_last_access = ParseLongField(json, "lastAccessEpochMs");
     if (parsed_last_access.has_value()) {
         snapshot.last_access_epoch_ms = parsed_last_access.value();
@@ -120,6 +131,13 @@ CacheRuntime::StorageSnapshot CacheRuntime::ReadStorageSnapshotLocked(
 }
 
 bool CacheRuntime::PersistConfigLocked(const SessionState& session) {
+    std::vector<Range> ranges = session.storage.completed_ranges;
+    if (ranges.empty() && !session.storage.cached_blocks.empty()) {
+        ranges = TrunkIndex::BuildRangesFromBlocks(
+                session.storage.cached_blocks,
+                session.storage.block_size_bytes);
+    }
+
     std::ofstream output(session.storage.config_file, std::ios::binary | std::ios::trunc);
     output << BuildConfigJson(
             session.resource_key,
@@ -127,10 +145,10 @@ bool CacheRuntime::PersistConfigLocked(const SessionState& session) {
             session.storage.content_length,
             session.storage.duration_ms,
             session.storage.cached_blocks,
-            NowEpochMs());
+            ranges,
+            session.storage.last_access_epoch_ms > 0 ? session.storage.last_access_epoch_ms : NowEpochMs());
     output.close();
     return output.good();
 }
 
 }  // namespace cachecore
-

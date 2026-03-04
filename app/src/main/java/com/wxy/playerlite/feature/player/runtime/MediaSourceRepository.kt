@@ -1,26 +1,33 @@
 package com.wxy.playerlite.feature.player.runtime
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.wxy.playerlite.core.playlist.PlaylistItem
+import com.wxy.playerlite.player.source.ContentUriSource
+import com.wxy.playerlite.player.source.IPlaysource
+import com.wxy.playerlite.player.source.LocalFileSource
 import java.io.File
-import java.io.FileOutputStream
-import java.util.UUID
 
 internal class MediaSourceRepository(
     private val appContext: Context
 ) {
-    fun persistReadPermission(uri: Uri) {
-        try {
+    fun ensurePersistentReadPermission(uri: Uri): Result<Unit> {
+        if (uri.scheme != "content") {
+            return Result.success(Unit)
+        }
+        if (hasPersistedReadPermission(uri)) {
+            return Result.success(Unit)
+        }
+        return runCatching {
             appContext.contentResolver.takePersistableUriPermission(
                 uri,
-                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
-        } catch (_: SecurityException) {
-            // Some providers do not support persistable permissions.
-        } catch (_: IllegalArgumentException) {
-            // Ignore invalid permission requests.
+            check(hasPersistedReadPermission(uri)) {
+                "persisted read permission missing after request"
+            }
         }
     }
 
@@ -30,58 +37,50 @@ internal class MediaSourceRepository(
         } catch (_: IllegalArgumentException) {
             return false
         }
+        return hasReadableAccess(uri)
+    }
+
+    fun createPlayableSource(uri: Uri): IPlaysource? {
+        if (uri.scheme == "file") {
+            val path = uri.path ?: return null
+            val file = File(path)
+            if (!file.exists() || !file.canRead()) {
+                return null
+            }
+            return LocalFileSource(file)
+        }
+        if (uri.scheme == "content" && !hasPersistedReadPermission(uri)) {
+            return null
+        }
+        return runCatching {
+            appContext.contentResolver.openInputStream(uri)?.close()
+            ContentUriSource(appContext, uri)
+        }.getOrNull()
+    }
+
+    fun hasPersistedReadPermission(uri: Uri): Boolean {
+        if (uri.scheme != "content") {
+            return false
+        }
+        return appContext.contentResolver.persistedUriPermissions.any { permission ->
+            permission.isReadPermission && permission.uri == uri
+        }
+    }
+
+    fun hasReadableAccess(uri: Uri): Boolean {
         if (uri.scheme == "file") {
             val path = uri.path ?: return false
             val file = File(path)
             return file.exists() && file.canRead()
+        }
+        if (uri.scheme == "content" && !hasPersistedReadPermission(uri)) {
+            return false
         }
         return try {
             appContext.contentResolver.openInputStream(uri)?.use { _ -> true } ?: false
         } catch (_: Exception) {
             false
         }
-    }
-
-    fun copyUriToCacheFile(uri: Uri): File? {
-        if (uri.scheme == "file") {
-            val path = uri.path ?: return null
-            val file = File(path)
-            if (file.exists() && file.canRead()) {
-                return file
-            }
-        }
-        val safeName = queryDisplayName(uri).replace("[^A-Za-z0-9._-]".toRegex(), "_")
-        val inputFile = File(appContext.cacheDir, "input_$safeName")
-
-        val input = appContext.contentResolver.openInputStream(uri) ?: return null
-        input.use { source ->
-            FileOutputStream(inputFile).use { output ->
-                source.copyTo(output)
-            }
-        }
-        return inputFile
-    }
-
-    fun importToPrivateStorage(uri: Uri, displayName: String): File? {
-        if (uri.scheme == "file") {
-            val path = uri.path ?: return null
-            val file = File(path)
-            if (file.exists() && file.canRead()) {
-                return file
-            }
-        }
-
-        val safeName = displayName.replace("[^A-Za-z0-9._-]".toRegex(), "_")
-        val mediaDir = File(appContext.filesDir, "imported_media").apply { mkdirs() }
-        val output = File(mediaDir, "${UUID.randomUUID()}_$safeName")
-
-        val input = appContext.contentResolver.openInputStream(uri) ?: return null
-        input.use { source ->
-            FileOutputStream(output).use { sink ->
-                source.copyTo(sink)
-            }
-        }
-        return output
     }
 
     fun queryDisplayName(uri: Uri): String {

@@ -118,6 +118,7 @@ bool OpenInputFromSource(
     source_context->source = source;
     source_context->error_message = error_message;
 
+    const bool supports_fast_seek = source->SupportsFastSeek();
     AVIOContext* avio_context = avio_alloc_context(
             avio_buffer,
             kAvioBufferSize,
@@ -125,7 +126,7 @@ bool OpenInputFromSource(
             source_context,
             &ReadPacket,
             nullptr,
-            &SeekPacket);
+            supports_fast_seek ? &SeekPacket : nullptr);
     if (avio_context == nullptr) {
         delete source_context;
         av_free(avio_buffer);
@@ -136,8 +137,8 @@ bool OpenInputFromSource(
         return false;
     }
 
-    // 显式声明可 seek，允许 FFmpeg 使用 seek 相关能力。
-    avio_context->seekable = AVIO_SEEKABLE_NORMAL;
+    // 按 source 能力声明 seek，避免非随机源触发错误 seek 行为。
+    avio_context->seekable = supports_fast_seek ? AVIO_SEEKABLE_NORMAL : 0;
 
     format_context->pb = avio_context;
     // 输入来源于回调，不是 URL/文件路径。

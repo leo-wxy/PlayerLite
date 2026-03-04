@@ -2,30 +2,38 @@ package com.wxy.playerlite.playback.process
 
 import android.content.Context
 import android.net.Uri
+import com.wxy.playerlite.player.source.ContentUriSource
+import com.wxy.playerlite.player.source.IPlaysource
+import com.wxy.playerlite.player.source.LocalFileSource
 import java.io.File
-import java.io.FileOutputStream
 
 internal class MediaSourceRepository(
     private val appContext: Context
 ) {
-    fun copyUriToCacheFile(uri: Uri): File? {
+    fun createPlayableSource(uri: Uri): IPlaysource? {
         if (uri.scheme == "file") {
             val path = uri.path ?: return null
             val file = File(path)
             if (file.exists() && file.canRead()) {
-                return file
+                return LocalFileSource(file)
             }
+            return null
         }
-
-        val safeName = (uri.lastPathSegment ?: "selected_audio").replace("[^A-Za-z0-9._-]".toRegex(), "_")
-        val inputFile = File(appContext.cacheDir, "input_$safeName")
-
-        val input = appContext.contentResolver.openInputStream(uri) ?: return null
-        input.use { source ->
-            FileOutputStream(inputFile).use { output ->
-                source.copyTo(output)
-            }
+        if (uri.scheme == "content" && !hasPersistedReadPermission(uri)) {
+            return null
         }
-        return inputFile
+        return runCatching {
+            appContext.contentResolver.openInputStream(uri)?.close()
+            ContentUriSource(appContext, uri)
+        }.getOrNull()
+    }
+
+    fun hasPersistedReadPermission(uri: Uri): Boolean {
+        if (uri.scheme != "content") {
+            return false
+        }
+        return appContext.contentResolver.persistedUriPermissions.any { permission ->
+            permission.isReadPermission && permission.uri == uri
+        }
     }
 }

@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
                         showPlaylistSheet = state.showPlaylistSheet,
                         isPreparing = state.isPreparing,
                         playbackState = state.playbackState,
+                        isSeekSupported = state.isSeekSupported,
                         seekValueMs = state.displayedSeekMs,
                         currentDurationText = viewModel.formatDuration(state.displayedSeekMs),
                         durationMs = state.durationMs,

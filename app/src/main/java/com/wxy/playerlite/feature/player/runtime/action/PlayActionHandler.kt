@@ -57,7 +57,7 @@ internal class PlayActionHandler(
             return
         }
 
-        if (source.seek(0L, IPlaysource.SEEK_SET) < 0L) {
+        if (source.supportFastSeek() && source.seek(0L, IPlaysource.SEEK_SET) < 0L) {
             setUiState(getUiState().copy(statusText = "Source rewind failed"))
             return
         }

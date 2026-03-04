@@ -59,6 +59,7 @@ internal fun PlayerScreen(
     showPlaylistSheet: Boolean,
     isPreparing: Boolean,
     playbackState: Int,
+    isSeekSupported: Boolean,
     seekValueMs: Long,
     currentDurationText: String,
     durationMs: Long,
@@ -88,9 +89,14 @@ internal fun PlayerScreen(
         val isPaused = playbackState == AUDIO_TRACK_PLAYSTATE_PAUSED
         val hasPreviousTrack = activePlaylistIndex > 0
         val hasNextTrack = activePlaylistIndex >= 0 && activePlaylistIndex < playlistItems.lastIndex
-        val sliderMax = durationMs.coerceAtLeast(1L).toFloat()
-        val sliderValue = seekValueMs.coerceIn(0L, durationMs.coerceAtLeast(0L)).toFloat()
-        val seekEnabled = durationMs > 0L && isPlaying && !isPaused
+        val hasKnownDuration = durationMs > 0L
+        val sliderMax = if (hasKnownDuration) {
+            durationMs.toFloat()
+        } else {
+            maxOf(300_000L, seekValueMs + 30_000L).toFloat()
+        }
+        val sliderValue = seekValueMs.coerceIn(0L, sliderMax.toLong()).toFloat()
+        val seekEnabled = isSeekSupported && isPlaying && !isPaused
         val progressRatio = if (durationMs > 0L) sliderValue / sliderMax else 0f
         val progressPercent = (progressRatio * 100f).toInt().coerceIn(0, 100)
         val fallbackInputText = if (audioMeta.sampleRate != "-" || audioMeta.channels != "-") {

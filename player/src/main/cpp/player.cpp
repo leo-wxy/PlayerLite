@@ -34,6 +34,9 @@ constexpr jint kAlreadyPlayingCode = -2005;
 constexpr jint kSeekUnavailableCode = -2006;
 constexpr jint kContextUnavailableCode = -6;
 constexpr int64_t kProgressNotifyIntervalMs = 500;
+constexpr int kAudioWriteChunkBytes = 16 * 1024;
+constexpr int kAudioWriteRecoverMaxRetries = 2;
+constexpr int kPlaybackHeadStallWriteCycles = 20;
 
 jint ResolveChannelConfig(int channels) {
     switch (channels) {
@@ -326,6 +329,9 @@ public:
             env_->ExceptionClear();
             write_direct_mid_ = nullptr;
         }
+        // Keep conservative path on emulator/device combinations where direct
+        // ByteBuffer writes can introduce instability after frequent seek.
+        write_direct_mid_ = nullptr;
         stop_mid_ = env_->GetMethodID(audio_track_class_, "stop", "()V");
         flush_mid_ = env_->GetMethodID(audio_track_class_, "flush", "()V");
         release_mid_ = env_->GetMethodID(audio_track_class_, "release", "()V");
@@ -523,6 +529,7 @@ public:
 
         // 可能出现分段写入，循环直到整块 PCM 写完。
         int offset = 0;
+        int recover_retries = 0;
         while (offset < size) {
             if (!HandlePauseState(error_message)) {
                 return false;
@@ -532,60 +539,93 @@ public:
                 return Fail(error_message, "stopped");
             }
 
+            const int chunk_size = std::min(size - offset, kAudioWriteChunkBytes);
+
             jint written = 0;
             if (write_direct_mid_ != nullptr) {
                 // 快路径：尽量直接把 native buffer 写入 AudioTrack，减少拷贝。
                 jobject chunk_buffer = env_->NewDirectByteBuffer(
                         const_cast<uint8_t*>(data) + offset,
-                        static_cast<jlong>(size - offset));
+                        static_cast<jlong>(chunk_size));
                 if (chunk_buffer != nullptr) {
                     written = env_->CallIntMethod(
                             audio_track_,
                             write_direct_mid_,
                             chunk_buffer,
-                            static_cast<jint>(size - offset),
+                            static_cast<jint>(chunk_size),
                             kWriteBlocking);
                     env_->DeleteLocalRef(chunk_buffer);
 
                     if (!env_->ExceptionCheck()) {
                         if (written <= 0) {
+                            if (recover_retries < kAudioWriteRecoverMaxRetries &&
+                                TryRecoverAudioTrackAfterWriteFailure("AudioTrack.write(ByteBuffer)", error_message)) {
+                                recover_retries += 1;
+                                continue;
+                            }
                             return Fail(error_message, "AudioTrack.write(ByteBuffer) failed");
                         }
+                        recover_retries = 0;
                         offset += written;
                         continue;
                     }
 
                     env_->ExceptionClear();
+                    if (recover_retries < kAudioWriteRecoverMaxRetries &&
+                        TryRecoverAudioTrackAfterWriteFailure(
+                                "AudioTrack.write(ByteBuffer) threw exception",
+                                error_message)) {
+                        recover_retries += 1;
+                        continue;
+                    }
                 } else if (env_->ExceptionCheck()) {
                     env_->ExceptionClear();
                 }
             }
 
             // 回退路径：不支持 direct ByteBuffer 写入时走 byte[]。
-            if (!EnsureWriteArrayBuffer(size - offset, error_message)) {
+            if (!EnsureWriteArrayBuffer(chunk_size, error_message)) {
                 return false;
             }
 
             env_->SetByteArrayRegion(
                     write_array_buffer_,
                     0,
-                    size - offset,
+                    chunk_size,
                     reinterpret_cast<const jbyte*>(data + offset));
             if (env_->ExceptionCheck()) {
                 env_->ExceptionClear();
                 return Fail(error_message, "AudioTrack write buffer conversion failed");
             }
 
-            written = env_->CallIntMethod(audio_track_, write_array_mid_, write_array_buffer_, 0, size - offset);
+            written = env_->CallIntMethod(audio_track_, write_array_mid_, write_array_buffer_, 0, chunk_size);
             if (env_->ExceptionCheck()) {
                 env_->ExceptionClear();
+                if (recover_retries < kAudioWriteRecoverMaxRetries &&
+                    TryRecoverAudioTrackAfterWriteFailure(
+                            "AudioTrack.write(byte[]) threw exception",
+                            error_message)) {
+                    recover_retries += 1;
+                    continue;
+                }
                 return Fail(error_message, "AudioTrack.write(byte[]) threw exception");
             }
             if (written <= 0) {
+                if (recover_retries < kAudioWriteRecoverMaxRetries &&
+                    TryRecoverAudioTrackAfterWriteFailure("AudioTrack.write(byte[]) failed", error_message)) {
+                    recover_retries += 1;
+                    continue;
+                }
                 return Fail(error_message, "AudioTrack.write(byte[]) failed");
             }
 
+            recover_retries = 0;
             offset += written;
+
+            if (TryRecoverForPlaybackHeadStall(error_message)) {
+                recover_retries += 1;
+                continue;
+            }
         }
 
         NotifyProgressIfNeeded(false, nullptr);
@@ -670,7 +710,12 @@ private:
             return Fail(error_message, "AudioTrack.getMinBufferSize unsupported for target format");
         }
 
-        const jint buffer_size = min_buffer_size * 2;
+        // Keep output latency low for seek responsiveness.
+        int64_t buffer_size_64 = static_cast<int64_t>(min_buffer_size) * 2;
+        if (buffer_size_64 > 256 * 1024) {
+            buffer_size_64 = 256 * 1024;
+        }
+        const jint buffer_size = static_cast<jint>(buffer_size_64);
         jobject local_audio_track = env_->NewObject(
                 audio_track_class_,
                 ctor_mid_,
@@ -709,6 +754,8 @@ private:
         has_playback_head_ = false;
         last_playback_head_u32_ = 0;
         playback_head_wrap_count_ = 0;
+        has_write_head_probe_ = false;
+        stagnant_write_cycles_ = 0;
         seek_anchor_head_frames_ = 0;
         last_notified_progress_ms_ = -1;
         pending_audio_track_flush_ = false;
@@ -790,6 +837,8 @@ private:
         has_playback_head_ = false;
         last_playback_head_u32_ = 0;
         playback_head_wrap_count_ = 0;
+        has_write_head_probe_ = false;
+        stagnant_write_cycles_ = 0;
         seek_anchor_head_frames_ = 0;
         last_notified_progress_ms_ = -1;
         pending_audio_track_flush_ = false;
@@ -897,6 +946,74 @@ private:
         return true;
     }
 
+    bool TryRecoverAudioTrackAfterWriteFailure(const char* stage, std::string* error_message) {
+        if (audio_track_class_ == nullptr) {
+            return false;
+        }
+
+        OutputCandidate candidate;
+        candidate.sample_rate = output_sample_rate_ > 0 ? output_sample_rate_ : kFallbackSampleRate;
+        candidate.channels = output_channel_count_ > 0 ? output_channel_count_ : 2;
+        candidate.channel_config = ResolveChannelConfig(candidate.channels);
+        if (candidate.channel_config == 0) {
+            candidate.channels = 2;
+            candidate.channel_config = kChannelConfigStereo;
+        }
+        candidate.encoding = output_encoding_;
+        if (candidate.encoding != kEncodingPcm16Bit && candidate.encoding != kEncodingPcmFloat) {
+            candidate.encoding = kEncodingPcm16Bit;
+        }
+
+        std::string recover_error;
+        if (TryStartAudioTrack(candidate, &recover_error)) {
+            has_write_head_probe_ = false;
+            stagnant_write_cycles_ = 0;
+            return true;
+        }
+        if (error_message != nullptr) {
+            *error_message =
+                    std::string(stage) + " and recover failed: " +
+                    (recover_error.empty() ? "unknown" : recover_error);
+        }
+        return false;
+    }
+
+    bool TryRecoverForPlaybackHeadStall(std::string* error_message) {
+        if (audio_track_ == nullptr || is_paused_ || ShouldStop()) {
+            has_write_head_probe_ = false;
+            stagnant_write_cycles_ = 0;
+            return false;
+        }
+
+        uint64_t head_frames = 0;
+        std::string ignored_error;
+        if (!ReadPlaybackHeadFrames(&head_frames, &ignored_error)) {
+            return false;
+        }
+
+        if (!has_write_head_probe_) {
+            has_write_head_probe_ = true;
+            last_write_head_frames_ = head_frames;
+            stagnant_write_cycles_ = 0;
+            return false;
+        }
+
+        if (head_frames > last_write_head_frames_) {
+            last_write_head_frames_ = head_frames;
+            stagnant_write_cycles_ = 0;
+            return false;
+        }
+
+        stagnant_write_cycles_ += 1;
+        if (stagnant_write_cycles_ < kPlaybackHeadStallWriteCycles) {
+            return false;
+        }
+
+        stagnant_write_cycles_ = 0;
+        has_write_head_probe_ = false;
+        return TryRecoverAudioTrackAfterWriteFailure("AudioTrack playback head stalled", error_message);
+    }
+
     bool Fail(std::string* error_message, const char* message) {
         if (error_message != nullptr) {
             *error_message = message;
@@ -955,6 +1072,9 @@ private:
     uint64_t seek_anchor_head_frames_ = 0;
     int64_t last_notified_progress_ms_ = -1;
     bool pending_audio_track_flush_ = false;
+    bool has_write_head_probe_ = false;
+    uint64_t last_write_head_frames_ = 0;
+    int stagnant_write_cycles_ = 0;
 
     bool is_paused_ = false;
     int output_sample_rate_ = kFallbackSampleRate;
@@ -1016,6 +1136,68 @@ int RunPlaybackInternal(JNIEnv* env, jobject thiz, PlayerContext* context, IPlay
         SetLastError(context, decoder_error);
     }
     return result;
+}
+
+void FlushActiveAudioTrackForSeek(JNIEnv* env, PlayerContext* context) {
+    if (env == nullptr || context == nullptr) {
+        return;
+    }
+
+    jobject local_audio_track = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(context->audio_track_mutex);
+        if (context->active_audio_track != nullptr) {
+            local_audio_track = env->NewLocalRef(context->active_audio_track);
+        }
+    }
+    if (local_audio_track == nullptr) {
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+        return;
+    }
+
+    jclass audio_track_class = env->GetObjectClass(local_audio_track);
+    if (audio_track_class == nullptr) {
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+        env->DeleteLocalRef(local_audio_track);
+        return;
+    }
+
+    jmethodID pause_mid = env->GetMethodID(audio_track_class, "pause", "()V");
+    jmethodID flush_mid = env->GetMethodID(audio_track_class, "flush", "()V");
+    jmethodID play_mid = env->GetMethodID(audio_track_class, "play", "()V");
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
+    if (pause_mid != nullptr) {
+        env->CallVoidMethod(local_audio_track, pause_mid);
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+    }
+
+    if (flush_mid != nullptr) {
+        env->CallVoidMethod(local_audio_track, flush_mid);
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+    }
+
+    const bool should_pause = context->pause_requested.load(std::memory_order_relaxed);
+    const bool should_stop = context->stop_requested.load(std::memory_order_relaxed);
+    if (!should_pause && !should_stop && play_mid != nullptr) {
+        env->CallVoidMethod(local_audio_track, play_mid);
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+    }
+
+    env->DeleteLocalRef(audio_track_class);
+    env->DeleteLocalRef(local_audio_track);
 }
 }  // namespace
 
@@ -1112,6 +1294,7 @@ Java_com_wxy_playerlite_player_NativePlayer_nativeSeek(
     }
 
     context->seek_position_ms.store(static_cast<int64_t>(position_ms), std::memory_order_relaxed);
+    FlushActiveAudioTrackForSeek(env, context);
     return 0;
 }
 

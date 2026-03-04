@@ -36,6 +36,7 @@ class CachedNetworkSourceTest {
         )
 
         assertEquals(IPlaysource.AudioSourceCode.ASC_SUCCESS, source.open())
+        assertEquals("open should not trigger content-length probe", 0, provider.queryContentLengthCalls)
         val buffer = ByteArray(5)
         val read = source.read(buffer, 5)
         assertEquals(5, read)
@@ -54,22 +55,31 @@ class CachedNetworkSourceTest {
         private val payload: ByteArray
     ) : RangeDataProvider {
         var closed: Boolean = false
+        var queryContentLengthCalls: Int = 0
 
-        override fun readAt(offset: Long, size: Int): ByteArray {
+        override fun readAt(offset: Long, size: Int, callback: RangeDataProvider.ReadCallback) {
+            callback.onDataBegin(offset, size)
             if (size <= 0 || offset >= payload.size) {
-                return ByteArray(0)
+                callback.onDataEnd(false)
+                return
             }
             val start = offset.toInt().coerceAtLeast(0)
             val end = (start + size).coerceAtMost(payload.size)
             if (start >= end) {
-                return ByteArray(0)
+                callback.onDataEnd(false)
+                return
             }
-            return payload.copyOfRange(start, end)
+            val chunk = payload.copyOfRange(start, end)
+            callback.onDataSend(chunk, chunk.size)
+            callback.onDataEnd(true)
         }
 
         override fun cancelInFlightRead() = Unit
 
-        override fun queryContentLength(): Long? = payload.size.toLong()
+        override fun queryContentLength(): Long? {
+            queryContentLengthCalls += 1
+            return payload.size.toLong()
+        }
 
         override fun close() {
             closed = true

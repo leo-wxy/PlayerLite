@@ -1,12 +1,12 @@
 package com.wxy.playerlite.playback.process
 
 import android.net.Uri
+import android.util.Log
 import com.wxy.playerlite.cache.core.session.SessionCacheConfig
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.source.IPlaysource
-import com.wxy.playerlite.player.source.LocalFileSource
 import com.wxy.playerlite.playback.process.source.CachedNetworkSource
-import com.wxy.playerlite.playback.process.source.HttpRangeDataProvider
+import com.wxy.playerlite.playback.process.source.OkHttpRangeDataProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -29,11 +29,14 @@ internal class TrackPreparationCoordinator(
             return prepareNetworkSource(item)
         }
 
-        val sourceFile = withContext(ioDispatcher) {
-            sourceRepository.copyUriToCacheFile(sourceUri)
-        } ?: return PreparationResult.Invalid("Failed to read audio file")
+        if (sourceUri.scheme == "content" && !sourceRepository.hasPersistedReadPermission(sourceUri)) {
+            return PreparationResult.Invalid("Missing persisted read permission for content URI")
+        }
 
-        val source = LocalFileSource(sourceFile)
+        val source = withContext(ioDispatcher) {
+            sourceRepository.createPlayableSource(sourceUri)
+        } ?: return PreparationResult.Invalid("Failed to open media source")
+
         source.setSourceMode(IPlaysource.SourceMode.NORMAL)
         val sourceOpenCode = source.open()
         if (sourceOpenCode != IPlaysource.AudioSourceCode.ASC_SUCCESS) {
@@ -41,10 +44,27 @@ internal class TrackPreparationCoordinator(
             return PreparationResult.Invalid("Source open failed(${sourceOpenCode.code})")
         }
 
+        val seekSupported = source.supportFastSeek()
         return try {
-            val mediaMeta = playbackCoordinator.loadAudioMetaDisplayFromSource(source)
-            source.seek(0L, IPlaysource.SEEK_SET)
-            PreparationResult.Ready(source = source, mediaMeta = mediaMeta)
+            val mediaMeta = if (seekSupported) {
+                playbackCoordinator.loadAudioMetaDisplayFromSource(source)
+            } else {
+                AudioMetaDisplay(
+                    codec = "-",
+                    sampleRate = "-",
+                    channels = "-",
+                    bitRate = "-",
+                    durationMs = 0L
+                )
+            }
+            if (seekSupported) {
+                source.seek(0L, IPlaysource.SEEK_SET)
+            }
+            PreparationResult.Ready(
+                source = source,
+                mediaMeta = mediaMeta,
+                isSeekSupported = seekSupported
+            )
         } catch (cancel: CancellationException) {
             source.abort()
             source.close()
@@ -60,8 +80,9 @@ internal class TrackPreparationCoordinator(
         }
     }
 
-    private fun prepareNetworkSource(item: PlaybackTrack): PreparationResult {
-        val provider = HttpRangeDataProvider(item.uri)
+    private suspend fun prepareNetworkSource(item: PlaybackTrack): PreparationResult {
+        safeLogI("prepareNetworkSource: key=${item.id}, uri=${item.uri}")
+        val provider = OkHttpRangeDataProvider(item.uri)
         val source = CachedNetworkSource(
             resourceKey = item.id.ifBlank { item.uri },
             provider = provider,
@@ -70,15 +91,20 @@ internal class TrackPreparationCoordinator(
         source.setSourceMode(IPlaysource.SourceMode.NORMAL)
         val openCode = source.open()
         if (openCode != IPlaysource.AudioSourceCode.ASC_SUCCESS) {
+            safeLogE("prepareNetworkSource open failed: code=${openCode.code}, key=${item.id}")
             source.close()
             return PreparationResult.Invalid("Source open failed(${openCode.code})")
         }
         if (source.seek(0L, IPlaysource.SEEK_SET) < 0L) {
+            safeLogE("prepareNetworkSource seek rewind failed: key=${item.id}")
             source.close()
             return PreparationResult.Invalid("Source rewind failed")
         }
+
+        safeLogI("prepareNetworkSource ready: key=${item.id}")
         return PreparationResult.Ready(
             source = source,
+            isSeekSupported = source.supportFastSeek(),
             mediaMeta = AudioMetaDisplay(
                 codec = "-",
                 sampleRate = "-",
@@ -88,12 +114,25 @@ internal class TrackPreparationCoordinator(
             )
         )
     }
+
+    private companion object {
+        private const val TAG = "TrackPrep"
+    }
+
+    private fun safeLogI(message: String) {
+        runCatching { Log.i(TAG, message) }
+    }
+
+    private fun safeLogE(message: String) {
+        runCatching { Log.e(TAG, message) }
+    }
 }
 
 internal sealed interface PreparationResult {
     data class Ready(
         val source: IPlaysource,
-        val mediaMeta: AudioMetaDisplay
+        val mediaMeta: AudioMetaDisplay,
+        val isSeekSupported: Boolean
     ) : PreparationResult
 
     data class Invalid(val message: String) : PreparationResult

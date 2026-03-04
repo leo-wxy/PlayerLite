@@ -139,6 +139,9 @@ internal class PlayerRuntime(
     }
 
     fun onSeekValueChange(value: Long) {
+        if (!uiState.isSeekSupported) {
+            return
+        }
         uiState = uiState.copy(
             isSeekDragging = true,
             seekDragPositionMs = value
@@ -211,7 +214,12 @@ internal class PlayerRuntime(
         syncSelectionFromPlaylist()
     }
 
-    fun updateRemotePlaybackState(playbackState: Int, positionMs: Long, durationMs: Long) {
+    fun updateRemotePlaybackState(
+        playbackState: Int,
+        positionMs: Long,
+        durationMs: Long,
+        isSeekSupported: Boolean
+    ) {
         val nextDuration = if (durationMs > 0L) durationMs else uiState.durationMs
         val bounded = if (nextDuration > 0L) {
             positionMs.coerceIn(0L, nextDuration)
@@ -221,6 +229,7 @@ internal class PlayerRuntime(
         uiState = uiState.copy(
             playbackState = playbackState,
             durationMs = nextDuration,
+            isSeekSupported = isSeekSupported,
             seekPositionMs = if (uiState.isSeekDragging) uiState.seekPositionMs else bounded,
             seekDragPositionMs = if (uiState.isSeekDragging) uiState.seekDragPositionMs else bounded
         )
@@ -273,16 +282,19 @@ internal class PlayerRuntime(
     }
 
     private fun addPickedUriToPlaylist(uri: Uri) {
-        mediaSourceRepository.persistReadPermission(uri)
-        val displayName = mediaSourceRepository.queryDisplayName(uri)
-        val privateFile = mediaSourceRepository.importToPrivateStorage(uri, displayName)
-        if (privateFile == null) {
-            uiState = uiState.copy(statusText = "Failed to import selected audio")
+        val permission = mediaSourceRepository.ensurePersistentReadPermission(uri)
+        if (permission.isFailure) {
+            uiState = uiState.copy(statusText = "该内容源未授予持久读取权限，已拒绝添加")
             return
         }
+        if (!mediaSourceRepository.hasReadableAccess(uri)) {
+            uiState = uiState.copy(statusText = "Failed to read selected audio")
+            return
+        }
+        val displayName = mediaSourceRepository.queryDisplayName(uri)
         val item = PlaylistItem(
             id = UUID.randomUUID().toString(),
-            uri = Uri.fromFile(privateFile).toString(),
+            uri = uri.toString(),
             displayName = displayName
         )
         prepareActions.addPickedUri(
@@ -321,6 +333,7 @@ internal class PlayerRuntime(
         uiState = uiState.copy(
             audioMeta = emptyAudioMeta(),
             playbackOutputInfo = null,
+            isSeekSupported = false,
             durationMs = 0L,
             seekPositionMs = 0L,
             seekDragPositionMs = 0L,

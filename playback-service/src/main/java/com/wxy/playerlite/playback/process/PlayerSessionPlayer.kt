@@ -50,7 +50,10 @@ internal class PlayerSessionPlayer(
             MediaItemData.Builder(item.mediaId.ifBlank { "item-$index" })
                 .setMediaItem(item)
                 .setMediaMetadata(item.mediaMetadata)
-                .setIsSeekable(index == runtimeState.activeIndex && runtimeState.durationMs > 0L)
+                .setIsSeekable(
+                    index == runtimeState.activeIndex &&
+                        runtimeState.isSeekSupported
+                )
                 .setDurationUs(
                     if (index == runtimeState.activeIndex && runtimeState.durationMs > 0L) {
                         runtimeState.durationMs * 1000L
@@ -69,6 +72,7 @@ internal class PlayerSessionPlayer(
             .setAvailableCommands(
                 buildAvailableCommands(
                     hasMediaItem = hasMediaItems,
+                    canSeekInCurrent = hasMediaItems && runtimeState.isSeekSupported,
                     canSeekPrevious = runtime.canMoveToPrevious(),
                     canSeekNext = runtime.canMoveToNext()
                 )
@@ -106,8 +110,15 @@ internal class PlayerSessionPlayer(
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
         return runSerializedCommand {
             if (playWhenReady) {
+                val current = runtime.state.value
+                if (current.playWhenReady &&
+                    (current.playbackState == PLAYBACK_STATE_PLAYING ||
+                        current.isPreparing)
+                ) {
+                    return@runSerializedCommand
+                }
                 runtime.setPlayWhenReady(true)
-                if (runtime.state.value.playbackState == PLAYBACK_STATE_PAUSED) {
+                if (current.playbackState == PLAYBACK_STATE_PAUSED) {
                     runtime.resume()
                 } else {
                     runtime.playCurrent()
@@ -204,6 +215,7 @@ internal class PlayerSessionPlayer(
 
     private fun buildAvailableCommands(
         hasMediaItem: Boolean,
+        canSeekInCurrent: Boolean,
         canSeekPrevious: Boolean,
         canSeekNext: Boolean
     ): Player.Commands {
@@ -220,8 +232,10 @@ internal class PlayerSessionPlayer(
 
         if (hasMediaItem) {
             builder
-                .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
                 .add(Player.COMMAND_SEEK_TO_MEDIA_ITEM)
+        }
+        if (canSeekInCurrent) {
+            builder.add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
         }
         if (canSeekPrevious) {
             builder

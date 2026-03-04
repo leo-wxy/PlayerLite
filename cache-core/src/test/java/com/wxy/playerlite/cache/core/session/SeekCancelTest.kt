@@ -70,16 +70,22 @@ class SeekCancelTest {
         private val cancelSignal = CountDownLatch(1)
         val cancelCount = AtomicInteger(0)
 
-        override fun readAt(offset: Long, size: Int): ByteArray {
-            return when (offset) {
+        override fun readAt(offset: Long, size: Int, callback: RangeDataProvider.ReadCallback) {
+            callback.onDataBegin(offset, size)
+            when (offset) {
                 0L -> {
                     firstReadStarted.countDown()
                     cancelSignal.await(1, TimeUnit.SECONDS)
-                    ByteArray(0)
+                    callback.onDataEnd(false)
                 }
 
-                64L -> "seek".encodeToByteArray()
-                else -> ByteArray(0)
+                64L -> {
+                    val chunk = "seek".encodeToByteArray()
+                    callback.onDataSend(chunk, chunk.size)
+                    callback.onDataEnd(true)
+                }
+
+                else -> callback.onDataEnd(false)
             }
         }
 

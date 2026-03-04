@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
@@ -22,6 +23,7 @@ data class RemotePlaybackSnapshot(
     val playbackState: Int,
     val playWhenReady: Boolean,
     val isPlaying: Boolean,
+    val isSeekSupported: Boolean,
     val currentPositionMs: Long,
     val durationMs: Long,
     val statusText: String?,
@@ -48,7 +50,19 @@ class PlayerServiceBridge(
     }
 
     fun connectIfNeeded() {
-        if (released || controller != null || controllerFuture != null) {
+        if (released) {
+            return
+        }
+        val existing = controller
+        if (existing != null) {
+            if (isConnected(existing)) {
+                return
+            }
+            runCatching { existing.release() }
+            controller = null
+            safeLogW("MediaController exists but disconnected; rebuilding controller")
+        }
+        if (controllerFuture != null) {
             return
         }
 
@@ -68,8 +82,17 @@ class PlayerServiceBridge(
                     return@addListener
                 }
                 built.onSuccess {
-                    controller = it
-                    flushPendingActions(it)
+                    if (isConnected(it)) {
+                        controller = it
+                        flushPendingActions(it)
+                    } else {
+                        runCatching { it.release() }
+                        controller = null
+                        safeLogW("Controller future completed but controller not connected; reconnecting")
+                        if (pendingActions.isNotEmpty()) {
+                            connectIfNeeded()
+                        }
+                    }
                 }.onFailure {
                     pendingActions.clear()
                     onControllerError("MediaController connect failed: ${it.message ?: "unknown"}")
@@ -155,10 +178,15 @@ class PlayerServiceBridge(
         val playbackOutputInfo = PlaybackMetadataExtras.readPlaybackOutputInfo(currentMetadata?.extras)
             ?: PlaybackMetadataExtras.readPlaybackOutputInfo(sessionExtras)
             ?: PlaybackMetadataExtras.readPlaybackOutputInfo(activeController.mediaMetadata.extras)
+        val seekSupported = PlaybackMetadataExtras.readSeekSupported(currentMetadata?.extras)
+            ?: PlaybackMetadataExtras.readSeekSupported(sessionExtras)
+            ?: PlaybackMetadataExtras.readSeekSupported(activeController.mediaMetadata.extras)
+            ?: false
         return RemotePlaybackSnapshot(
             playbackState = activeController.playbackState,
             playWhenReady = activeController.playWhenReady,
             isPlaying = activeController.isPlaying,
+            isSeekSupported = seekSupported,
             currentPositionMs = activeController.currentPosition,
             durationMs = activeController.duration.takeIf { it != C.TIME_UNSET } ?: 0L,
             statusText = PlaybackMetadataExtras.readStatusText(sessionExtras)
@@ -180,12 +208,17 @@ class PlayerServiceBridge(
 
     private fun withController(action: (MediaController) -> Unit): Boolean {
         val activeController = controller
-        if (activeController == null) {
+        if (activeController == null || !isConnected(activeController)) {
             if (released) {
                 return false
             }
+            if (activeController != null) {
+                runCatching { activeController.release() }
+                controller = null
+            }
             pendingActions += action
             connectIfNeeded()
+            safeLogD("Controller unavailable; action queued. pending=${pendingActions.size}")
             return true
         }
 
@@ -204,6 +237,9 @@ class PlayerServiceBridge(
         if (pendingActions.isEmpty()) {
             return
         }
+        if (!isConnected(activeController)) {
+            return
+        }
         val actions = pendingActions.toList()
         pendingActions.clear()
         actions.forEach { action ->
@@ -213,5 +249,21 @@ class PlayerServiceBridge(
                 onControllerError("MediaController command failed: ${it.message ?: "unknown"}")
             }
         }
+    }
+
+    private fun isConnected(activeController: MediaController): Boolean {
+        return runCatching { activeController.isConnected }.getOrDefault(false)
+    }
+
+    private companion object {
+        private const val TAG = "PlayerServiceBridge"
+    }
+
+    private fun safeLogD(message: String) {
+        runCatching { Log.d(TAG, message) }
+    }
+
+    private fun safeLogW(message: String) {
+        runCatching { Log.w(TAG, message) }
     }
 }

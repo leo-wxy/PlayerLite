@@ -64,9 +64,12 @@ internal class PreparationActionHandler(
                                 seekPositionMs = 0L,
                                 seekDragPositionMs = 0L,
                                 isSeekDragging = false,
+                                isSeekSupported = preparation.isSeekSupported,
                                 audioMeta = mediaMeta,
                                 durationMs = if (mediaMeta.durationMs > 0L) mediaMeta.durationMs else 0L,
-                                statusText = if (mediaMeta.durationMs > 0L) {
+                                statusText = if (!preparation.isSeekSupported) {
+                                    "Ready to play (seek unavailable)"
+                                } else if (mediaMeta.durationMs > 0L) {
                                     "Ready to play"
                                 } else {
                                     "Ready to play (duration unavailable)"

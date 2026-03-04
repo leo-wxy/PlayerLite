@@ -27,6 +27,26 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
         if (rootPath.isEmpty()) {
             return Result.failure(IllegalArgumentException("cacheRootDirPath cannot be blank"))
         }
+        if (config.memoryCacheCapBytes <= 0L) {
+            return Result.failure(IllegalArgumentException("memoryCacheCapBytes must be > 0"))
+        }
+        if (config.diskCacheMaxBytes <= 0L) {
+            return Result.failure(IllegalArgumentException("diskCacheMaxBytes must be > 0"))
+        }
+        if (config.diskCacheCleanRangeMin <= 0.0 || config.diskCacheCleanRangeMin > 1.0) {
+            return Result.failure(IllegalArgumentException("diskCacheCleanRangeMin must be in (0, 1]"))
+        }
+        if (config.diskCacheCleanRangeMax <= 0.0 || config.diskCacheCleanRangeMax > 1.0) {
+            return Result.failure(IllegalArgumentException("diskCacheCleanRangeMax must be in (0, 1]"))
+        }
+        if (config.diskCacheCleanRangeMin > config.diskCacheCleanRangeMax) {
+            return Result.failure(
+                IllegalArgumentException("diskCacheCleanRangeMin cannot be greater than diskCacheCleanRangeMax")
+            )
+        }
+        if (config.readRetryCount < 0) {
+            return Result.failure(IllegalArgumentException("readRetryCount must be >= 0"))
+        }
         val rootDir = File(rootPath)
         if (!rootDir.exists() && !rootDir.mkdirs()) {
             return Result.failure(IllegalStateException("failed to create cache root: $rootPath"))
@@ -109,6 +129,7 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
         if (params.resourceKey.isBlank()) {
             return Result.failure(IllegalArgumentException("resourceKey cannot be blank"))
         }
+        runCatching { cleanupDiskIfNeeded() }
         val storage = ensureStorageFiles(params).getOrElse { error ->
             return Result.failure(error)
         }
@@ -172,7 +193,8 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
                 blockSizeBytes = snapshot.blockSizeBytes,
                 contentLength = snapshot.contentLength,
                 durationMs = snapshot.durationMs,
-                cachedBlocks = snapshot.blockIndexes.toMutableSet()
+                cachedBlocks = snapshot.blockIndexes.toMutableSet(),
+                completedRanges = snapshot.completedRanges.toMutableList()
             )
         }
     }
@@ -196,6 +218,55 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
 
     private fun requireRootDir(): File {
         return requireRootDirOrNull() ?: error("failed to resolve cache root")
+    }
+
+    private fun cleanupDiskIfNeeded() {
+        val currentConfig = config ?: return
+        val rootDir = requireRootDirOrNull() ?: return
+        val files = rootDir.listFiles().orEmpty().filter { it.isFile }
+        if (files.isEmpty()) {
+            return
+        }
+
+        data class Entry(
+            val resourceKey: String,
+            val files: MutableList<File> = mutableListOf(),
+            var totalBytes: Long = 0L,
+            var lastAccessEpochMs: Long = -1L
+        )
+
+        val grouped = linkedMapOf<String, Entry>()
+        files.forEach { file ->
+            val key = parseResourceKeyFromFileName(file.name) ?: return@forEach
+            val entry = grouped.getOrPut(key) { Entry(resourceKey = key) }
+            entry.files += file
+            entry.totalBytes += file.length()
+            if (file.name.endsWith(CONFIG_FILE_SUFFIX)) {
+                entry.lastAccessEpochMs = maxOf(entry.lastAccessEpochMs, parseLastAccessEpochMs(file))
+            }
+        }
+
+        var totalBytes = grouped.values.sumOf { it.totalBytes }
+        val trigger = (currentConfig.diskCacheMaxBytes * currentConfig.diskCacheCleanRangeMax).toLong()
+        if (totalBytes <= trigger) {
+            return
+        }
+
+        val target = (currentConfig.diskCacheMaxBytes * currentConfig.diskCacheCleanRangeMin).toLong()
+        val usingKeys = sessions.values.map { it.resourceKey }.toSet()
+        val candidates = grouped.values
+            .sortedWith(compareBy<Entry> { it.lastAccessEpochMs }.thenBy { it.resourceKey })
+
+        candidates.forEach { entry ->
+            if (totalBytes <= target) {
+                return@forEach
+            }
+            if (entry.resourceKey in usingKeys) {
+                return@forEach
+            }
+            entry.files.forEach { file -> file.deleteRecursively() }
+            totalBytes -= entry.totalBytes
+        }
     }
 
     private fun lookupInternal(
@@ -222,6 +293,7 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
                 contentLength = -1L,
                 durationMs = -1L,
                 blockIndexes = emptySet(),
+                completedRanges = emptyList(),
                 lastAccessEpochMs = -1L
             )
         }
@@ -277,12 +349,20 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
         val blocks = parseLongArrayField(json, "blocks")
             .filter { it >= 0L }
             .toSet()
+        val completedRanges = parseCompletedRanges(json)
+            .ifEmpty { buildRangesFromBlocks(blocks, blockSize) }
+        val normalizedBlocks = if (blocks.isNotEmpty()) {
+            blocks
+        } else {
+            buildBlocksFromRanges(completedRanges, blockSize)
+        }
         val lastAccessEpochMs = parseLongField(json, "lastAccessEpochMs") ?: -1L
         return StorageSnapshot(
             blockSizeBytes = blockSize,
             contentLength = contentLength,
             durationMs = durationMs,
-            blockIndexes = blocks,
+            blockIndexes = normalizedBlocks,
+            completedRanges = completedRanges,
             lastAccessEpochMs = lastAccessEpochMs
         )
     }
@@ -296,6 +376,7 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
         lastAccessEpochMs: Long
     ): String {
         val blocks = blockIndexes.sorted().joinToString(separator = ", ")
+        val completedRanges = buildCompletedRangesJson(buildRangesFromBlocks(blockIndexes, blockSizeBytes))
         return buildString {
             append("{\n")
             append("  \"version\": 1,\n")
@@ -304,7 +385,7 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
             append("  \"durationMs\": $durationMs,\n")
             append("  \"blockSizeBytes\": $blockSizeBytes,\n")
             append("  \"blocks\": [$blocks],\n")
-            append("  \"completedRanges\": [],\n")
+            append("  \"completedRanges\": $completedRanges,\n")
             append("  \"lastAccessEpochMs\": $lastAccessEpochMs\n")
             append("}\n")
         }
@@ -331,6 +412,114 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
         }
         return body.split(",")
             .mapNotNull { token -> token.trim().toLongOrNull() }
+    }
+
+    private fun parseCompletedRanges(json: String): List<LongRange> {
+        val bodyPattern = Pattern.compile("\"completedRanges\"\\s*:\\s*\\[(.*?)]", Pattern.DOTALL)
+        val bodyMatcher = bodyPattern.matcher(json)
+        if (!bodyMatcher.find()) {
+            return emptyList()
+        }
+        val body = bodyMatcher.group(1) ?: return emptyList()
+        val itemPattern =
+            Pattern.compile("\\{\\s*\"start\"\\s*:\\s*(-?\\d+)\\s*,\\s*\"end\"\\s*:\\s*(-?\\d+)\\s*}")
+        val itemMatcher = itemPattern.matcher(body)
+        val ranges = mutableListOf<LongRange>()
+        while (itemMatcher.find()) {
+            val start = itemMatcher.group(1)?.toLongOrNull() ?: continue
+            val end = itemMatcher.group(2)?.toLongOrNull() ?: continue
+            if (start < 0L || end <= start) {
+                continue
+            }
+            ranges += start until end
+        }
+        return mergeRanges(ranges)
+    }
+
+    private fun buildRangesFromBlocks(
+        blocks: Set<Long>,
+        blockSizeBytes: Int
+    ): List<LongRange> {
+        if (blockSizeBytes <= 0 || blocks.isEmpty()) {
+            return emptyList()
+        }
+        val sorted = blocks.filter { it >= 0L }.sorted()
+        if (sorted.isEmpty()) {
+            return emptyList()
+        }
+
+        val ranges = mutableListOf<LongRange>()
+        var start = sorted.first()
+        var prev = start
+        sorted.drop(1).forEach { value ->
+            if (value == prev + 1L) {
+                prev = value
+                return@forEach
+            }
+            ranges += (start * blockSizeBytes) until ((prev + 1L) * blockSizeBytes)
+            start = value
+            prev = value
+        }
+        ranges += (start * blockSizeBytes) until ((prev + 1L) * blockSizeBytes)
+        return ranges
+    }
+
+    private fun mergeRanges(ranges: List<LongRange>): List<LongRange> {
+        if (ranges.isEmpty()) {
+            return emptyList()
+        }
+        val sorted = ranges.sortedBy { it.first }
+        val merged = mutableListOf<LongRange>()
+        var currentStart = sorted.first().first
+        var currentEndExclusive = sorted.first().last + 1L
+        sorted.drop(1).forEach { range ->
+            val start = range.first
+            val endExclusive = range.last + 1L
+            if (start > currentEndExclusive) {
+                merged += currentStart until currentEndExclusive
+                currentStart = start
+                currentEndExclusive = endExclusive
+            } else {
+                currentEndExclusive = maxOf(currentEndExclusive, endExclusive)
+            }
+        }
+        merged += currentStart until currentEndExclusive
+        return merged
+    }
+
+    private fun buildCompletedRangesJson(ranges: List<LongRange>): String {
+        if (ranges.isEmpty()) {
+            return "[]"
+        }
+        return ranges.joinToString(prefix = "[", postfix = "]", separator = ", ") { range ->
+            val endExclusive = range.last + 1L
+            "{\"start\": ${range.first}, \"end\": $endExclusive}"
+        }
+    }
+
+    private fun buildBlocksFromRanges(
+        ranges: List<LongRange>,
+        blockSizeBytes: Int
+    ): Set<Long> {
+        if (blockSizeBytes <= 0 || ranges.isEmpty()) {
+            return emptySet()
+        }
+        val blocks = linkedSetOf<Long>()
+        ranges.forEach { range ->
+            val startBlock = range.first / blockSizeBytes
+            val endBlock = range.last / blockSizeBytes
+            for (block in startBlock..endBlock) {
+                if (block >= 0L) {
+                    blocks += block
+                }
+            }
+        }
+        return blocks
+    }
+
+    private fun parseLastAccessEpochMs(configFile: File): Long {
+        val json = runCatching { configFile.readText() }.getOrElse { return -1L }
+        return parseLongField(json, "lastAccessEpochMs") ?: -1L
     }
 
     private fun escapeJson(raw: String): String {
@@ -476,16 +665,27 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
                     return diskBytes
                 }
                 storage.cachedBlocks.remove(blockIndex)
+                storage.completedRanges.clear()
+                storage.completedRanges += buildRangesFromBlocks(storage.cachedBlocks, storage.blockSizeBytes)
                 persistConfigLocked()
             }
 
             val blockStart = blockIndex * storage.blockSizeBytes.toLong()
-            val fetched = provider.readAt(blockStart, storage.blockSizeBytes)
+            val retryCount = (config?.readRetryCount ?: 0).coerceAtLeast(0)
+            var fetched = ByteArray(0)
+            for (attempt in 0..retryCount) {
+                fetched = provider.readAtBytes(blockStart, storage.blockSizeBytes)
+                if (fetched.isNotEmpty()) {
+                    break
+                }
+            }
             if (fetched.isEmpty()) {
                 return null
             }
             writeBlockToDisk(blockIndex, fetched)
             storage.cachedBlocks.add(blockIndex)
+            storage.completedRanges.clear()
+            storage.completedRanges += buildRangesFromBlocks(storage.cachedBlocks, storage.blockSizeBytes)
             memoryBlocks[blockIndex] = fetched
             if (storage.contentLength < 0L) {
                 storage.contentLength = provider.queryContentLength() ?: -1L
@@ -550,7 +750,8 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
         val blockSizeBytes: Int,
         var contentLength: Long,
         var durationMs: Long,
-        val cachedBlocks: MutableSet<Long>
+        val cachedBlocks: MutableSet<Long>,
+        val completedRanges: MutableList<LongRange>
     )
 
     private data class StorageSnapshot(
@@ -558,6 +759,7 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
         val contentLength: Long,
         val durationMs: Long,
         val blockIndexes: Set<Long>,
+        val completedRanges: List<LongRange>,
         val lastAccessEpochMs: Long
     )
 }

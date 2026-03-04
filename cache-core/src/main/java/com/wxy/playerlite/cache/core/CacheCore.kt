@@ -28,6 +28,27 @@ object CacheCore {
         if (config.memoryCacheCapBytes <= 0L) {
             return Result.failure(IllegalArgumentException("memoryCacheCapBytes must be > 0"))
         }
+        if (config.diskCacheMaxBytes <= 0L) {
+            return Result.failure(IllegalArgumentException("diskCacheMaxBytes must be > 0"))
+        }
+        if (config.diskCacheCleanRangeMin <= 0.0 || config.diskCacheCleanRangeMin > 1.0) {
+            return Result.failure(
+                IllegalArgumentException("diskCacheCleanRangeMin must be in (0, 1]")
+            )
+        }
+        if (config.diskCacheCleanRangeMax <= 0.0 || config.diskCacheCleanRangeMax > 1.0) {
+            return Result.failure(
+                IllegalArgumentException("diskCacheCleanRangeMax must be in (0, 1]")
+            )
+        }
+        if (config.diskCacheCleanRangeMin > config.diskCacheCleanRangeMax) {
+            return Result.failure(
+                IllegalArgumentException("diskCacheCleanRangeMin cannot be greater than diskCacheCleanRangeMax")
+            )
+        }
+        if (config.readRetryCount < 0) {
+            return Result.failure(IllegalArgumentException("readRetryCount must be >= 0"))
+        }
         return engine.init(config)
     }
 
@@ -81,4 +102,3 @@ object CacheCore {
             vmName.contains("HotSpot", ignoreCase = true)
     }
 }
-

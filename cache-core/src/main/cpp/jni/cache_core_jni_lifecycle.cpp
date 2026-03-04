@@ -12,8 +12,13 @@ Java_com_wxy_playerlite_cache_core_CacheCoreNativeBridge_nativeInit(
         JNIEnv* env,
         jclass,
         jstring cache_root_path,
-        jlong memory_cache_cap_bytes) {
-    if (env == nullptr || cache_root_path == nullptr || memory_cache_cap_bytes <= 0) {
+        jlong memory_cache_cap_bytes,
+        jlong disk_cache_max_bytes,
+        jdouble disk_cache_clean_range_min,
+        jdouble disk_cache_clean_range_max,
+        jint read_retry_count) {
+    if (env == nullptr || cache_root_path == nullptr || memory_cache_cap_bytes <= 0 ||
+        disk_cache_max_bytes <= 0 || read_retry_count < 0) {
         return -1;
     }
     const char* raw_path = env->GetStringUTFChars(cache_root_path, nullptr);
@@ -23,7 +28,13 @@ Java_com_wxy_playerlite_cache_core_CacheCoreNativeBridge_nativeInit(
     const std::string path(raw_path);
     env->ReleaseStringUTFChars(cache_root_path, raw_path);
 
-    const bool ok = cachecore::jni::Runtime().Init(path, static_cast<int64_t>(memory_cache_cap_bytes));
+    const bool ok = cachecore::jni::Runtime().Init(
+            path,
+            static_cast<int64_t>(memory_cache_cap_bytes),
+            static_cast<int64_t>(disk_cache_max_bytes),
+            static_cast<double>(disk_cache_clean_range_min),
+            static_cast<double>(disk_cache_clean_range_max),
+            static_cast<int32_t>(read_retry_count));
     return ok ? 0 : -1;
 }
 
@@ -40,4 +51,3 @@ Java_com_wxy_playerlite_cache_core_CacheCoreNativeBridge_nativeIsInitialized(
         jclass) {
     return cachecore::jni::Runtime().IsInitialized() ? JNI_TRUE : JNI_FALSE;
 }
-

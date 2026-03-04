@@ -15,6 +15,7 @@ internal data class PlayerUiState(
     val showPlaylistSheet: Boolean = false,
     val isPreparing: Boolean = false,
     val playbackState: Int = AUDIO_TRACK_PLAYSTATE_UNAVAILABLE,
+    val isSeekSupported: Boolean = false,
     val durationMs: Long = 0L,
     val seekPositionMs: Long = 0L,
     val seekDragPositionMs: Long = 0L,

@@ -60,6 +60,10 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
     }
 
     fun onSeekFinished() {
+        if (!uiStateFlow.value.isSeekSupported) {
+            runtime.setStatusText("当前音源不支持拖动 seek")
+            return
+        }
         val target = uiStateFlow.value.seekDragPositionMs
         runtime.finishSeekDrag()
         if (!serviceBridge.seekTo(target)) {
@@ -187,7 +191,8 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
         runtime.updateRemotePlaybackState(
             playbackState = mapRemotePlaybackState(snapshot),
             positionMs = snapshot.currentPositionMs,
-            durationMs = snapshot.durationMs
+            durationMs = snapshot.durationMs,
+            isSeekSupported = snapshot.isSeekSupported
         )
         runtime.updateRemotePlaybackOutputInfo(snapshot.playbackOutputInfo)
         runtime.syncActiveItemById(snapshot.currentMediaId)
@@ -246,7 +251,7 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
 
     private companion object {
         private const val TAG = "PlayerViewModel"
-        private const val UI_TEST_TITLE = "UI Seek Test Long MP3"
-        private const val UI_TEST_MP3_URL = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+        private const val UI_TEST_TITLE = "UI Local MP3 Test"
+        private const val UI_TEST_MP3_URL = "http://10.0.2.2:18080/local-media-ui-test.mp3"
     }
 }

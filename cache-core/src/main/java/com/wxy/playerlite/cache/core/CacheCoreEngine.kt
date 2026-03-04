@@ -31,9 +31,22 @@ internal object NativeProviderRegistry {
         return handle
     }
 
-    fun readAt(handle: Long, offset: Long, size: Int): ByteArray {
+    fun readAtBytes(handle: Long, offset: Long, size: Int): ByteArray {
         val provider = providers[handle] ?: return ByteArray(0)
-        return runCatching { provider.readAt(offset, size) }.getOrDefault(ByteArray(0))
+        return runCatching { provider.readAtBytes(offset, size) }.getOrDefault(ByteArray(0))
+    }
+
+    fun readAtStream(
+        handle: Long,
+        offset: Long,
+        size: Int,
+        callback: RangeDataProvider.ReadCallback
+    ): Boolean {
+        val provider = providers[handle] ?: return false
+        return runCatching {
+            provider.readAt(offset, size, callback)
+            true
+        }.getOrDefault(false)
     }
 
     fun cancelInFlightRead(handle: Long) {
@@ -60,4 +73,3 @@ internal object NativeProviderRegistry {
         providers.clear()
     }
 }
-

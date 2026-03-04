@@ -87,17 +87,22 @@ class CacheCoreReadSessionTest {
     ) : RangeDataProvider {
         val callCount = AtomicInteger(0)
 
-        override fun readAt(offset: Long, size: Int): ByteArray {
+        override fun readAt(offset: Long, size: Int, callback: RangeDataProvider.ReadCallback) {
             callCount.incrementAndGet()
+            callback.onDataBegin(offset, size)
             if (size <= 0 || offset >= payload.size) {
-                return ByteArray(0)
+                callback.onDataEnd(false)
+                return
             }
             val start = offset.toInt().coerceAtLeast(0)
             val end = (start + size).coerceAtMost(payload.size)
             if (start >= end) {
-                return ByteArray(0)
+                callback.onDataEnd(false)
+                return
             }
-            return payload.copyOfRange(start, end)
+            val chunk = payload.copyOfRange(start, end)
+            callback.onDataSend(chunk, chunk.size)
+            callback.onDataEnd(true)
         }
 
         override fun cancelInFlightRead() = Unit
@@ -108,9 +113,10 @@ class CacheCoreReadSessionTest {
     private class AlwaysEmptyProvider : RangeDataProvider {
         val callCount = AtomicInteger(0)
 
-        override fun readAt(offset: Long, size: Int): ByteArray {
+        override fun readAt(offset: Long, size: Int, callback: RangeDataProvider.ReadCallback) {
             callCount.incrementAndGet()
-            return ByteArray(0)
+            callback.onDataBegin(offset, size)
+            callback.onDataEnd(false)
         }
 
         override fun cancelInFlightRead() = Unit

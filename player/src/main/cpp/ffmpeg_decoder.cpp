@@ -53,20 +53,6 @@ AVSampleFormat ResolveOutputSampleFormat(const PcmOutputConfig& output_config) {
             : AV_SAMPLE_FMT_S16;
 }
 
-bool PreferFloatOutput(AVSampleFormat sample_format) {
-    switch (sample_format) {
-        case AV_SAMPLE_FMT_S32:
-        case AV_SAMPLE_FMT_S32P:
-        case AV_SAMPLE_FMT_FLT:
-        case AV_SAMPLE_FMT_FLTP:
-        case AV_SAMPLE_FMT_DBL:
-        case AV_SAMPLE_FMT_DBLP:
-            return true;
-        default:
-            return false;
-    }
-}
-
 PcmOutputConfig BuildPreferredOutputConfig(const AVCodecContext* codec_context) {
     PcmOutputConfig config;
     config.sample_rate = codec_context->sample_rate > 0
@@ -75,13 +61,8 @@ PcmOutputConfig BuildPreferredOutputConfig(const AVCodecContext* codec_context) 
     config.channels = codec_context->ch_layout.nb_channels > 0
             ? codec_context->ch_layout.nb_channels
             : kFallbackOutputChannels;
-
-    const AVSampleFormat packed_format = av_get_packed_sample_fmt(codec_context->sample_fmt);
-    if (PreferFloatOutput(codec_context->sample_fmt) || PreferFloatOutput(packed_format)) {
-        config.encoding = PcmOutputEncoding::kPcmFloat;
-    } else {
-        config.encoding = PcmOutputEncoding::kPcm16;
-    }
+    // Prefer PCM16 by default for broader device/emulator compatibility.
+    config.encoding = PcmOutputEncoding::kPcm16;
 
     return config;
 }

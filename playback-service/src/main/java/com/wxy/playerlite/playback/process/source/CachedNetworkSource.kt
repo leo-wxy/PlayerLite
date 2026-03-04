@@ -5,6 +5,7 @@ import com.wxy.playerlite.cache.core.provider.RangeDataProvider
 import com.wxy.playerlite.cache.core.session.CacheSession
 import com.wxy.playerlite.cache.core.session.OpenSessionParams
 import com.wxy.playerlite.cache.core.session.SessionCacheConfig
+import android.util.Log
 import com.wxy.playerlite.player.source.IDirectReadableSource
 import com.wxy.playerlite.player.source.IPlaysource
 import java.nio.ByteBuffer
@@ -18,6 +19,7 @@ internal class CachedNetworkSource(
     private var opened = false
     private var aborted = false
     private var position = 0L
+    private var seekSerial = 0L
     private var contentLength: Long = -1L
     private var session: CacheSession? = null
 
@@ -36,20 +38,22 @@ internal class CachedNetworkSource(
             if (opened && session != null) {
                 return IPlaysource.AudioSourceCode.ASC_SUCCESS
             }
+            val cachedLengthHint = contentLength.takeIf { it > 0L }
             val openResult = CacheCore.openSession(
                 OpenSessionParams(
                     resourceKey = resourceKey,
                     provider = provider,
                     config = sessionConfig,
-                    contentLengthHint = provider.queryContentLength()
+                    contentLengthHint = cachedLengthHint
                 )
             )
             if (openResult.isFailure) {
+                safeLogE("openSession failed: key=$resourceKey, error=${openResult.exceptionOrNull()?.message}")
                 return IPlaysource.AudioSourceCode.ASC_IO_EXCEPTION
             }
             session = openResult.getOrNull()
-            contentLength = provider.queryContentLength() ?: -1L
             opened = true
+            safeLogI("open success: key=$resourceKey, cachedLengthHint=$cachedLengthHint")
             return IPlaysource.AudioSourceCode.ASC_SUCCESS
         }
     }
@@ -59,12 +63,14 @@ internal class CachedNetworkSource(
     override fun abort() {
         synchronized(this) {
             aborted = true
+            safeLogI("abort: key=$resourceKey")
             close()
         }
     }
 
     override fun close() {
         synchronized(this) {
+            safeLogI("close: key=$resourceKey")
             opened = false
             session?.close()
             session = null
@@ -72,36 +78,100 @@ internal class CachedNetworkSource(
         }
     }
 
-    override fun size(): Long = if (contentLength > 0L) contentLength else 0L
+    override fun size(): Long {
+        if (contentLength > 0L) {
+            return contentLength
+        }
+        val resolved = provider.queryContentLength()
+        if (resolved != null && resolved > 0L) {
+            contentLength = resolved
+            return resolved
+        }
+        return 0L
+    }
 
     override fun cacheSize(): Long = 0L
 
     override fun supportFastSeek(): Boolean = sourceMode == IPlaysource.SourceMode.NORMAL
 
     override fun read(buffer: ByteArray, size: Int): Int {
-        synchronized(this) {
-            if (!opened) {
-                val openCode = open()
-                if (openCode != IPlaysource.AudioSourceCode.ASC_SUCCESS) {
-                    return -1
+        while (true) {
+            val currentSession: CacheSession
+            val readOffset: Long
+            val maxRead: Int
+            val readSeekSerial: Long
+            synchronized(this) {
+                if (!opened) {
+                    val openCode = open()
+                    if (openCode != IPlaysource.AudioSourceCode.ASC_SUCCESS) {
+                        return -1
+                    }
                 }
+                if (aborted || size <= 0 || buffer.isEmpty()) {
+                    return 0
+                }
+                maxRead = size.coerceAtMost(buffer.size)
+                currentSession = session ?: return -1
+                readOffset = position
+                readSeekSerial = seekSerial
             }
-            if (aborted || size <= 0 || buffer.isEmpty()) {
-                return 0
-            }
-            val maxRead = size.coerceAtMost(buffer.size)
-            val currentSession = session ?: return -1
-            val result = currentSession.readAt(position, maxRead)
+            safeLogI("read begin: key=$resourceKey, offset=$readOffset, request=$maxRead")
+
+            val result = currentSession.readAt(readOffset, maxRead)
             if (result.isFailure) {
+                val retry = synchronized(this) {
+                    !aborted && session === currentSession && seekSerial != readSeekSerial
+                }
+                if (retry) {
+                    continue
+                }
+                safeLogE(
+                    "readAt failed: key=$resourceKey, pos=$readOffset, size=$maxRead, error=${result.exceptionOrNull()?.message}"
+                )
                 return -1
             }
+
             val bytes = result.getOrThrow()
             val copySize = bytes.size.coerceAtMost(maxRead)
             if (copySize <= 0) {
+                val retry = synchronized(this) {
+                    !aborted && session === currentSession && seekSerial != readSeekSerial
+                }
+                if (retry) {
+                    continue
+                }
+                safeLogI("read empty: key=$resourceKey, offset=$readOffset, request=$maxRead")
                 return 0
             }
-            bytes.copyInto(buffer, destinationOffset = 0, startIndex = 0, endIndex = copySize)
-            position += copySize
+
+            if (contentLength <= 0L) {
+                provider.queryContentLength()?.let { length ->
+                    if (length > 0L) {
+                        contentLength = length
+                    }
+                }
+            }
+
+            var nextOffset = readOffset
+            val accepted = synchronized(this) {
+                if (aborted || session !== currentSession) {
+                    false
+                } else if (seekSerial != readSeekSerial || position != readOffset) {
+                    false
+                } else {
+                    bytes.copyInto(buffer, destinationOffset = 0, startIndex = 0, endIndex = copySize)
+                    position += copySize
+                    nextOffset = position
+                    true
+                }
+            }
+            if (!accepted) {
+                continue
+            }
+
+            safeLogI(
+                "read success: key=$resourceKey, offset=$readOffset, request=$maxRead, read=$copySize, next=$nextOffset"
+            )
             return copySize
         }
     }
@@ -134,9 +204,32 @@ internal class CachedNetworkSource(
             }
             val target = (base + offset).coerceAtLeast(0L)
             val bounded = if (size() > 0L) target.coerceAtMost(size()) else target
-            session?.seek(bounded, IPlaysource.SEEK_SET)
-            position = bounded
-            return position
+            val currentSession = session ?: return -1L
+            seekSerial += 1
+            currentSession.cancelPendingRead()
+            val seekResult = currentSession.seek(bounded, IPlaysource.SEEK_SET)
+            if (seekResult.isFailure) {
+                safeLogE(
+                    "seek failed: key=$resourceKey, target=$bounded, error=${seekResult.exceptionOrNull()?.message}"
+                )
+                return -1L
+            }
+            val newOffset = seekResult.getOrThrow()
+            safeLogI("seek success: key=$resourceKey, from=$position, target=$bounded, actual=$newOffset")
+            position = newOffset
+            return newOffset
         }
+    }
+
+    private companion object {
+        private const val TAG = "CachedNetworkSource"
+    }
+
+    private fun safeLogI(message: String) {
+        runCatching { Log.i(TAG, message) }
+    }
+
+    private fun safeLogE(message: String) {
+        runCatching { Log.e(TAG, message) }
     }
 }

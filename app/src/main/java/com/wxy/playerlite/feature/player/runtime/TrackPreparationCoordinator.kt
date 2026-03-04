@@ -3,7 +3,6 @@ package com.wxy.playerlite.feature.player.runtime
 import android.net.Uri
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.source.IPlaysource
-import com.wxy.playerlite.player.source.LocalFileSource
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -22,11 +21,14 @@ internal class TrackPreparationCoordinator(
             return PreparationResult.Invalid("Invalid media uri")
         }
 
-        val sourceFile = withContext(ioDispatcher) {
-            sourceRepository.copyUriToCacheFile(sourceUri)
-        } ?: return PreparationResult.Invalid("Failed to read audio file")
+        if (sourceUri.scheme == "content" && !sourceRepository.hasPersistedReadPermission(sourceUri)) {
+            return PreparationResult.Invalid("Missing persisted read permission for content URI")
+        }
 
-        val source = LocalFileSource(sourceFile)
+        val source = withContext(ioDispatcher) {
+            sourceRepository.createPlayableSource(sourceUri)
+        } ?: return PreparationResult.Invalid("Failed to open media source")
+
         source.setSourceMode(IPlaysource.SourceMode.NORMAL)
         val sourceOpenCode = source.open()
         if (sourceOpenCode != IPlaysource.AudioSourceCode.ASC_SUCCESS) {
@@ -34,10 +36,27 @@ internal class TrackPreparationCoordinator(
             return PreparationResult.Invalid("Source open failed(${sourceOpenCode.code})")
         }
 
+        val seekSupported = source.supportFastSeek()
         return try {
-            val mediaMeta = playbackCoordinator.loadAudioMetaDisplayFromSource(source)
-            source.seek(0L, IPlaysource.SEEK_SET)
-            PreparationResult.Ready(source = source, mediaMeta = mediaMeta)
+            val mediaMeta = if (seekSupported) {
+                playbackCoordinator.loadAudioMetaDisplayFromSource(source)
+            } else {
+                AudioMetaDisplay(
+                    codec = "-",
+                    sampleRate = "-",
+                    channels = "-",
+                    bitRate = "-",
+                    durationMs = 0L
+                )
+            }
+            if (seekSupported) {
+                source.seek(0L, IPlaysource.SEEK_SET)
+            }
+            PreparationResult.Ready(
+                source = source,
+                mediaMeta = mediaMeta,
+                isSeekSupported = seekSupported
+            )
         } catch (cancel: CancellationException) {
             source.abort()
             source.close()
@@ -57,7 +76,8 @@ internal class TrackPreparationCoordinator(
 internal sealed interface PreparationResult {
     data class Ready(
         val source: IPlaysource,
-        val mediaMeta: AudioMetaDisplay
+        val mediaMeta: AudioMetaDisplay,
+        val isSeekSupported: Boolean
     ) : PreparationResult
 
     data class Invalid(val message: String) : PreparationResult

@@ -54,13 +54,20 @@ internal class PlaybackControlActionHandler(
 
     fun applySeek(targetMs: Long) {
         val uiState = getUiState()
+        if (!uiState.isSeekSupported) {
+            setUiState(uiState.copy(statusText = "Current source does not support seek"))
+            return
+        }
         if (uiState.playbackState != AUDIO_TRACK_PLAYSTATE_PLAYING) {
             setUiState(uiState.copy(statusText = "Seek is available while playing"))
             return
         }
 
-        val maxDuration = uiState.durationMs.coerceAtLeast(0L)
-        val clampedTargetMs = targetMs.coerceIn(0L, maxDuration)
+        val clampedTargetMs = if (uiState.durationMs > 0L) {
+            targetMs.coerceIn(0L, uiState.durationMs)
+        } else {
+            targetMs.coerceAtLeast(0L)
+        }
         val code = playbackCoordinator.seek(clampedTargetMs)
         if (code == 0) {
             setUiState(

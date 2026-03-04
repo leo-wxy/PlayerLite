@@ -21,7 +21,11 @@ internal class NativeCacheCoreEngine : CacheCoreEngine {
         }
         val ok = CacheCoreNativeBridge.init(
             cacheRootDirPath = rootPath,
-            memoryCacheCapBytes = config.memoryCacheCapBytes
+            memoryCacheCapBytes = config.memoryCacheCapBytes,
+            diskCacheMaxBytes = config.diskCacheMaxBytes,
+            diskCacheCleanRangeMin = config.diskCacheCleanRangeMin,
+            diskCacheCleanRangeMax = config.diskCacheCleanRangeMax,
+            readRetryCount = config.readRetryCount
         )
         if (!ok) {
             return Result.failure(IllegalStateException("failed to initialize native cache runtime"))
@@ -243,4 +247,3 @@ internal class NativeCacheCoreEngine : CacheCoreEngine {
         }
     }
 }
-

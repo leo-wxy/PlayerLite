@@ -3,6 +3,7 @@ package com.wxy.playerlite.playback.process
 import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import android.util.Log
 import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.config.CacheCoreConfig
 import com.wxy.playerlite.player.NativePlayer
@@ -21,6 +22,7 @@ internal data class PlaybackProcessState(
     val playWhenReady: Boolean = false,
     val playbackOutputInfo: PlaybackOutputInfo? = null,
     val playbackState: Int = PLAYBACK_STATE_STOPPED,
+    val isSeekSupported: Boolean = false,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val isPreparing: Boolean = false,
@@ -160,24 +162,39 @@ internal class PlaybackProcessRuntime(
 
     suspend fun playCurrent() {
         val item = _state.value.currentTrack ?: return
+        val currentState = _state.value
+        if (currentState.playWhenReady &&
+            currentState.currentTrack?.id == item.id &&
+            (currentState.playbackState == PLAYBACK_STATE_PLAYING ||
+                currentState.isPreparing)
+        ) {
+            safeLogI("playCurrent skip: already active id=${item.id}, state=${currentState.playbackState}")
+            return
+        }
+        safeLogI("playCurrent begin: id=${item.id}, uri=${item.uri}")
         if (!ensurePrepared(item)) {
+            safeLogE("playCurrent aborted: ensurePrepared failed for id=${item.id}")
             return
         }
 
         val source = sourceSession.currentSource() ?: return
         val sourceOpenCode = source.open()
         if (sourceOpenCode != IPlaysource.AudioSourceCode.ASC_SUCCESS) {
+            safeLogE("playCurrent source open failed: id=${item.id}, code=${sourceOpenCode.code}")
             _state.value = _state.value.copy(statusText = "Source open failed(${sourceOpenCode.code})")
             return
         }
-        if (source.seek(0L, IPlaysource.SEEK_SET) < 0L) {
+        if (source.supportFastSeek() && source.seek(0L, IPlaysource.SEEK_SET) < 0L) {
+            safeLogE("playCurrent source rewind failed: id=${item.id}")
             _state.value = _state.value.copy(statusText = "Source rewind failed")
             return
         }
+        safeLogI("playCurrent launchPlay: id=${item.id}")
 
         playbackCoordinator.launchPlay(
             source = source,
             onStarted = {
+                safeLogI("playCurrent onStarted: id=${item.id}")
                 _state.value = _state.value.copy(
                     playWhenReady = true,
                     playbackState = PLAYBACK_STATE_PLAYING,
@@ -186,6 +203,7 @@ internal class PlaybackProcessRuntime(
                 )
             },
             onCompleted = { playCode ->
+                safeLogI("playCurrent onCompleted: id=${item.id}, code=$playCode, error=${playbackCoordinator.lastError()}")
                 if (playCode == 0) {
                     val durationMs = _state.value.durationMs
                     _state.value = _state.value.copy(
@@ -236,6 +254,10 @@ internal class PlaybackProcessRuntime(
     }
 
     fun seekTo(positionMs: Long) {
+        if (!_state.value.isSeekSupported) {
+            _state.value = _state.value.copy(statusText = "Current source does not support seek")
+            return
+        }
         val durationMs = _state.value.durationMs
         val bounded = if (durationMs > 0L) positionMs.coerceIn(0L, durationMs) else positionMs.coerceAtLeast(0L)
         val code = playbackCoordinator.seek(bounded)
@@ -269,6 +291,7 @@ internal class PlaybackProcessRuntime(
         val success = clearResult.isSuccess
         _state.value = _state.value.copy(
             playbackOutputInfo = null,
+            isSeekSupported = false,
             durationMs = 0L,
             positionMs = 0L,
             statusText = if (success) {
@@ -299,6 +322,7 @@ internal class PlaybackProcessRuntime(
                         playWhenReady = false,
                         isPreparing = false,
                         playbackState = PLAYBACK_STATE_STOPPED,
+                        isSeekSupported = false,
                         statusText = preparation.message
                     )
                     false
@@ -309,8 +333,15 @@ internal class PlaybackProcessRuntime(
                     val duration = preparation.mediaMeta.durationMs.coerceAtLeast(0L)
                     _state.value = _state.value.copy(
                         isPreparing = false,
+                        isSeekSupported = preparation.isSeekSupported,
                         durationMs = duration,
-                        statusText = if (duration > 0L) "Prepared" else "Prepared (duration unavailable)"
+                        statusText = if (!preparation.isSeekSupported) {
+                            "Prepared (seek unavailable)"
+                        } else if (duration > 0L) {
+                            "Prepared"
+                        } else {
+                            "Prepared (duration unavailable)"
+                        }
                     )
                     true
                 }
@@ -322,6 +353,7 @@ internal class PlaybackProcessRuntime(
                 playWhenReady = false,
                 isPreparing = false,
                 playbackState = PLAYBACK_STATE_STOPPED,
+                isSeekSupported = false,
                 statusText = "Failed to prepare media"
             )
             false
@@ -353,6 +385,7 @@ internal class PlaybackProcessRuntime(
             activeIndex = nextIndex,
             playWhenReady = if (changedTrack) false else previous.playWhenReady,
             playbackOutputInfo = if (changedTrack) null else previous.playbackOutputInfo,
+            isSeekSupported = if (changedTrack) false else previous.isSeekSupported,
             positionMs = if (changedTrack) 0L else previous.positionMs,
             durationMs = if (changedTrack) 0L else previous.durationMs,
             isPreparing = false,
@@ -370,5 +403,17 @@ internal class PlaybackProcessRuntime(
                 statusText = "缓存初始化失败: ${initResult.exceptionOrNull()?.message ?: "unknown"}"
             )
         }
+    }
+
+    private companion object {
+        private const val TAG = "PlaybackProcessRuntime"
+    }
+
+    private fun safeLogI(message: String) {
+        runCatching { Log.i(TAG, message) }
+    }
+
+    private fun safeLogE(message: String) {
+        runCatching { Log.e(TAG, message) }
     }
 }
