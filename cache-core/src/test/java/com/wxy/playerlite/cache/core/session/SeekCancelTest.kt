@@ -59,6 +59,43 @@ class SeekCancelTest {
         }
     }
 
+    @Test
+    fun backwardSeekReadsBytesFromTargetOffset() {
+        val root = createRoot()
+        assertTrue(
+            CacheCore.init(
+                CacheCoreConfig(
+                    cacheRootDirPath = root.absolutePath,
+                    memoryCacheCapBytes = 64L
+                )
+            ).isSuccess
+        )
+
+        val payload = ByteArray(512) { index -> index.toByte() }
+        val provider = PatternProvider(payload)
+        val session = CacheCore.openSession(
+            OpenSessionParams(
+                resourceKey = "song_seek_backward",
+                provider = provider,
+                config = SessionCacheConfig(blockSizeBytes = 32)
+            )
+        ).getOrThrow()
+
+        try {
+            val forward = session.readAt(offset = 256L, size = 16).getOrThrow()
+            assertArrayEquals(payload.copyOfRange(256, 272), forward)
+
+            val seekResult = session.seek(offset = 128L, whence = 0).getOrThrow()
+            assertEquals(128L, seekResult)
+
+            val backward = session.readAt(offset = 128L, size = 16).getOrThrow()
+            assertArrayEquals(payload.copyOfRange(128, 144), backward)
+            assertTrue(provider.cancelCount.get() >= 1)
+        } finally {
+            session.close()
+        }
+    }
+
     private fun createRoot(): File {
         val root = Files.createTempDirectory("cache-core-seek-cancel-test-").toFile()
         createdRoots += root
@@ -97,5 +134,30 @@ class SeekCancelTest {
         override fun queryContentLength(): Long? = 1024L
 
         fun awaitFirstReadStarted(): Boolean = firstReadStarted.await(1, TimeUnit.SECONDS)
+    }
+
+    private class PatternProvider(
+        private val payload: ByteArray
+    ) : RangeDataProvider {
+        val cancelCount = AtomicInteger(0)
+
+        override fun readAt(offset: Long, size: Int, callback: RangeDataProvider.ReadCallback) {
+            callback.onDataBegin(offset, size)
+            if (offset < 0L || size <= 0 || offset >= payload.size) {
+                callback.onDataEnd(false)
+                return
+            }
+            val start = offset.toInt()
+            val end = (start + size).coerceAtMost(payload.size)
+            val chunk = payload.copyOfRange(start, end)
+            callback.onDataSend(chunk, chunk.size)
+            callback.onDataEnd(true)
+        }
+
+        override fun cancelInFlightRead() {
+            cancelCount.incrementAndGet()
+        }
+
+        override fun queryContentLength(): Long? = payload.size.toLong()
     }
 }

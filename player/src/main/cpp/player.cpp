@@ -842,8 +842,6 @@ private:
         seek_anchor_head_frames_ = 0;
         last_notified_progress_ms_ = -1;
         pending_audio_track_flush_ = false;
-
-        NotifyProgressIfNeeded(true, nullptr);
         return true;
     }
 
@@ -1138,67 +1136,6 @@ int RunPlaybackInternal(JNIEnv* env, jobject thiz, PlayerContext* context, IPlay
     return result;
 }
 
-void FlushActiveAudioTrackForSeek(JNIEnv* env, PlayerContext* context) {
-    if (env == nullptr || context == nullptr) {
-        return;
-    }
-
-    jobject local_audio_track = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(context->audio_track_mutex);
-        if (context->active_audio_track != nullptr) {
-            local_audio_track = env->NewLocalRef(context->active_audio_track);
-        }
-    }
-    if (local_audio_track == nullptr) {
-        if (env->ExceptionCheck()) {
-            env->ExceptionClear();
-        }
-        return;
-    }
-
-    jclass audio_track_class = env->GetObjectClass(local_audio_track);
-    if (audio_track_class == nullptr) {
-        if (env->ExceptionCheck()) {
-            env->ExceptionClear();
-        }
-        env->DeleteLocalRef(local_audio_track);
-        return;
-    }
-
-    jmethodID pause_mid = env->GetMethodID(audio_track_class, "pause", "()V");
-    jmethodID flush_mid = env->GetMethodID(audio_track_class, "flush", "()V");
-    jmethodID play_mid = env->GetMethodID(audio_track_class, "play", "()V");
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
-    }
-
-    if (pause_mid != nullptr) {
-        env->CallVoidMethod(local_audio_track, pause_mid);
-        if (env->ExceptionCheck()) {
-            env->ExceptionClear();
-        }
-    }
-
-    if (flush_mid != nullptr) {
-        env->CallVoidMethod(local_audio_track, flush_mid);
-        if (env->ExceptionCheck()) {
-            env->ExceptionClear();
-        }
-    }
-
-    const bool should_pause = context->pause_requested.load(std::memory_order_relaxed);
-    const bool should_stop = context->stop_requested.load(std::memory_order_relaxed);
-    if (!should_pause && !should_stop && play_mid != nullptr) {
-        env->CallVoidMethod(local_audio_track, play_mid);
-        if (env->ExceptionCheck()) {
-            env->ExceptionClear();
-        }
-    }
-
-    env->DeleteLocalRef(audio_track_class);
-    env->DeleteLocalRef(local_audio_track);
-}
 }  // namespace
 
 extern "C" JNIEXPORT jint JNICALL
@@ -1294,7 +1231,6 @@ Java_com_wxy_playerlite_player_NativePlayer_nativeSeek(
     }
 
     context->seek_position_ms.store(static_cast<int64_t>(position_ms), std::memory_order_relaxed);
-    FlushActiveAudioTrackForSeek(env, context);
     return 0;
 }
 

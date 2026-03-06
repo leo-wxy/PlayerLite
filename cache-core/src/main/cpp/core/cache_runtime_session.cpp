@@ -152,7 +152,7 @@ int64_t CacheRuntime::Seek(int64_t session_id, int64_t offset, int32_t whence) {
         return -1;
     }
 
-    session->read_generation.fetch_add(1);
+    const uint64_t next_generation = session->read_generation.fetch_add(1) + 1;
     session->data_cv.notify_all();
 
     if (provider_bridge_ != nullptr && session->provider_handle > 0) {
@@ -177,28 +177,44 @@ int64_t CacheRuntime::Seek(int64_t session_id, int64_t offset, int32_t whence) {
         base = std::max<int64_t>(0, length);
     }
 
-    std::lock_guard<std::mutex> lock(session->mutex);
-    if (session->closed.load()) {
-        return -1;
-    }
-
-    switch (whence) {
-        case 0:  // SEEK_SET
-            base = 0;
-            break;
-        case 1:  // SEEK_CUR
-            base = session->cursor.offset;
-            break;
-        case 2:  // SEEK_END
-            break;
-        default:
+    int64_t target_offset = -1;
+    {
+        std::lock_guard<std::mutex> lock(session->mutex);
+        if (session->closed.load()) {
             return -1;
+        }
+
+        switch (whence) {
+            case 0:  // SEEK_SET
+                base = 0;
+                break;
+            case 1:  // SEEK_CUR
+                base = session->cursor.offset;
+                break;
+            case 2:  // SEEK_END
+                break;
+            default:
+                return -1;
+        }
+
+        target_offset = std::max<int64_t>(0, base + offset);
+        session->cursor.offset = target_offset;
+        session->prefetch_cursor_offset = target_offset;
+        // Reset the in-memory window so a backward seek can immediately warm
+        // around the new target instead of staying biased to the previous tail.
+        session->memory_cache.Clear();
+        session->memory_cached_bytes.store(0);
+        session->data_cv.notify_all();
     }
 
-    session->cursor.offset = std::max<int64_t>(0, base + offset);
-    session->prefetch_cursor_offset = session->cursor.offset;
-    session->data_cv.notify_all();
-    return session->cursor.offset;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        TouchMemorySessionLocked(session_id);
+        ReportSessionMemoryBytesLocked(session_id, 0);
+    }
+
+    EnsurePrefetch(session, target_offset, next_generation);
+    return target_offset;
 }
 
 void CacheRuntime::CancelPendingRead(int64_t session_id) {

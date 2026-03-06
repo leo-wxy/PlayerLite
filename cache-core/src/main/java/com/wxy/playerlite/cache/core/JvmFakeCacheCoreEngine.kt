@@ -624,6 +624,7 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
                         else -> throw IllegalArgumentException("unsupported whence: $whence")
                     }
                     currentOffset = (base + offset).coerceAtLeast(0L)
+                    memoryBlocks.clear()
                     currentOffset
                 }
             }
