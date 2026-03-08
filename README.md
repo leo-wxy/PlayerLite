@@ -1,162 +1,126 @@
 # PlayerLite
 
-一个基于 Android + FFmpeg + JNI 的轻量播放器示例工程，当前已实现独立后台播放进程、MediaSession 系统控制、播放列表与持久化恢复。
+一个面向 Android 的音频播放器示例工程，基于 Compose + Media3 + FFmpeg + JNI + Native Cache Core 构建，当前已具备独立后台播放进程、系统媒体控制、本地/Content URI/HTTP(S) 音源播放、播放列表持久化恢复，以及网络音频缓存能力。
+
+## 当前能力
+
+- 本地音频选择与播放，支持系统文件选择器返回的 `content://` 音源
+- 自动申请并持久化 `content://` 读权限，应用重启后仍可恢复可播列表
+- 后台独立 `:playback` 进程播放，基于 `MediaSessionService` 接入系统媒体通知、锁屏控制与外部控制器
+- 系统媒体卡片点击可回到 App
+- Native FFmpeg 解封装/解码，Native `AudioTrack` 输出 PCM
+- 播放控制：播放、暂停、继续、上一首、下一首、seek
+- 播放完成后自动切到下一首（若存在）
+- 播放列表管理：新增、删除、激活项切换、拖拽排序、Bottom Sheet 展示
+- 播放列表持久化与启动恢复，不可读项会在恢复阶段校验并过滤
+- 输出链路信息透传展示：输入/输出采样率、声道数、编码格式、是否发生重采样
+- `http/https` 网络音源播放，支持 Range 请求、边播边缓存、seek 取消在途读取
+- 网络缓存支持内存 + 磁盘复用，并提供清理缓存入口
+- 内置 UI 测试流入口，便于验证本地 Range 服务与网络播放链路
 
 ## 模块划分
 
-- `app`：应用层（Compose UI、ViewModel、播放列表与业务状态）
-- `playback-service`：后台播放层（`MediaSessionService`、跨进程桥接、播放进程运行时）
-- `player`：播放器内核（Kotlin API + Native C++ + FFmpeg）
+- `:app`
+  - Compose UI、`PlayerViewModel`、播放页状态、播放列表与应用侧运行时编排
+- `:playback-service`
+  - 独立播放进程宿主，提供 `MediaSessionService`、`PlayerServiceBridge`、播放进程运行时与网络音源接入
+- `:player`
+  - 播放器内核，暴露 Kotlin API，并通过 JNI 驱动 Native C++ + FFmpeg 播放
+- `:cache-core`
+  - Native-first 缓存核心，提供 `CacheCore`、`CacheSession`、`RangeDataProvider` 等能力，当前用于 `http/https` 音源缓存
 
-## 功能特性
+## 支持的数据源
 
-- 本地音频文件选择与播放（`audio/*`）
-- 后台播放进程（`:playback`）与 `MediaSession` 系统媒体控制
-- 系统媒体卡片点击回到 App（`sessionActivity`）
-- `PlaybackOutputInfo` 与状态文本的跨进程透传展示
-- Native 解码 + Native `AudioTrack` 输出
-- 播放控制：`上一首 / 播放 / 暂停 / 继续 / 下一首 / seek`
-- 播放完成后自动切换下一首（若存在）
-- 播放列表管理：新增、删除、激活项切换、长按拖拽排序
-- 播放列表半浮层（Bottom Sheet）与右下角快捷入口
-- 播放列表持久化（`playlist_state_v1`）与启动恢复
-- 持久化数据校验与安全回退（损坏/版本不兼容时回退空列表）
-- 音频元信息读取：`codec / sampleRate / channels / bitRate / duration`
-- 进度回调与播放状态查询
-- Source 驱动架构（业务 Source -> JNI 桥接 -> Native 播放）
+- `content://`：来自系统文件选择器，依赖持久化读权限
+- `file://`：可直接读取的本地文件
+- `http://` / `https://`：通过 Range 请求驱动的网络音源，接入 `cache-core` 做缓存和 seek
 
-## 工程结构
+说明：
 
-```text
-player-lite/
-├── app/
-│   └── src/main/java/com/wxy/playerlite/
-│       ├── MainActivity.kt
-│       ├── core/playlist/
-│       │   ├── PlaylistController.kt
-│       │   ├── PlaylistModels.kt
-│       │   └── PlaylistStorage.kt
-│       ├── feature/player/
-│       │   ├── PlayerViewModel.kt
-│       │   ├── model/
-│       │   │   ├── PlaybackState.kt
-│       │   │   └── PlayerUiState.kt
-│       │   ├── runtime/
-│       │   │   ├── PlayerRuntime.kt
-│       │   │   ├── PlayerRuntimeRegistry.kt
-│       │   │   ├── PlayerUiFormatter.kt
-│       │   │   ├── PlaybackCoordinator.kt
-│       │   │   ├── PlaylistSessionCoordinator.kt
-│       │   │   ├── PreparedSourceSession.kt
-│       │   │   ├── TrackPreparationCoordinator.kt
-│       │   │   ├── MediaSourceRepository.kt
-│       │   │   └── action/
-│       │   │       ├── PlayActionHandler.kt
-│       │   │       ├── PlaybackControlActionHandler.kt
-│       │   │       ├── PlaylistActionHandler.kt
-│       │   │       └── PreparationActionHandler.kt
-│       │   └── ui/
-│       │       ├── PlayerScreen.kt
-│       │       └── components/
-│       │           ├── PlaybackControls.kt
-│       │           └── PlaylistSheet.kt
-├── playback-service/
-│   └── src/main/java/com/wxy/playerlite/playback/
-│       ├── client/
-│       │   └── PlayerServiceBridge.kt
-│       ├── model/
-│       │   ├── MusicInfo.kt
-│       │   └── PlaybackMetadataExtras.kt
-│       └── process/
-│           ├── PlayerMediaSessionService.kt
-│           ├── PlayerSessionPlayer.kt
-│           └── PlaybackProcessRuntime.kt
-├── player/
-│   ├── src/main/java/com/wxy/playerlite/player/
-│   │   ├── INativePlayer.kt
-│   │   ├── NativePlayer.kt
-│   │   └── source/
-│   │       ├── IPlaysource.kt
-│   │       ├── IDirectReadableSource.kt
-│   │       └── LocalFileSource.kt
-│   └── src/main/cpp/
-│       ├── player.cpp
-│       ├── ffmpeg_player.*
-│       ├── ffmpeg_decoder.*
-│       ├── jni_play_source.*
-│       └── CMakeLists.txt
-├── app/src/test/java/com/wxy/playerlite/core/playlist/
-│   └── PlaylistControllerTest.kt
-├── app/src/test/java/com/wxy/playerlite/feature/player/runtime/
-│   ├── PlayerUiFormatterTest.kt
-│   └── PreparedSourceSessionTest.kt
-├── openspec/
-│   ├── specs/
-│   │   ├── background-playback-service/spec.md
-│   │   ├── media-session-integration/spec.md
-│   │   ├── playlist-management/spec.md
-│   │   └── playlist-persistence/spec.md
-│   └── changes/archive/
-│       └── 2026-02-28-add-background-playback-service-mediasession/
-├── third_party/
-│   └── FFmpeg-n6.1.4/
-└── scripts/
-    └── build_ffmpeg_android.sh
-```
+- seek 是否可用取决于当前 Source 能力；部分顺序读取源可能不支持快速 seek
+- 网络音源当前聚焦 `http/https`，尚未在 README 范围内承诺 HLS/RTSP 等协议能力
 
-## 架构说明
+## 核心架构
 
-UI 与业务主链路（简化）：
+App 控制链路：
 
 ```text
 MainActivity
-  -> PlayerViewModel (StateFlow<PlayerUiState>)
-  -> PlaylistController (列表状态/持久化)
-  -> PlayerServiceBridge (MediaController)
+  -> PlayerViewModel
+  -> PlayerRuntime
+  -> PlayerServiceBridge
   -> PlayerMediaSessionService (:playback)
   -> PlaybackProcessRuntime
+  -> TrackPreparationCoordinator
   -> NativePlayer
   -> JNI / FFmpeg
   -> AudioTrack
 ```
 
-Native 播放链路（简化）：
+Source 与解码链路：
 
 ```text
-IPlaysource (Kotlin)
-  -> JniPlaySource (JNI bridge)
-  -> IPlaySource (C++)
-  -> FfmpegPlayer (C++)
-  -> FfmpegDecoder (C++)
-  -> AudioTrackConsumer (C++, via JNI)
+IPlaysource / IDirectReadableSource
+  -> JniPlaySource
+  -> FfmpegPlayer
+  -> FfmpegDecoder
+  -> AudioTrackConsumer
   -> AudioTrack
 ```
 
-说明：
+网络缓存链路：
 
-- `PlayerViewModel` 负责 UI 状态、播放流程与播放列表协同。
-- `PlaylistController` 使用版本化 JSON 进行防抖持久化与恢复校验。
-- 播放请求通过 `PlayerServiceBridge` 发送到 `:playback` 进程内的 `PlayerMediaSessionService`。
-- `NativePlayer` 使用实例级 `PlayerContext`，避免多实例互相污染。
-- 读取路径支持双通道：
-  - 基线兼容：`IPlaysource.read(ByteArray, size)`
-  - Android 优化：`IDirectReadableSource.readDirect(ByteBuffer, size)`（JNI 优先直通，失败自动回退）
+```text
+OkHttpRangeDataProvider
+  -> CachedNetworkSource
+  -> CacheCore / CacheSession
+  -> memory + disk cache
+  -> FFmpeg playback pipeline
+```
 
-## 最近一次架构变更
+补充说明：
 
-- 将播放能力拆分到独立模块 `:playback-service`，并以 `MediaSessionService` 运行在 `:playback` 进程。
-- 重整 `app` 内部目录到 `core/playlist`、`feature/player/model`、`feature/player/runtime`、`feature/player/runtime/action`。
-- 完成 OpenSpec 变更 `add-background-playback-service-mediasession` 的主规范同步并归档。
+- App 侧通过 `PlayerServiceBridge` 与独立播放进程通信，避免 UI 进程直接持有底层播放生命周期
+- `NativePlayer` 使用实例级 native context，避免多实例间状态污染
+- JNI 读取链路优先尝试 `ByteBuffer` 直写，失败后自动回退到 `byte[]` 路径
+- 播放状态、seek 能力、输出链路信息等会通过 `MediaSession` extras/metadata 回传给 UI
 
-## 构建
+## 目录概览
 
-环境建议：
+```text
+player-lite/
+├── app/
+├── playback-service/
+├── player/
+├── cache-core/
+├── third_party/FFmpeg-n6.1.4/
+├── scripts/
+├── openspec/
+├── local-media-ui-test.mp3
+└── README.md
+```
 
-- Android Studio（AGP 9.x）
+关键路径：
+
+- `app/src/main/java/com/wxy/playerlite/feature/player/`
+- `app/src/main/java/com/wxy/playerlite/core/playlist/`
+- `playback-service/src/main/java/com/wxy/playerlite/playback/`
+- `playback-service/src/main/java/com/wxy/playerlite/playback/process/source/`
+- `player/src/main/java/com/wxy/playerlite/player/`
+- `player/src/main/cpp/`
+- `cache-core/src/main/java/com/wxy/playerlite/cache/core/`
+- `cache-core/src/main/cpp/`
+
+## 构建环境
+
+建议环境：
+
+- Android Studio（AGP 9.1.x）
 - Android SDK `36`
 - NDK `27.0.12077973`
+- Java `11`
 
-初始化 FFmpeg（submodule）：
+初始化 FFmpeg submodule：
 
 ```bash
 git submodule update --init --recursive
@@ -168,9 +132,10 @@ git submodule update --init --recursive
 bash scripts/build_ffmpeg_android.sh
 ```
 
-构建与测试：
+常用验证命令：
 
 ```bash
+./gradlew :cache-core:testDebugUnitTest
 ./gradlew :playback-service:testDebugUnitTest
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:assembleDebug
@@ -182,7 +147,31 @@ bash scripts/build_ffmpeg_android.sh
 ./gradlew :app:installDebug
 ```
 
-## 使用示例（Kotlin）
+## 运行与调试
+
+### 1. 本地音频播放
+
+- 启动 App 后点击选文件按钮
+- 通过系统文件选择器选择音频文件（`audio/*`）
+- 选中的音频会加入播放列表，并由 App 侧保存持久化读权限与列表状态
+
+### 2. 本地 HTTP Range 调试
+
+仓库根目录已提供测试音频 `local-media-ui-test.mp3`，可配合脚本启动一个支持 Range 的本地服务：
+
+```bash
+python3 scripts/range_http_server.py --port 18080 --directory .
+```
+
+说明：
+
+- Android 模拟器内通过 `http://10.0.2.2:18080/local-media-ui-test.mp3` 访问宿主机服务
+- App 内的 UI 测试入口按钮会直接下发这个地址到后台播放进程
+- 可用清理缓存按钮验证网络缓存清空后的重建流程
+
+## 使用示例（播放器内核）
+
+如果你只想直接使用 `:player` 模块能力，可按下面方式驱动本地文件播放：
 
 ```kotlin
 val player: INativePlayer = NativePlayer()
@@ -191,12 +180,17 @@ val source = LocalFileSource(file)
 source.setSourceMode(IPlaysource.SourceMode.NORMAL)
 if (source.open() == IPlaysource.AudioSourceCode.ASC_SUCCESS) {
     val meta = player.loadAudioMetaDisplayFromSource(source)
-    val code = player.playFromSource(source)
+    val result = player.playFromSource(source)
 }
 
 player.close()
 source.close()
 ```
+
+说明：
+
+- 在完整 App 中，播放控制主路径通常走 `PlayerServiceBridge` -> `:playback` 进程，而不是 UI 直接调用 `NativePlayer`
+- `loadAudioMetaDisplayFromSource()` 可用于读取 `codec / sampleRate / channels / bitRate / duration`
 
 ## 常见返回码（部分）
 
@@ -209,11 +203,19 @@ source.close()
 - `-4 / -5`：Source 初始化或打开失败
 - `-6`：Native 上下文不可用
 
-其余负值可能来自 FFmpeg 或内部流程错误，建议配合 `lastError()` 排查。
+其余负值可能来自 FFmpeg、Source 或缓存/播放流程内部错误，建议结合 `lastError()` 与日志一起排查。
 
-## 后续可优化方向
+## 当前版本重点
 
-- 播放列表拖拽交互继续打磨（边缘自动滚动、回弹、触觉反馈）
-- 播放列表能力扩展（循环模式、随机模式、批量操作）
-- 在线流 Source（HTTP/HLS）与本地缓存策略
-- `player` 模块引入更细粒度解码/渲染监控指标
+- 已完成独立后台播放进程与 `MediaSession` 集成
+- 已完成播放列表管理与持久化恢复
+- 已引入 `:cache-core`，打通 `http/https` 网络播放缓存主链路
+- 已支持清理缓存、自定义测试流入口与输出链路信息展示
+- Native Source 读取链路已支持 direct buffer 优先与兼容回退
+
+## 后续可演进方向
+
+- 扩展更多网络协议与更完整的流媒体场景
+- 丰富缓存可观测性与缓存命中分析工具
+- 增强播放列表能力（循环、随机、批量操作）
+- 完善 UI 自动化与真机网络回归测试覆盖
