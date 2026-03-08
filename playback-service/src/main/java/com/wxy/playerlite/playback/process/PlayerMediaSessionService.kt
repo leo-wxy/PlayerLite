@@ -116,6 +116,9 @@ class PlayerMediaSessionService : MediaSessionService() {
             PlaybackMetadataExtras.writeStatusText(this, state.statusText)
             PlaybackMetadataExtras.writeSeekSupported(this, state.isSeekSupported)
             PlaybackMetadataExtras.writePlaybackSpeed(this, state.playbackSpeed)
+            state.audioMeta?.let { audioMeta ->
+                PlaybackMetadataExtras.writeAudioMeta(this, audioMeta)
+            }
             state.playbackOutputInfo?.let { info ->
                 PlaybackMetadataExtras.writePlaybackOutputInfo(this, info)
             }

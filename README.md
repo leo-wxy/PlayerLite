@@ -23,9 +23,13 @@
 ## 模块划分
 
 - `:app`
-  - Compose UI、`PlayerViewModel`、播放页状态、播放列表与应用侧运行时编排
+  - Compose UI、`PlayerViewModel`、播放页状态、播放列表持久化与 UI 投影层 `PlayerRuntime`
+- `:playback-client`
+  - `MediaController` 客户端桥接、命令派发、远端快照读取与映射
+- `:playback-contract`
+  - 跨模块共享的播放协议、`MusicInfo`、Session custom commands、metadata extras 与共享 DTO
 - `:playback-service`
-  - 独立播放进程宿主，提供 `MediaSessionService`、`PlayerServiceBridge`、播放进程运行时与网络音源接入
+  - 独立播放进程宿主，提供 `MediaSessionService`、`PlayerSessionPlayer`、播放进程运行时与网络音源接入
 - `:player`
   - 播放器内核，暴露 Kotlin API，并通过 JNI 驱动 Native C++ + FFmpeg 播放
 - `:cache-core`
@@ -49,9 +53,10 @@ App 控制链路：
 ```text
 MainActivity
   -> PlayerViewModel
-  -> PlayerRuntime
-  -> PlayerServiceBridge
+  -> PlayerRuntime (UI projection)
+  -> PlayerServiceBridge (:playback-client)
   -> PlayerMediaSessionService (:playback)
+  -> PlayerSessionPlayer
   -> PlaybackProcessRuntime
   -> TrackPreparationCoordinator
   -> NativePlayer
@@ -82,16 +87,20 @@ OkHttpRangeDataProvider
 
 补充说明：
 
-- App 侧通过 `PlayerServiceBridge` 与独立播放进程通信，避免 UI 进程直接持有底层播放生命周期
+- `PlaybackProcessRuntime` 是播放队列、当前曲目、seek、倍速与自然播完推进策略的唯一权威层
+- App 侧通过 `PlayerServiceBridge` 与独立播放进程通信，`PlayerRuntime` 仅保留 UI 局部状态、乐观更新与远端快照投影
+- `:playback-contract` 用于隔离共享协议，避免 `:app` 直接依赖 `:playback-service` 内部实现包
 - `NativePlayer` 使用实例级 native context，避免多实例间状态污染
 - JNI 读取链路优先尝试 `ByteBuffer` 直写，失败后自动回退到 `byte[]` 路径
-- 播放状态、seek 能力、倍速、输出链路信息等会通过 `MediaSession` extras/metadata 与 `playbackParameters` 回传给 UI
+- 播放状态、seek 能力、倍速、音频元信息、输出链路信息等会通过 `MediaSession` extras/metadata 与 `playbackParameters` 回传给 UI
 
 ## 目录概览
 
 ```text
 player-lite/
 ├── app/
+├── playback-client/
+├── playback-contract/
 ├── playback-service/
 ├── player/
 ├── cache-core/
@@ -106,6 +115,8 @@ player-lite/
 
 - `app/src/main/java/com/wxy/playerlite/feature/player/`
 - `app/src/main/java/com/wxy/playerlite/core/playlist/`
+- `playback-client/src/main/java/com/wxy/playerlite/playback/client/`
+- `playback-contract/src/main/java/com/wxy/playerlite/playback/model/`
 - `playback-service/src/main/java/com/wxy/playerlite/playback/`
 - `playback-service/src/main/java/com/wxy/playerlite/playback/process/source/`
 - `player/src/main/java/com/wxy/playerlite/player/`
@@ -139,6 +150,8 @@ bash scripts/build_ffmpeg_android.sh
 
 ```bash
 ./gradlew :cache-core:testDebugUnitTest
+./gradlew :playback-contract:testDebugUnitTest
+./gradlew :playback-client:testDebugUnitTest
 ./gradlew :playback-service:testDebugUnitTest
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:assembleDebug
@@ -194,7 +207,7 @@ source.close()
 
 说明：
 
-- 在完整 App 中，播放控制主路径通常走 `PlayerServiceBridge` -> `:playback` 进程，而不是 UI 直接调用 `NativePlayer`
+- 在完整 App 中，播放控制主路径通常走 `PlayerServiceBridge` -> `PlayerMediaSessionService` -> `PlaybackProcessRuntime`，而不是 UI 直接调用 `NativePlayer`
 - `loadAudioMetaDisplayFromSource()` 可用于读取 `codec / sampleRate / channels / bitRate / duration`
 
 ## 常见返回码（部分）
@@ -213,6 +226,7 @@ source.close()
 ## 当前版本重点
 
 - 已完成独立后台播放进程与 `MediaSession` 集成
+- 已完成 `:playback-client` / `:playback-contract` / `:playback-service` 分层拆分
 - 已完成播放列表管理与持久化恢复
 - 已引入 `:cache-core`，打通 `http/https` 网络播放缓存主链路
 - 已支持清理缓存、自定义测试流入口与输出链路信息展示

@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.wxy.playerlite.playback.service"
+    namespace = "com.wxy.playerlite.playback.contract"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -12,7 +12,6 @@ android {
 
     defaultConfig {
         minSdk = 24
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -23,13 +22,8 @@ android {
 }
 
 dependencies {
-    implementation(project(":cache-core"))
-    implementation(project(":playback-contract"))
     implementation(project(":player"))
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.media3.session)
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.12.2")

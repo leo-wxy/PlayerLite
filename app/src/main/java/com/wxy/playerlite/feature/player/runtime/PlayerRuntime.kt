@@ -3,7 +3,6 @@ package com.wxy.playerlite.feature.player.runtime
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
-import android.util.Log
 import com.wxy.playerlite.core.playlist.PlaylistController
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.SharedPreferencesPlaylistStorage
@@ -11,41 +10,25 @@ import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.emptyAudioMeta
 import com.wxy.playerlite.feature.player.model.withPlaybackSpeed
-import com.wxy.playerlite.feature.player.runtime.action.PlayActionHandler
-import com.wxy.playerlite.feature.player.runtime.action.PlaybackControlActionHandler
-import com.wxy.playerlite.feature.player.runtime.action.PlaylistActionHandler
-import com.wxy.playerlite.feature.player.runtime.action.PreparationActionHandler
-import com.wxy.playerlite.player.NativePlayer
+import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.PlaybackOutputInfo
-import kotlinx.coroutines.CoroutineScope
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import java.util.UUID
 
 internal class PlayerRuntime(
     appContext: Context,
-    private val scope: CoroutineScope,
     private val elapsedRealtimeProvider: () -> Long = { SystemClock.elapsedRealtime() }
 ) {
     private val mediaSourceRepository = MediaSourceRepository(appContext)
-    private val playbackCoordinator = PlaybackCoordinator(
-        player = NativePlayer(),
-        scope = scope
-    )
     private val playlistSession = PlaylistSessionCoordinator(
         controller = PlaylistController(
             storage = SharedPreferencesPlaylistStorage(
                 appContext.getSharedPreferences("playlist_state", Context.MODE_PRIVATE)
             ),
-            scope = scope
+            scope = PlayerRuntimeRegistry.runtimeScope
         )
-    )
-    private val sourceSession = PreparedSourceSession()
-    private val trackPreparationCoordinator = TrackPreparationCoordinator(
-        sourceRepository = mediaSourceRepository,
-        playbackCoordinator = playbackCoordinator
     )
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -61,71 +44,7 @@ internal class PlayerRuntime(
             _uiState.value = value
         }
 
-    private val playlistActions = PlaylistActionHandler(
-        playlistSession = playlistSession,
-        sourceSession = sourceSession,
-        getUiState = { uiState },
-        setUiState = { state -> uiState = state },
-        syncSelectionFromPlaylist = ::syncSelectionFromPlaylist,
-        switchToPlaylistIndex = ::switchToPlaylistIndex,
-        prepareActiveItem = { prepareActiveItem() },
-        stopPlaybackOnly = ::stopPlaybackOnly,
-        releaseSelectedSource = ::releaseSelectedSource,
-        resetAudioMetaState = ::resetAudioMetaState
-    )
-
-    private val playbackControlActions = PlaybackControlActionHandler(
-        playbackCoordinator = playbackCoordinator,
-        getUiState = { uiState },
-        setUiState = { state -> uiState = state },
-        refreshPlaybackState = { scope.launch { refreshPlaybackStateNow() } },
-        formatDuration = ::formatDuration
-    )
-
-    private val playActions = PlayActionHandler(
-        playlistSession = playlistSession,
-        sourceSession = sourceSession,
-        playbackCoordinator = playbackCoordinator,
-        getUiState = { uiState },
-        setUiState = { state -> uiState = state },
-        prepareActiveItem = { prepareActiveItem() },
-        advanceToNextAfterCompletion = ::advanceToNextAfterCompletion,
-        refreshPlaybackState = { scope.launch { refreshPlaybackStateNow() } }
-    )
-
-    private val prepareActions = PreparationActionHandler(
-        scope = scope,
-        playlistSession = playlistSession,
-        sourceSession = sourceSession,
-        trackPreparationCoordinator = trackPreparationCoordinator,
-        getUiState = { uiState },
-        setUiState = { state -> uiState = state },
-        stopPlaybackOnly = ::stopPlaybackOnly,
-        releaseSelectedSource = ::releaseSelectedSource,
-        resetAudioMetaState = ::resetAudioMetaState,
-        syncSelectionFromPlaylist = ::syncSelectionFromPlaylist,
-        removeInvalidActiveItem = ::removeInvalidActiveItem,
-        playSelectedAudio = ::playSelectedAudio
-    )
-
     init {
-        playbackCoordinator.setProgressListener { progressMs ->
-            if (!playbackCoordinator.isPlayInFlight()) {
-                return@setProgressListener
-            }
-            val normalized = progressMs.coerceAtLeast(0L)
-            val bounded = if (uiState.durationMs > 0L) normalized.coerceAtMost(uiState.durationMs) else normalized
-            if (!uiState.isSeekDragging) {
-                uiState = uiState.copy(seekPositionMs = bounded)
-            }
-        }
-
-        playbackCoordinator.setPlaybackOutputInfoListener { info ->
-            val routeText = PlayerUiFormatter.formatPlaybackOutputInfo(info)
-            Log.i(TAG, "Native playback route: $routeText")
-            uiState = uiState.copy(playbackOutputInfo = info)
-        }
-
         restorePlaylistState()
     }
 
@@ -155,13 +74,6 @@ internal class PlayerRuntime(
         )
     }
 
-    fun onSeekFinished() {
-        if (uiState.isSeekDragging) {
-            playbackControlActions.applySeek(uiState.seekDragPositionMs)
-        }
-        uiState = uiState.copy(isSeekDragging = false)
-    }
-
     fun finishSeekDrag() {
         val bounded = if (uiState.durationMs > 0L) {
             uiState.seekDragPositionMs.coerceIn(0L, uiState.durationMs)
@@ -176,37 +88,73 @@ internal class PlayerRuntime(
         updateRemoteProgressAnchor(bounded)
     }
 
-    fun seekTo(positionMs: Long) {
-        onSeekValueChange(positionMs)
-        onSeekFinished()
-    }
-
     fun onHostStop() {
         playlistSession.flush()
     }
 
     fun selectPlaylistItem(index: Int) {
-        playlistActions.selectPlaylistItem(index)
+        val target = playlistSession.itemAt(index) ?: return
+        val previousActiveId = playlistSession.activeItem?.id
+        if (playlistSession.activeIndex == index) {
+            uiState = uiState.copy(showPlaylistSheet = false)
+            return
+        }
+
+        playlistSession.setActiveIndex(index)
+        syncSelectionFromPlaylist()
+        if (previousActiveId != target.id) {
+            resetPlaybackProjection()
+        }
+        uiState = uiState.copy(
+            showPlaylistSheet = false,
+            statusText = "已切换到: ${target.displayName}"
+        )
     }
 
     fun removePlaylistItem(index: Int) {
-        playlistActions.removePlaylistItem(index)
+        val target = playlistSession.itemAt(index) ?: return
+        val previousActiveId = playlistSession.activeItem?.id
+        playlistSession.removeAt(index)
+        syncSelectionFromPlaylist()
+
+        if (playlistSession.items.isEmpty()) {
+            resetPlaybackProjection()
+            uiState = uiState.copy(
+                statusText = "播放列表已清空",
+                showPlaylistSheet = false
+            )
+            return
+        }
+
+        if (previousActiveId != playlistSession.activeItem?.id) {
+            resetPlaybackProjection()
+            uiState = uiState.copy(
+                statusText = "已移除当前项",
+                showPlaylistSheet = false
+            )
+            return
+        }
+
+        uiState = uiState.copy(
+            statusText = "已移除: ${target.displayName}",
+            showPlaylistSheet = false
+        )
     }
 
     fun movePlaylistItem(fromIndex: Int, toIndex: Int) {
-        playlistActions.movePlaylistItem(fromIndex, toIndex)
-    }
+        if (fromIndex == toIndex) {
+            return
+        }
+        if (!playlistSession.containsIndex(fromIndex) || !playlistSession.containsIndex(toIndex)) {
+            return
+        }
 
-    fun activePlaylistItem(): PlaylistItem? {
-        return playlistSession.activeItem
+        playlistSession.moveItem(fromIndex, toIndex)
+        syncSelectionFromPlaylist()
     }
 
     fun setStatusText(statusText: String) {
         uiState = uiState.copy(statusText = statusText)
-    }
-
-    fun updateRemotePlaybackOutputInfo(playbackOutputInfo: PlaybackOutputInfo?) {
-        uiState = uiState.copy(playbackOutputInfo = playbackOutputInfo)
     }
 
     fun syncActiveItemById(itemId: String?) {
@@ -228,7 +176,9 @@ internal class PlayerRuntime(
         durationMs: Long,
         isSeekSupported: Boolean,
         playbackSpeed: Float,
-        isProgressAdvancing: Boolean
+        isProgressAdvancing: Boolean,
+        playbackOutputInfo: PlaybackOutputInfo?,
+        audioMeta: AudioMetaDisplay?
     ) {
         val speedResolution = PlaybackSpeedSyncResolver.onRemoteUpdate(
             remoteSpeed = playbackSpeed,
@@ -248,7 +198,14 @@ internal class PlayerRuntime(
             durationMs = nextDuration,
             isSeekSupported = isSeekSupported,
             seekPositionMs = if (uiState.isSeekDragging) uiState.seekPositionMs else bounded,
-            seekDragPositionMs = if (uiState.isSeekDragging) uiState.seekDragPositionMs else bounded
+            seekDragPositionMs = if (uiState.isSeekDragging) uiState.seekDragPositionMs else bounded,
+            playbackOutputInfo = playbackOutputInfo,
+            audioMeta = resolveAudioMeta(
+                current = uiState.audioMeta,
+                remote = audioMeta,
+                reportedDurationMs = durationMs,
+                isSeekSupported = isSeekSupported
+            )
         ).withPlaybackSpeed(speedResolution.resolvedSpeed)
     }
 
@@ -284,50 +241,30 @@ internal class PlayerRuntime(
         }
     }
 
-    fun skipToPreviousTrack() {
-        playlistActions.skipToPreviousTrack()
-    }
-
-    fun skipToNextTrack() {
-        playlistActions.skipToNextTrack()
-    }
-
-    fun playSelectedAudio() {
-        playActions.playSelectedAudio()
-    }
-
-    fun pausePlayback() {
-        playbackControlActions.pausePlayback()
-    }
-
-    fun resumePlayback() {
-        playbackControlActions.resumePlayback()
-    }
-
     fun stopAll(updateStatus: Boolean) {
-        prepareActions.cancelPreparation()
-        sourceSession.setAutoPlayWhenPrepared(false)
-
-        stopPlaybackOnly(updateStatus = updateStatus)
+        remoteProgressShouldAdvance = false
+        pendingPlaybackSpeed = null
+        resetRemoteProgressAnchor()
+        uiState = uiState.copy(
+            audioMeta = emptyAudioMeta(),
+            playbackOutputInfo = null,
+            isSeekSupported = false,
+            durationMs = 0L,
+            seekPositionMs = 0L,
+            seekDragPositionMs = 0L,
+            isSeekDragging = false,
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            statusText = if (updateStatus) "Stopped" else uiState.statusText
+        )
     }
 
     fun formatDuration(durationMs: Long): String {
         return PlayerUiFormatter.formatDuration(durationMs)
     }
 
-    fun close() {
-        stopAll(updateStatus = false)
-        releaseSelectedSource()
-        playlistSession.flush()
-        playbackCoordinator.close()
-    }
-
     private fun restorePlaylistState() {
         playlistSession.restore(mediaSourceRepository::isPlaylistItemReadable)
         syncSelectionFromPlaylist()
-        if (playlistSession.activeItem != null) {
-            prepareActiveItem(stopPlayback = false)
-        }
     }
 
     private fun addPickedUriToPlaylist(uri: Uri) {
@@ -341,44 +278,23 @@ internal class PlayerRuntime(
             return
         }
         val displayName = mediaSourceRepository.queryDisplayName(uri)
+        val previousActiveId = playlistSession.activeItem?.id
         val item = PlaylistItem(
             id = UUID.randomUUID().toString(),
             uri = uri.toString(),
             displayName = displayName
         )
-        prepareActions.addPickedUri(
-            displayName = displayName,
-            item = item
-        )
-    }
-
-    private fun switchToPlaylistIndex(targetIndex: Int) {
-        val target = playlistSession.itemAt(targetIndex) ?: return
-        playlistSession.setActiveIndex(targetIndex)
+        playlistSession.addItem(item, makeActive = true)
         syncSelectionFromPlaylist()
-        sourceSession.setAutoPlayWhenPrepared(false)
-        uiState = uiState.copy(
-            statusText = "已切换到: ${target.displayName}"
-        )
-        prepareActiveItem()
-    }
-
-    private fun prepareActiveItem(stopPlayback: Boolean = true) {
-        prepareActions.prepareActiveItem(stopPlayback = stopPlayback)
-    }
-
-    private fun removeInvalidActiveItem(item: PlaylistItem, message: String) {
-        playlistSession.removeItemById(item.id)
-        syncSelectionFromPlaylist()
-        releaseSelectedSource()
-        resetAudioMetaState()
-        uiState = uiState.copy(statusText = "$message，已从播放列表移除")
-        if (playlistSession.activeItem != null) {
-            prepareActiveItem(stopPlayback = false)
+        if (previousActiveId != item.id) {
+            resetPlaybackProjection()
         }
+        uiState = uiState.copy(statusText = "Added to playlist: $displayName")
     }
 
-    private fun resetAudioMetaState() {
+    private fun resetPlaybackProjection() {
+        remoteProgressShouldAdvance = false
+        resetRemoteProgressAnchor()
         uiState = uiState.copy(
             audioMeta = emptyAudioMeta(),
             playbackOutputInfo = null,
@@ -386,10 +302,9 @@ internal class PlayerRuntime(
             durationMs = 0L,
             seekPositionMs = 0L,
             seekDragPositionMs = 0L,
-            isSeekDragging = false
+            isSeekDragging = false,
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED
         )
-        pendingPlaybackSpeed = null
-        resetRemoteProgressAnchor()
     }
 
     private fun syncSelectionFromPlaylist() {
@@ -403,32 +318,6 @@ internal class PlayerRuntime(
         )
     }
 
-    private fun stopPlaybackOnly(updateStatus: Boolean) {
-        sourceSession.stopCurrent()
-        playbackCoordinator.stopPlayback()
-        remoteProgressShouldAdvance = false
-
-        uiState = uiState.copy(
-            seekPositionMs = 0L,
-            seekDragPositionMs = 0L,
-            isSeekDragging = false,
-            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
-            statusText = if (updateStatus) "Stopped" else uiState.statusText
-        )
-        pendingPlaybackSpeed = null
-        resetRemoteProgressAnchor()
-    }
-
-    private fun releaseSelectedSource() {
-        sourceSession.release()
-    }
-
-    private fun startPlaybackStateObserver() {
-        playbackCoordinator.startPlaybackStateObserver(intervalMs = 200L) { playState ->
-            uiState = uiState.copy(playbackState = playState)
-        }
-    }
-
     private fun updateRemoteProgressAnchor(positionMs: Long) {
         remoteProgressAnchorPositionMs = positionMs
         remoteProgressAnchorElapsedRealtimeMs = elapsedRealtimeProvider()
@@ -439,27 +328,12 @@ internal class PlayerRuntime(
         remoteProgressAnchorElapsedRealtimeMs = elapsedRealtimeProvider()
     }
 
-    private suspend fun refreshPlaybackStateNow() {
-        playbackCoordinator.refreshPlaybackState { playState ->
-            uiState = uiState.copy(playbackState = playState)
-        }
-    }
-
-    private fun advanceToNextAfterCompletion(): Boolean {
-        val oldState = playlistSession.state
-        val nextState = playlistSession.moveToNext()
-        if (nextState == oldState) {
-            return false
-        }
-
-        syncSelectionFromPlaylist()
-        sourceSession.setAutoPlayWhenPrepared(true)
-        uiState = uiState.copy(statusText = "Track finished, preparing next...")
-        prepareActiveItem(stopPlayback = false)
-        return true
-    }
-
-    private companion object {
-        private const val TAG = "PlayerRuntime"
+    private fun resolveAudioMeta(
+        current: AudioMetaDisplay,
+        remote: AudioMetaDisplay?,
+        reportedDurationMs: Long,
+        isSeekSupported: Boolean
+    ): AudioMetaDisplay {
+        return remote ?: if (reportedDurationMs <= 0L && !isSeekSupported) emptyAudioMeta() else current
     }
 }

@@ -1,6 +1,7 @@
 package com.wxy.playerlite.playback.model
 
 import android.os.Bundle
+import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.PlaybackOutputInfo
 
 object PlaybackMetadataExtras {
@@ -14,6 +15,11 @@ object PlaybackMetadataExtras {
     private const val KEY_OUTPUT_RESAMPLER = "output_uses_resampler"
     private const val KEY_SEEK_SUPPORTED = "seek_supported"
     private const val KEY_PLAYBACK_SPEED = "playback_speed"
+    private const val KEY_AUDIO_META_CODEC = "audio_meta_codec"
+    private const val KEY_AUDIO_META_SAMPLE_RATE = "audio_meta_sample_rate"
+    private const val KEY_AUDIO_META_CHANNELS = "audio_meta_channels"
+    private const val KEY_AUDIO_META_BIT_RATE = "audio_meta_bit_rate"
+    private const val KEY_AUDIO_META_DURATION_MS = "audio_meta_duration_ms"
 
     fun writePlaybackOutputInfo(extras: Bundle, info: PlaybackOutputInfo) {
         extras.putInt(KEY_OUTPUT_INPUT_SAMPLE_RATE, info.inputSampleRateHz)
@@ -37,6 +43,14 @@ object PlaybackMetadataExtras {
         extras.putFloat(KEY_PLAYBACK_SPEED, playbackSpeed)
     }
 
+    fun writeAudioMeta(extras: Bundle, audioMeta: AudioMetaDisplay) {
+        extras.putString(KEY_AUDIO_META_CODEC, audioMeta.codec)
+        extras.putString(KEY_AUDIO_META_SAMPLE_RATE, audioMeta.sampleRate)
+        extras.putString(KEY_AUDIO_META_CHANNELS, audioMeta.channels)
+        extras.putString(KEY_AUDIO_META_BIT_RATE, audioMeta.bitRate)
+        extras.putLong(KEY_AUDIO_META_DURATION_MS, audioMeta.durationMs)
+    }
+
     fun readStatusText(extras: Bundle?): String? {
         return extras?.getString(KEY_STATUS_TEXT)
     }
@@ -53,6 +67,19 @@ object PlaybackMetadataExtras {
             return null
         }
         return extras.getFloat(KEY_PLAYBACK_SPEED)
+    }
+
+    fun readAudioMeta(extras: Bundle?): AudioMetaDisplay? {
+        if (extras == null || !extras.containsKey(KEY_AUDIO_META_CODEC)) {
+            return null
+        }
+        return AudioMetaDisplay(
+            codec = extras.getString(KEY_AUDIO_META_CODEC).orEmpty(),
+            sampleRate = extras.getString(KEY_AUDIO_META_SAMPLE_RATE).orEmpty(),
+            channels = extras.getString(KEY_AUDIO_META_CHANNELS).orEmpty(),
+            bitRate = extras.getString(KEY_AUDIO_META_BIT_RATE).orEmpty(),
+            durationMs = extras.getLong(KEY_AUDIO_META_DURATION_MS, 0L)
+        )
     }
 
     fun readPlaybackOutputInfo(extras: Bundle?): PlaybackOutputInfo? {

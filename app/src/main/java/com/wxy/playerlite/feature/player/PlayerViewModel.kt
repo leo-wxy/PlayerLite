@@ -14,6 +14,7 @@ import com.wxy.playerlite.feature.player.runtime.PlayerRuntimeRegistry
 import com.wxy.playerlite.playback.client.PlayerServiceBridge
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.MusicInfo
+import com.wxy.playerlite.playback.process.PlayerMediaSessionService
 import com.wxy.playerlite.player.PlaybackSpeed
 import java.util.UUID
 import kotlinx.coroutines.Job
@@ -25,7 +26,7 @@ import kotlinx.coroutines.launch
 internal class PlayerViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
     private val runtime = PlayerRuntimeRegistry.get(appContext)
-    private val serviceBridge = PlayerServiceBridge(appContext) { errorMessage ->
+    private val serviceBridge = PlayerServiceBridge(appContext, PlayerMediaSessionService::class.java) { errorMessage ->
         runtime.setStatusText(errorMessage)
         Log.w(TAG, errorMessage)
     }
@@ -123,15 +124,17 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
     }
 
     fun skipToPreviousTrack() {
-        val shouldContinue = uiStateFlow.value.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING
-        runtime.skipToPreviousTrack()
-        syncQueueToPlaybackProcess(playWhenReady = shouldContinue)
+        serviceBridge.connectIfNeeded()
+        if (!serviceBridge.seekToPreviousMediaItem()) {
+            runtime.setStatusText("切换上一首失败：后台播放进程未连接")
+        }
     }
 
     fun skipToNextTrack() {
-        val shouldContinue = uiStateFlow.value.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING
-        runtime.skipToNextTrack()
-        syncQueueToPlaybackProcess(playWhenReady = shouldContinue)
+        serviceBridge.connectIfNeeded()
+        if (!serviceBridge.seekToNextMediaItem()) {
+            runtime.setStatusText("切换下一首失败：后台播放进程未连接")
+        }
     }
 
     fun playSelectedAudio() {
@@ -218,9 +221,10 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
             durationMs = snapshot.durationMs,
             isSeekSupported = snapshot.isSeekSupported,
             playbackSpeed = snapshot.playbackSpeed,
-            isProgressAdvancing = snapshot.isPlaying
+            isProgressAdvancing = snapshot.isPlaying,
+            playbackOutputInfo = snapshot.playbackOutputInfo,
+            audioMeta = snapshot.audioMeta
         )
-        runtime.updateRemotePlaybackOutputInfo(snapshot.playbackOutputInfo)
         runtime.syncActiveItemById(snapshot.currentMediaId)
         snapshot.statusText
             ?.takeIf { it.isNotBlank() }

@@ -41,6 +41,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":playback-client"))
+    implementation(project(":playback-contract"))
     implementation(project(":playback-service"))
     implementation(project(":player"))
     implementation(libs.androidx.core.ktx)
@@ -56,6 +58,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")
+    testImplementation("org.robolectric:robolectric:4.12.2")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

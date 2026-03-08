@@ -9,7 +9,7 @@ internal object PlayerRuntimeRegistry {
     @Volatile
     private var runtime: PlayerRuntime? = null
 
-    private val runtimeScope: CoroutineScope by lazy {
+    val runtimeScope: CoroutineScope by lazy {
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     }
 
@@ -21,8 +21,7 @@ internal object PlayerRuntimeRegistry {
 
         return synchronized(this) {
             runtime ?: PlayerRuntime(
-                appContext = context.applicationContext,
-                scope = runtimeScope
+                appContext = context.applicationContext
             ).also {
                 runtime = it
             }

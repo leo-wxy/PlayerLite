@@ -6,6 +6,7 @@ import androidx.media3.common.MediaItem
 import android.util.Log
 import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.config.CacheCoreConfig
+import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.NativePlayer
 import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.player.PlaybackOutputInfo
@@ -28,6 +29,7 @@ internal data class PlaybackProcessState(
     val isSeekSupported: Boolean = false,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
+    val audioMeta: AudioMetaDisplay? = null,
     val isPreparing: Boolean = false,
     val statusText: String = "Idle"
 ) {
@@ -351,6 +353,7 @@ internal class PlaybackProcessRuntime(
             isSeekSupported = false,
             durationMs = 0L,
             positionMs = 0L,
+            audioMeta = null,
             statusText = if (success) {
                 "缓存已清理"
             } else {
@@ -380,6 +383,7 @@ internal class PlaybackProcessRuntime(
                         isPreparing = false,
                         playbackState = PLAYBACK_STATE_STOPPED,
                         isSeekSupported = false,
+                        audioMeta = null,
                         statusText = preparation.message
                     )
                     false
@@ -392,6 +396,7 @@ internal class PlaybackProcessRuntime(
                         isPreparing = false,
                         isSeekSupported = preparation.isSeekSupported,
                         durationMs = duration,
+                        audioMeta = preparation.mediaMeta,
                         statusText = if (!preparation.isSeekSupported) {
                             "Prepared (seek unavailable)"
                         } else if (duration > 0L) {
@@ -411,6 +416,7 @@ internal class PlaybackProcessRuntime(
                 isPreparing = false,
                 playbackState = PLAYBACK_STATE_STOPPED,
                 isSeekSupported = false,
+                audioMeta = null,
                 statusText = "Failed to prepare media"
             )
             false
@@ -449,6 +455,7 @@ internal class PlaybackProcessRuntime(
             isSeekSupported = if (changedTrack) false else previous.isSeekSupported,
             positionMs = if (changedTrack) 0L else previous.positionMs,
             durationMs = if (changedTrack) 0L else previous.durationMs,
+            audioMeta = if (changedTrack) null else previous.audioMeta,
             isPreparing = false,
             statusText = statusText
         )

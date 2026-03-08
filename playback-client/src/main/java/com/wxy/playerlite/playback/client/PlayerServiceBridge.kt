@@ -16,26 +16,11 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.wxy.playerlite.playback.model.MusicInfo
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
-import com.wxy.playerlite.player.PlaybackSpeed
-import com.wxy.playerlite.playback.process.PlayerMediaSessionService
-import com.wxy.playerlite.player.PlaybackOutputInfo
-
-data class RemotePlaybackSnapshot(
-    val playbackState: Int,
-    val playWhenReady: Boolean,
-    val isPlaying: Boolean,
-    val isSeekSupported: Boolean,
-    val currentPositionMs: Long,
-    val durationMs: Long,
-    val playbackSpeed: Float,
-    val statusText: String?,
-    val currentMediaId: String?,
-    val playbackOutputInfo: PlaybackOutputInfo?
-)
 
 @UnstableApi
 class PlayerServiceBridge(
     context: Context,
+    private val serviceClass: Class<*>,
     private val onControllerError: (String) -> Unit
 ) {
     private val appContext = context.applicationContext
@@ -47,7 +32,7 @@ class PlayerServiceBridge(
     private val pendingActions = mutableListOf<(MediaController) -> Unit>()
 
     fun ensureServiceStarted() {
-        val intent = Intent(appContext, PlayerMediaSessionService::class.java)
+        val intent = Intent(appContext, serviceClass)
         appContext.startService(intent)
     }
 
@@ -70,7 +55,7 @@ class PlayerServiceBridge(
 
         val token = SessionToken(
             appContext,
-            ComponentName(appContext, PlayerMediaSessionService::class.java)
+            ComponentName(appContext, serviceClass)
         )
         val future = MediaController.Builder(appContext, token).buildAsync()
         controllerFuture = future
@@ -109,21 +94,21 @@ class PlayerServiceBridge(
         activeIndex: Int,
         playWhenReady: Boolean
     ): Boolean {
-        return withController { controller ->
+        return withController { activeController ->
             if (queue.isEmpty()) {
-                controller.stop()
-                controller.clearMediaItems()
+                activeController.stop()
+                activeController.clearMediaItems()
                 return@withController
             }
 
             val mediaItems = queue.map { it.toMediaItem() }
             val normalizedIndex = activeIndex.coerceIn(0, mediaItems.lastIndex)
-            controller.setMediaItems(mediaItems, normalizedIndex, C.TIME_UNSET)
-            controller.prepare()
+            activeController.setMediaItems(mediaItems, normalizedIndex, C.TIME_UNSET)
+            activeController.prepare()
             if (playWhenReady) {
-                controller.play()
+                activeController.play()
             } else {
-                controller.pause()
+                activeController.pause()
             }
         }
     }
@@ -144,13 +129,21 @@ class PlayerServiceBridge(
         return withController { it.seekTo(positionMs) }
     }
 
+    fun seekToNextMediaItem(): Boolean {
+        return withController { it.seekToNextMediaItem() }
+    }
+
+    fun seekToPreviousMediaItem(): Boolean {
+        return withController { it.seekToPreviousMediaItem() }
+    }
+
     fun stop(): Boolean {
         return withController { it.stop() }
     }
 
     fun clearCache(): Boolean {
-        return withController { controller ->
-            val future = controller.sendCustomCommand(
+        return withController { activeController ->
+            val future = activeController.sendCustomCommand(
                 SessionCommand(PlaybackSessionCommands.ACTION_CLEAR_CACHE, Bundle.EMPTY),
                 Bundle.EMPTY
             )
@@ -177,8 +170,8 @@ class PlayerServiceBridge(
         val args = Bundle().apply {
             putFloat(PlaybackSessionCommands.EXTRA_PLAYBACK_SPEED, speed)
         }
-        return withController { controller ->
-            val future = controller.sendCustomCommand(
+        return withController { activeController ->
+            val future = activeController.sendCustomCommand(
                 SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_SPEED, Bundle.EMPTY),
                 args
             )
@@ -209,32 +202,29 @@ class PlayerServiceBridge(
         val activeController = controller ?: return null
         val sessionExtras = activeController.sessionExtras
         val currentMetadata = activeController.currentMediaItem?.mediaMetadata
-        val playbackOutputInfo = PlaybackMetadataExtras.readPlaybackOutputInfo(currentMetadata?.extras)
-            ?: PlaybackMetadataExtras.readPlaybackOutputInfo(sessionExtras)
-            ?: PlaybackMetadataExtras.readPlaybackOutputInfo(activeController.mediaMetadata.extras)
-        val seekSupported = PlaybackMetadataExtras.readSeekSupported(currentMetadata?.extras)
+        val currentMetadataExtras = currentMetadata?.extras
+        val rootMetadataExtras = activeController.mediaMetadata.extras
+        val seekSupported = PlaybackMetadataExtras.readSeekSupported(currentMetadataExtras)
             ?: PlaybackMetadataExtras.readSeekSupported(sessionExtras)
-            ?: PlaybackMetadataExtras.readSeekSupported(activeController.mediaMetadata.extras)
+            ?: PlaybackMetadataExtras.readSeekSupported(rootMetadataExtras)
             ?: false
-        val playbackSpeed = activeController.playbackParameters.speed
-            .takeIf { it > 0f }
-            ?: PlaybackMetadataExtras.readPlaybackSpeed(currentMetadata?.extras)
-            ?: PlaybackMetadataExtras.readPlaybackSpeed(sessionExtras)
-            ?: PlaybackMetadataExtras.readPlaybackSpeed(activeController.mediaMetadata.extras)
-            ?: PlaybackSpeed.DEFAULT.value
-        return RemotePlaybackSnapshot(
+        val statusText = PlaybackMetadataExtras.readStatusText(sessionExtras)
+            ?: currentMetadata?.subtitle?.toString()
+            ?: activeController.mediaMetadata.subtitle?.toString()
+
+        return RemotePlaybackSnapshotMapper.map(
             playbackState = activeController.playbackState,
             playWhenReady = activeController.playWhenReady,
             isPlaying = activeController.isPlaying,
             isSeekSupported = seekSupported,
             currentPositionMs = activeController.currentPosition,
             durationMs = activeController.duration.takeIf { it != C.TIME_UNSET } ?: 0L,
-            playbackSpeed = playbackSpeed,
-            statusText = PlaybackMetadataExtras.readStatusText(sessionExtras)
-                ?: currentMetadata?.subtitle?.toString()
-                ?: activeController.mediaMetadata.subtitle?.toString(),
+            playbackParametersSpeed = activeController.playbackParameters.speed,
+            currentMetadataExtras = currentMetadataExtras,
+            sessionExtras = sessionExtras,
+            rootMetadataExtras = rootMetadataExtras,
             currentMediaId = activeController.currentMediaItem?.mediaId?.takeIf { it.isNotBlank() },
-            playbackOutputInfo = playbackOutputInfo
+            statusText = statusText
         )
     }
 

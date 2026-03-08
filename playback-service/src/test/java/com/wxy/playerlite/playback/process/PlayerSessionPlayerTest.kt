@@ -3,7 +3,9 @@ package com.wxy.playerlite.playback.process
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.PlaybackParameters
+import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.MusicInfo
+import com.wxy.playerlite.player.AudioMetaDisplay
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -59,6 +62,44 @@ class PlayerSessionPlayerTest {
         shadowOf(Looper.getMainLooper()).idle()
 
         assertEquals(PlaybackParameters(2.0f), playbackParameters.get())
+    }
+
+    @Test
+    fun getState_writesCurrentAudioMetaIntoCurrentItemExtras() {
+        val runtime = createRuntime(
+            PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        music = MusicInfo(
+                            id = "track-1",
+                            title = "Track 1",
+                            playbackUri = "https://example.com/track-1.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 0,
+                audioMeta = AudioMetaDisplay(
+                    codec = "FLAC",
+                    sampleRate = "96000 Hz",
+                    channels = "2",
+                    bitRate = "Lossless",
+                    durationMs = 321_000L
+                )
+            )
+        )
+
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+        val extrasRef = AtomicReference<android.os.Bundle?>()
+
+        Handler(Looper.getMainLooper()).post {
+            extrasRef.set(player.currentMediaItem?.mediaMetadata?.extras)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val audioMeta = PlaybackMetadataExtras.readAudioMeta(extrasRef.get())
+        assertNotNull(audioMeta)
+        assertEquals("FLAC", audioMeta?.codec)
+        assertEquals(321_000L, audioMeta?.durationMs)
     }
 
     private fun createRuntime(state: PlaybackProcessState): PlaybackProcessRuntime {

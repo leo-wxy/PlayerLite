@@ -41,6 +41,9 @@ internal class PlayerSessionPlayer(
             val item = if (track.id == currentTrackId) {
                 val extras = Bundle(baseItem.mediaMetadata.extras ?: Bundle())
                 PlaybackMetadataExtras.writePlaybackSpeed(extras, runtimeState.playbackSpeed)
+                runtimeState.audioMeta?.let { audioMeta ->
+                    PlaybackMetadataExtras.writeAudioMeta(extras, audioMeta)
+                }
                 runtimeState.playbackOutputInfo?.let { info ->
                     PlaybackMetadataExtras.writePlaybackOutputInfo(extras, info)
                 }
