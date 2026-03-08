@@ -33,6 +33,8 @@ interface INativePlayer {
 
     fun setPlaybackOutputInfoListener(listener: ((PlaybackOutputInfo) -> Unit)?)
 
+    fun setPlaybackSpeed(speed: Float): Int
+
     fun playFromSource(source: IPlaysource): Int
 
     fun pause(): Int

@@ -30,6 +30,10 @@ internal class PlaybackCoordinator(
         player.setPlaybackOutputInfoListener(listener)
     }
 
+    fun setPlaybackSpeed(speed: Float): Int {
+        return player.setPlaybackSpeed(speed)
+    }
+
     fun launchPlay(
         source: IPlaysource,
         onStarted: () -> Unit,

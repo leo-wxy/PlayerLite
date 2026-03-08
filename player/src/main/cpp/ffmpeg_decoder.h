@@ -30,6 +30,8 @@ public:
     virtual bool ShouldStop() const = 0;
     // 拉取一次性 seek 请求（毫秒），<0 表示当前无 seek 请求。
     virtual int64_t TakeSeekPositionMs() = 0;
+    // 返回当前生效的播放倍速（以 0.1X 为单位的整数，例如 1.0X -> 10）。
+    virtual int CurrentPlaybackSpeedTenths() const = 0;
 };
 
 struct AudioMetadata {

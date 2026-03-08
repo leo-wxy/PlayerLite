@@ -45,6 +45,7 @@ class MainActivity : ComponentActivity() {
                         isPreparing = state.isPreparing,
                         playbackState = state.playbackState,
                         isSeekSupported = state.isSeekSupported,
+                        playbackSpeed = state.playbackSpeed,
                         seekValueMs = state.displayedSeekMs,
                         currentDurationText = viewModel.formatDuration(state.displayedSeekMs),
                         durationMs = state.durationMs,
@@ -69,6 +70,7 @@ class MainActivity : ComponentActivity() {
                         onNext = viewModel::skipToNextTrack,
                         onPause = viewModel::pausePlayback,
                         onResume = viewModel::resumePlayback,
+                        onPlaybackSpeedChange = viewModel::updatePlaybackSpeed,
                         onSeekValueChange = viewModel::onSeekValueChange,
                         onSeekFinished = viewModel::onSeekFinished
                     )

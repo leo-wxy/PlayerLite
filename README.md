@@ -9,8 +9,10 @@
 - 后台独立 `:playback` 进程播放，基于 `MediaSessionService` 接入系统媒体通知、锁屏控制与外部控制器
 - 系统媒体卡片点击可回到 App
 - Native FFmpeg 解封装/解码，Native `AudioTrack` 输出 PCM
-- 播放控制：播放、暂停、继续、上一首、下一首、seek
-- 播放完成后自动切到下一首（若存在）
+- 播放控制：播放、暂停、继续、上一首、下一首、seek、播放倍速调整
+- 倍速控制：支持 `0.5X` ~ `2.0X`、`0.1X` 步进，native 侧变速不变调
+- 主控区入口：左侧倍速入口、右侧播放列表入口，统一图标化 UI 风格与 badge 展示
+- 播放完成后自动切到下一首（若存在），最后一首播放完成后停止
 - 播放列表管理：新增、删除、激活项切换、拖拽排序、Bottom Sheet 展示
 - 播放列表持久化与启动恢复，不可读项会在恢复阶段校验并过滤
 - 输出链路信息透传展示：输入/输出采样率、声道数、编码格式、是否发生重采样
@@ -83,7 +85,7 @@ OkHttpRangeDataProvider
 - App 侧通过 `PlayerServiceBridge` 与独立播放进程通信，避免 UI 进程直接持有底层播放生命周期
 - `NativePlayer` 使用实例级 native context，避免多实例间状态污染
 - JNI 读取链路优先尝试 `ByteBuffer` 直写，失败后自动回退到 `byte[]` 路径
-- 播放状态、seek 能力、输出链路信息等会通过 `MediaSession` extras/metadata 回传给 UI
+- 播放状态、seek 能力、倍速、输出链路信息等会通过 `MediaSession` extras/metadata 与 `playbackParameters` 回传给 UI
 
 ## 目录概览
 
@@ -154,6 +156,8 @@ bash scripts/build_ffmpeg_android.sh
 - 启动 App 后点击选文件按钮
 - 通过系统文件选择器选择音频文件（`audio/*`）
 - 选中的音频会加入播放列表，并由 App 侧保存持久化读权限与列表状态
+- 主控区左侧可调节倍速，右侧可打开播放列表
+- 当播放列表中当前曲目自然播放完成且仍有下一首时，系统会自动切到下一首继续播放
 
 ### 2. 本地 HTTP Range 调试
 

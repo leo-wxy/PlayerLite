@@ -38,9 +38,12 @@ internal class PlayerSessionPlayer(
             val baseItem = track.toMediaItem(
                 statusText = if (track.id == currentTrackId) runtimeState.statusText else null
             )
-            val item = if (track.id == currentTrackId && runtimeState.playbackOutputInfo != null) {
+            val item = if (track.id == currentTrackId) {
                 val extras = Bundle(baseItem.mediaMetadata.extras ?: Bundle())
-                PlaybackMetadataExtras.writePlaybackOutputInfo(extras, runtimeState.playbackOutputInfo)
+                PlaybackMetadataExtras.writePlaybackSpeed(extras, runtimeState.playbackSpeed)
+                runtimeState.playbackOutputInfo?.let { info ->
+                    PlaybackMetadataExtras.writePlaybackOutputInfo(extras, info)
+                }
                 baseItem.buildUpon()
                     .setMediaMetadata(baseItem.mediaMetadata.buildUpon().setExtras(extras).build())
                     .build()
@@ -88,6 +91,9 @@ internal class PlayerSessionPlayer(
                     playWhenReady = runtimeState.playWhenReady,
                     isPreparing = runtimeState.isPreparing
                 )
+            )
+            .setPlaybackParameters(
+                PlayerSessionMapping.playbackParameters(runtimeState.playbackSpeed)
             )
             .setContentPositionMs(runtimeState.positionMs.coerceAtLeast(0L))
             .build()

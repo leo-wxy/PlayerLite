@@ -1,6 +1,8 @@
 package com.wxy.playerlite.playback.process
 
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import com.wxy.playerlite.player.PlaybackSpeed
 
 internal object PlayerSessionMapping {
     fun media3PlaybackState(
@@ -26,5 +28,9 @@ internal object PlayerSessionMapping {
 
     fun isPlaying(nativePlaybackState: Int): Boolean {
         return nativePlaybackState == PLAYBACK_STATE_PLAYING
+    }
+
+    fun playbackParameters(playbackSpeed: Float): PlaybackParameters {
+        return PlaybackParameters(PlaybackSpeed.normalizeValue(playbackSpeed))
     }
 }

@@ -1,7 +1,9 @@
 #include "ffmpeg_decoder.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <string>
 
@@ -17,6 +19,9 @@ extern "C" {
 #include <libavutil/channel_layout.h>
 #include <libavutil/error.h>
 #include <libavutil/opt.h>
+#include <libavfilter/avfilter.h>
+#include <libavfilter/buffersink.h>
+#include <libavfilter/buffersrc.h>
 #include <libswresample/swresample.h>
 }
 
@@ -82,13 +87,319 @@ bool NeedsResample(
     return !(same_sample_rate && same_layout && same_sample_format);
 }
 
+int NormalizePlaybackSpeedTenths(int speed_tenths) {
+    return std::max(5, std::min(20, speed_tenths));
+}
+
+class AudioTempoProcessor {
+public:
+    ~AudioTempoProcessor() {
+        Reset();
+    }
+
+    int ProcessInterleaved(
+            const uint8_t* data,
+            int nb_samples,
+            const AVChannelLayout& channel_layout,
+            AVSampleFormat sample_format,
+            int sample_rate,
+            int channels,
+            PcmConsumer* consumer,
+            std::string* error_message) {
+        if (data == nullptr || nb_samples <= 0 || consumer == nullptr) {
+            return 0;
+        }
+
+        const int speed_tenths = NormalizePlaybackSpeedTenths(
+                consumer->CurrentPlaybackSpeedTenths());
+        int result = EnsureGraph(
+                channel_layout,
+                sample_format,
+                sample_rate,
+                channels,
+                speed_tenths,
+                error_message);
+        if (result < 0) {
+            return result;
+        }
+
+        if (current_speed_tenths_ != speed_tenths) {
+            result = UpdateTempo(speed_tenths, error_message);
+            if (result < 0) {
+                return result;
+            }
+        }
+
+        AVFrame* frame = av_frame_alloc();
+        if (frame == nullptr) {
+            return AVERROR(ENOMEM);
+        }
+
+        frame->format = sample_format;
+        frame->sample_rate = sample_rate;
+        frame->nb_samples = nb_samples;
+        result = av_channel_layout_copy(&frame->ch_layout, &channel_layout);
+        if (result < 0) {
+            av_frame_free(&frame);
+            return result;
+        }
+
+        result = av_frame_get_buffer(frame, 0);
+        if (result < 0) {
+            av_frame_free(&frame);
+            return result;
+        }
+
+        const int buffer_size = av_samples_get_buffer_size(
+                nullptr,
+                channels,
+                nb_samples,
+                sample_format,
+                1);
+        if (buffer_size < 0) {
+            av_frame_free(&frame);
+            return buffer_size;
+        }
+        memcpy(frame->data[0], data, buffer_size);
+
+        result = av_buffersrc_add_frame_flags(buffer_src_ctx_, frame, 0);
+        av_frame_free(&frame);
+        if (result < 0) {
+            if (error_message != nullptr) {
+                *error_message = "buffersrc add frame failed: " + FfErrorToString(result);
+            }
+            return result;
+        }
+
+        return Drain(consumer, error_message);
+    }
+
+    int Flush(PcmConsumer* consumer, std::string* error_message) {
+        if (buffer_src_ctx_ == nullptr || buffer_sink_ctx_ == nullptr || consumer == nullptr) {
+            return 0;
+        }
+
+        int result = av_buffersrc_add_frame_flags(buffer_src_ctx_, nullptr, 0);
+        if (result < 0 && result != AVERROR_EOF) {
+            if (error_message != nullptr) {
+                *error_message = "tempo flush failed: " + FfErrorToString(result);
+            }
+            return result;
+        }
+        return Drain(consumer, error_message);
+    }
+
+    void Reset() {
+        if (graph_ != nullptr) {
+            avfilter_graph_free(&graph_);
+            graph_ = nullptr;
+        }
+        buffer_src_ctx_ = nullptr;
+        atempo_ctx_ = nullptr;
+        buffer_sink_ctx_ = nullptr;
+        current_sample_format_ = AV_SAMPLE_FMT_NONE;
+        current_sample_rate_ = 0;
+        current_channels_ = 0;
+        current_speed_tenths_ = 10;
+        av_channel_layout_uninit(&current_channel_layout_);
+    }
+
+private:
+    int EnsureGraph(
+            const AVChannelLayout& channel_layout,
+            AVSampleFormat sample_format,
+            int sample_rate,
+            int channels,
+            int speed_tenths,
+            std::string* error_message) {
+        const bool same_layout =
+                graph_ != nullptr &&
+                av_channel_layout_compare(&current_channel_layout_, &channel_layout) == 0;
+        const bool same_config =
+                same_layout &&
+                current_sample_format_ == sample_format &&
+                current_sample_rate_ == sample_rate &&
+                current_channels_ == channels;
+        if (same_config) {
+            return 0;
+        }
+
+        Reset();
+
+        graph_ = avfilter_graph_alloc();
+        if (graph_ == nullptr) {
+            return AVERROR(ENOMEM);
+        }
+
+        const AVFilter* abuffer = avfilter_get_by_name("abuffer");
+        const AVFilter* atempo = avfilter_get_by_name("atempo");
+        const AVFilter* abuffersink = avfilter_get_by_name("abuffersink");
+        if (abuffer == nullptr || atempo == nullptr || abuffersink == nullptr) {
+            if (error_message != nullptr) {
+                *error_message = "required audio tempo filters unavailable";
+            }
+            return AVERROR_FILTER_NOT_FOUND;
+        }
+
+        buffer_src_ctx_ = avfilter_graph_alloc_filter(graph_, abuffer, "src");
+        atempo_ctx_ = avfilter_graph_alloc_filter(graph_, atempo, "tempo");
+        buffer_sink_ctx_ = avfilter_graph_alloc_filter(graph_, abuffersink, "sink");
+        if (buffer_src_ctx_ == nullptr || atempo_ctx_ == nullptr || buffer_sink_ctx_ == nullptr) {
+            if (error_message != nullptr) {
+                *error_message = "failed to allocate tempo filter contexts";
+            }
+            return AVERROR(ENOMEM);
+        }
+
+        char layout_desc[64] = {0};
+        av_channel_layout_describe(&channel_layout, layout_desc, sizeof(layout_desc));
+        av_opt_set(buffer_src_ctx_, "channel_layout", layout_desc, AV_OPT_SEARCH_CHILDREN);
+        av_opt_set(buffer_src_ctx_, "sample_fmt", av_get_sample_fmt_name(sample_format), AV_OPT_SEARCH_CHILDREN);
+        av_opt_set_q(buffer_src_ctx_, "time_base", AVRational{1, sample_rate}, AV_OPT_SEARCH_CHILDREN);
+        av_opt_set_int(buffer_src_ctx_, "sample_rate", sample_rate, AV_OPT_SEARCH_CHILDREN);
+
+        int result = avfilter_init_str(buffer_src_ctx_, nullptr);
+        if (result < 0) {
+            if (error_message != nullptr) {
+                *error_message = "init abuffer failed: " + FfErrorToString(result);
+            }
+            return result;
+        }
+
+        char tempo_value[16] = {0};
+        snprintf(tempo_value, sizeof(tempo_value), "%.1f", speed_tenths / 10.0);
+        av_opt_set(atempo_ctx_, "tempo", tempo_value, AV_OPT_SEARCH_CHILDREN);
+        result = avfilter_init_str(atempo_ctx_, nullptr);
+        if (result < 0) {
+            if (error_message != nullptr) {
+                *error_message = "init atempo failed: " + FfErrorToString(result);
+            }
+            return result;
+        }
+
+        result = avfilter_init_str(buffer_sink_ctx_, nullptr);
+        if (result < 0) {
+            if (error_message != nullptr) {
+                *error_message = "init abuffersink failed: " + FfErrorToString(result);
+            }
+            return result;
+        }
+
+        result = avfilter_link(buffer_src_ctx_, 0, atempo_ctx_, 0);
+        if (result >= 0) {
+            result = avfilter_link(atempo_ctx_, 0, buffer_sink_ctx_, 0);
+        }
+        if (result < 0) {
+            if (error_message != nullptr) {
+                *error_message = "link tempo graph failed: " + FfErrorToString(result);
+            }
+            return result;
+        }
+
+        result = avfilter_graph_config(graph_, nullptr);
+        if (result < 0) {
+            if (error_message != nullptr) {
+                *error_message = "configure tempo graph failed: " + FfErrorToString(result);
+            }
+            return result;
+        }
+
+        result = av_channel_layout_copy(&current_channel_layout_, &channel_layout);
+        if (result < 0) {
+            return result;
+        }
+        current_sample_format_ = sample_format;
+        current_sample_rate_ = sample_rate;
+        current_channels_ = channels;
+        current_speed_tenths_ = speed_tenths;
+        return 0;
+    }
+
+    int UpdateTempo(int speed_tenths, std::string* error_message) {
+        if (atempo_ctx_ == nullptr) {
+            return AVERROR(EINVAL);
+        }
+
+        char tempo_value[16] = {0};
+        snprintf(tempo_value, sizeof(tempo_value), "%.1f", speed_tenths / 10.0);
+        const int result = avfilter_process_command(
+                atempo_ctx_,
+                "tempo",
+                tempo_value,
+                nullptr,
+                0,
+                0);
+        if (result < 0) {
+            if (error_message != nullptr) {
+                *error_message = "update atempo failed: " + FfErrorToString(result);
+            }
+            return result;
+        }
+        current_speed_tenths_ = speed_tenths;
+        return 0;
+    }
+
+    int Drain(PcmConsumer* consumer, std::string* error_message) {
+        AVFrame* filtered_frame = av_frame_alloc();
+        if (filtered_frame == nullptr) {
+            return AVERROR(ENOMEM);
+        }
+
+        int result = 0;
+        while ((result = av_buffersink_get_frame(buffer_sink_ctx_, filtered_frame)) >= 0) {
+            const int output_size = av_samples_get_buffer_size(
+                    nullptr,
+                    filtered_frame->ch_layout.nb_channels,
+                    filtered_frame->nb_samples,
+                    static_cast<AVSampleFormat>(filtered_frame->format),
+                    1);
+            if (output_size < 0) {
+                av_frame_unref(filtered_frame);
+                av_frame_free(&filtered_frame);
+                return output_size;
+            }
+
+            const bool consumed_ok = consumer->Consume(
+                    filtered_frame->data[0],
+                    output_size,
+                    error_message);
+            av_frame_unref(filtered_frame);
+            if (!consumed_ok) {
+                av_frame_free(&filtered_frame);
+                return kConsumeFailedCode;
+            }
+        }
+
+        av_frame_free(&filtered_frame);
+        if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) {
+            return 0;
+        }
+        if (result < 0 && error_message != nullptr) {
+            *error_message = "drain tempo graph failed: " + FfErrorToString(result);
+        }
+        return result;
+    }
+
+    AVFilterGraph* graph_ = nullptr;
+    AVFilterContext* buffer_src_ctx_ = nullptr;
+    AVFilterContext* atempo_ctx_ = nullptr;
+    AVFilterContext* buffer_sink_ctx_ = nullptr;
+    AVChannelLayout current_channel_layout_{};
+    AVSampleFormat current_sample_format_ = AV_SAMPLE_FMT_NONE;
+    int current_sample_rate_ = 0;
+    int current_channels_ = 0;
+    int current_speed_tenths_ = 10;
+};
+
 int WriteResampledFrame(
         SwrContext* swr,
         AVFrame* decoded_frame,
         int input_sample_rate,
+        const AVChannelLayout& output_layout,
         int output_sample_rate,
         AVSampleFormat output_sample_format,
         int output_channels,
+        AudioTempoProcessor* tempo_processor,
         PcmConsumer* consumer,
         std::string* error_message) {
     // swr 可能仍有历史延迟样本，目标采样点数需要把 delay 一起计算进来。
@@ -125,38 +436,31 @@ int WriteResampledFrame(
         return converted;
     }
 
-    const int output_size = av_samples_get_buffer_size(
-            &output_line_size,
-            output_channels,
-            converted,
-            output_sample_format,
-            1);
-    if (output_size < 0) {
-        av_freep(&output_data[0]);
-        av_freep(&output_data);
-        return output_size;
-    }
-
-    bool consumed_ok = true;
-    if (consumer != nullptr) {
-        // 统一通过消费者输出，解码器不关心下游是 AudioTrack 还是其他实现。
-        consumed_ok = consumer->Consume(output_data[0], output_size, error_message);
+    int result_to_return = 0;
+    if (tempo_processor != nullptr && consumer != nullptr) {
+        result_to_return = tempo_processor->ProcessInterleaved(
+                output_data[0],
+                converted,
+                output_layout,
+                output_sample_format,
+                output_sample_rate,
+                output_channels,
+                consumer,
+                error_message);
     }
 
     av_freep(&output_data[0]);
     av_freep(&output_data);
-
-    if (!consumed_ok) {
-        return kConsumeFailedCode;
-    }
-
-    return 0;
+    return result_to_return;
 }
 
 int WriteFrameWithoutResample(
         AVFrame* decoded_frame,
+        const AVChannelLayout& output_layout,
+        int output_sample_rate,
         AVSampleFormat output_sample_format,
         int output_channels,
+        AudioTempoProcessor* tempo_processor,
         PcmConsumer* consumer,
         std::string* error_message) {
     if (decoded_frame == nullptr || consumer == nullptr) {
@@ -167,26 +471,24 @@ int WriteFrameWithoutResample(
         return AVERROR(EINVAL);
     }
 
-    const int output_size = av_samples_get_buffer_size(
-            nullptr,
-            output_channels,
-            decoded_frame->nb_samples,
-            output_sample_format,
-            1);
-    if (output_size < 0) {
-        return output_size;
-    }
-
     const uint8_t* output_buffer = decoded_frame->data[0];
     if (output_buffer == nullptr) {
         return AVERROR(EINVAL);
     }
 
-    if (!consumer->Consume(output_buffer, output_size, error_message)) {
-        return kConsumeFailedCode;
+    if (tempo_processor == nullptr) {
+        return 0;
     }
 
-    return 0;
+    return tempo_processor->ProcessInterleaved(
+            output_buffer,
+            decoded_frame->nb_samples,
+            output_layout,
+            output_sample_format,
+            output_sample_rate,
+            output_channels,
+            consumer,
+            error_message);
 }
 
 int ApplyPendingSeek(
@@ -195,6 +497,7 @@ int ApplyPendingSeek(
         AVRational audio_time_base,
         AVCodecContext* codec_context,
         SwrContext* swr_context,
+        AudioTempoProcessor* tempo_processor,
         PcmConsumer* consumer,
         std::string* error_message) {
     if (consumer == nullptr) {
@@ -270,6 +573,10 @@ int ApplyPendingSeek(
             }
             return result;
         }
+    }
+
+    if (tempo_processor != nullptr) {
+        tempo_processor->Reset();
     }
 
     return kSeekHandledCode;
@@ -442,6 +749,7 @@ int FfmpegDecoder::DecodeAndConsume(
     AVSampleFormat swr_input_sample_format = AV_SAMPLE_FMT_NONE;
     PcmOutputConfig output_config;
     AVSampleFormat output_sample_format = kFallbackOutputSampleFormat;
+    AudioTempoProcessor tempo_processor;
     bool use_resampler = false;
 
     auto ConsumeDecodedFrame = [&](AVFrame* frame_to_consume) -> int {
@@ -481,8 +789,11 @@ int FfmpegDecoder::DecodeAndConsume(
 
             return WriteFrameWithoutResample(
                     frame_to_consume,
+                    output_layout,
+                    output_config.sample_rate,
                     output_sample_format,
                     output_config.channels,
+                    &tempo_processor,
                     consumer,
                     error_message);
         }
@@ -540,9 +851,11 @@ int FfmpegDecoder::DecodeAndConsume(
                 swr_context,
                 frame_to_consume,
                 input_sample_rate,
+                output_layout,
                 output_config.sample_rate,
                 output_sample_format,
                 output_config.channels,
+                &tempo_processor,
                 consumer,
                 error_message);
     };
@@ -614,6 +927,7 @@ int FfmpegDecoder::DecodeAndConsume(
                 audio_stream->time_base,
                 codec_context,
                 swr_context,
+                &tempo_processor,
                 consumer,
                 error_message);
         if (result < 0) {
@@ -664,6 +978,7 @@ int FfmpegDecoder::DecodeAndConsume(
                     audio_stream->time_base,
                     codec_context,
                     swr_context,
+                    &tempo_processor,
                     consumer,
                     error_message);
             if (result < 0) {
@@ -755,6 +1070,20 @@ int FfmpegDecoder::DecodeAndConsume(
     }
 
     if (result == 0) {
+        result = tempo_processor.Flush(consumer, error_message);
+        if (result == kConsumeFailedCode) {
+            if (consumer->ShouldStop()) {
+                result = kStoppedCode;
+            }
+            if (error_message == nullptr || error_message->empty()) {
+                set_error(result == kStoppedCode ? "stopped" : "pcm consumer failed");
+            }
+            goto cleanup;
+        }
+        if (result < 0) {
+            set_error("tempo flush failed: " + FfErrorToString(result));
+            goto cleanup;
+        }
         set_error("ok");
     }
 

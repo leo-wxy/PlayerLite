@@ -1,5 +1,6 @@
 package com.wxy.playerlite.playback.process
 
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -74,5 +75,13 @@ class PlayerSessionMappingTest {
         assertTrue(PlayerSessionMapping.isPlaying(PLAYBACK_STATE_PLAYING))
         assertFalse(PlayerSessionMapping.isPlaying(PLAYBACK_STATE_PAUSED))
         assertFalse(PlayerSessionMapping.isPlaying(PLAYBACK_STATE_STOPPED))
+    }
+
+    @Test
+    fun playbackParameters_reflectRequestedSpeed() {
+        assertEquals(
+            PlaybackParameters(2.0f),
+            PlayerSessionMapping.playbackParameters(1.96f)
+        )
     }
 }

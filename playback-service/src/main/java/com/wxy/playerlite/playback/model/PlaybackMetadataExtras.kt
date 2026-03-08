@@ -13,6 +13,7 @@ object PlaybackMetadataExtras {
     private const val KEY_OUTPUT_ENCODING = "output_encoding"
     private const val KEY_OUTPUT_RESAMPLER = "output_uses_resampler"
     private const val KEY_SEEK_SUPPORTED = "seek_supported"
+    private const val KEY_PLAYBACK_SPEED = "playback_speed"
 
     fun writePlaybackOutputInfo(extras: Bundle, info: PlaybackOutputInfo) {
         extras.putInt(KEY_OUTPUT_INPUT_SAMPLE_RATE, info.inputSampleRateHz)
@@ -32,6 +33,10 @@ object PlaybackMetadataExtras {
         extras.putBoolean(KEY_SEEK_SUPPORTED, seekSupported)
     }
 
+    fun writePlaybackSpeed(extras: Bundle, playbackSpeed: Float) {
+        extras.putFloat(KEY_PLAYBACK_SPEED, playbackSpeed)
+    }
+
     fun readStatusText(extras: Bundle?): String? {
         return extras?.getString(KEY_STATUS_TEXT)
     }
@@ -41,6 +46,13 @@ object PlaybackMetadataExtras {
             return null
         }
         return extras.getBoolean(KEY_SEEK_SUPPORTED)
+    }
+
+    fun readPlaybackSpeed(extras: Bundle?): Float? {
+        if (extras == null || !extras.containsKey(KEY_PLAYBACK_SPEED)) {
+            return null
+        }
+        return extras.getFloat(KEY_PLAYBACK_SPEED)
     }
 
     fun readPlaybackOutputInfo(extras: Bundle?): PlaybackOutputInfo? {

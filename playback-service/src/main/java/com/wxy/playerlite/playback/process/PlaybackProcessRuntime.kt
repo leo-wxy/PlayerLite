@@ -7,11 +7,13 @@ import android.util.Log
 import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.config.CacheCoreConfig
 import com.wxy.playerlite.player.NativePlayer
+import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.player.PlaybackOutputInfo
 import com.wxy.playerlite.player.source.IPlaysource
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +23,7 @@ internal data class PlaybackProcessState(
     val activeIndex: Int = C.INDEX_UNSET,
     val playWhenReady: Boolean = false,
     val playbackOutputInfo: PlaybackOutputInfo? = null,
+    val playbackSpeed: Float = PlaybackSpeed.DEFAULT.value,
     val playbackState: Int = PLAYBACK_STATE_STOPPED,
     val isSeekSupported: Boolean = false,
     val positionMs: Long = 0L,
@@ -34,7 +37,7 @@ internal data class PlaybackProcessState(
 
 internal class PlaybackProcessRuntime(
     appContext: Context,
-    serviceScope: CoroutineScope
+    private val serviceScope: CoroutineScope
 ) {
     private val cacheRootDirPath = File(appContext.cacheDir, "cache_core").absolutePath
     private val mediaSourceRepository = MediaSourceRepository(appContext)
@@ -155,6 +158,19 @@ internal class PlaybackProcessRuntime(
         _state.value = _state.value.copy(playWhenReady = playWhenReady)
     }
 
+    fun setPlaybackSpeed(speed: Float): Boolean {
+        val normalizedSpeed = PlaybackSpeed.normalizeValue(speed)
+        val code = playbackCoordinator.setPlaybackSpeed(normalizedSpeed)
+        if (code != 0) {
+            _state.value = _state.value.copy(
+                statusText = "Set speed failed($code): ${playbackCoordinator.lastError()}"
+            )
+            return false
+        }
+        _state.value = _state.value.copy(playbackSpeed = normalizedSpeed)
+        return true
+    }
+
     suspend fun prepareCurrent() {
         val item = _state.value.currentTrack ?: return
         ensurePrepared(item)
@@ -191,6 +207,17 @@ internal class PlaybackProcessRuntime(
         }
         safeLogI("playCurrent launchPlay: id=${item.id}")
 
+        val speedCode = playbackCoordinator.setPlaybackSpeed(_state.value.playbackSpeed)
+        if (speedCode != 0) {
+            _state.value = _state.value.copy(
+                playWhenReady = false,
+                playbackState = PLAYBACK_STATE_STOPPED,
+                statusText = "Set speed failed($speedCode): ${playbackCoordinator.lastError()}"
+            )
+            return
+        }
+
+        var completionAction = PlaybackCompletionAction.STOP_WITH_ERROR
         playbackCoordinator.launchPlay(
             source = source,
             onStarted = {
@@ -204,26 +231,49 @@ internal class PlaybackProcessRuntime(
             },
             onCompleted = { playCode ->
                 safeLogI("playCurrent onCompleted: id=${item.id}, code=$playCode, error=${playbackCoordinator.lastError()}")
-                if (playCode == 0) {
-                    val durationMs = _state.value.durationMs
-                    _state.value = _state.value.copy(
-                        playWhenReady = false,
-                        playbackState = PLAYBACK_STATE_STOPPED,
-                        positionMs = if (durationMs > 0L) durationMs else _state.value.positionMs,
-                        statusText = "Playback finished"
-                    )
-                } else {
-                    _state.value = _state.value.copy(
-                        playWhenReady = false,
-                        playbackState = PLAYBACK_STATE_STOPPED,
-                        statusText = PlaybackFormatter.formatPlaybackResult(
-                            playCode = playCode,
-                            lastError = playbackCoordinator.lastError()
+                completionAction = PlaybackCompletionAction.resolve(
+                    playCode = playCode,
+                    activeIndex = _state.value.activeIndex,
+                    trackCount = _state.value.tracks.size
+                )
+                when (completionAction) {
+                    PlaybackCompletionAction.AUTO_NEXT,
+                    PlaybackCompletionAction.STOP_AT_END -> {
+                        val durationMs = _state.value.durationMs
+                        _state.value = _state.value.copy(
+                            playWhenReady = false,
+                            playbackState = PLAYBACK_STATE_STOPPED,
+                            positionMs = if (durationMs > 0L) durationMs else _state.value.positionMs,
+                            statusText = "Playback finished"
                         )
-                    )
+                    }
+
+                    PlaybackCompletionAction.STOP_WITH_ERROR -> {
+                        _state.value = _state.value.copy(
+                            playWhenReady = false,
+                            playbackState = PLAYBACK_STATE_STOPPED,
+                            statusText = PlaybackFormatter.formatPlaybackResult(
+                                playCode = playCode,
+                                lastError = playbackCoordinator.lastError()
+                            )
+                        )
+                    }
                 }
             },
-            onFinally = {}
+            onFinally = {
+                if (completionAction != PlaybackCompletionAction.AUTO_NEXT) {
+                    return@launchPlay
+                }
+                val moved = moveToNext()
+                if (!moved) {
+                    safeLogI("playCurrent auto-next skipped: already at tail")
+                    return@launchPlay
+                }
+                safeLogI("playCurrent auto-next: nextIndex=${_state.value.activeIndex}, speed=${_state.value.playbackSpeed}")
+                serviceScope.launch {
+                    playCurrent()
+                }
+            }
         )
     }
 
@@ -241,6 +291,13 @@ internal class PlaybackProcessRuntime(
     }
 
     fun resume() {
+        val speedCode = playbackCoordinator.setPlaybackSpeed(_state.value.playbackSpeed)
+        if (speedCode != 0) {
+            _state.value = _state.value.copy(
+                statusText = "Set speed failed($speedCode): ${playbackCoordinator.lastError()}"
+            )
+            return
+        }
         val code = playbackCoordinator.resume()
         if (code == 0) {
             _state.value = _state.value.copy(
@@ -361,9 +418,13 @@ internal class PlaybackProcessRuntime(
     }
 
     private fun clearQueue(statusText: String) {
+        val currentSpeed = _state.value.playbackSpeed
         stop()
         sourceSession.release()
-        _state.value = PlaybackProcessState(statusText = statusText)
+        _state.value = PlaybackProcessState(
+            playbackSpeed = currentSpeed,
+            statusText = statusText
+        )
     }
 
     private fun applyTrackSelection(

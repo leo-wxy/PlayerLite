@@ -19,6 +19,8 @@ class NativePlayer : INativePlayer {
 
     private external fun nativeResume(): Int
 
+    private external fun nativeSetPlaybackSpeed(speed: Float): Int
+
     private external fun nativeSeek(positionMs: Long): Int
 
     private external fun nativeGetDurationFromSource(source: IPlaysource): Long
@@ -43,6 +45,10 @@ class NativePlayer : INativePlayer {
 
     override fun playFromSource(source: IPlaysource): Int {
         return nativePlayFromSource(source)
+    }
+
+    override fun setPlaybackSpeed(speed: Float): Int {
+        return nativeSetPlaybackSpeed(speed)
     }
 
     override fun pause(): Int {

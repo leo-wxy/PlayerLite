@@ -14,6 +14,7 @@ import com.wxy.playerlite.feature.player.runtime.PlayerRuntimeRegistry
 import com.wxy.playerlite.playback.client.PlayerServiceBridge
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.MusicInfo
+import com.wxy.playerlite.player.PlaybackSpeed
 import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -29,6 +30,7 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
         Log.w(TAG, errorMessage)
     }
     private val remoteSyncJob: Job
+    private val uiProgressJob: Job
 
     val uiStateFlow: StateFlow<PlayerUiState> = runtime.uiStateFlow
 
@@ -39,6 +41,12 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
             while (isActive) {
                 syncRemotePlaybackState()
                 delay(250L)
+            }
+        }
+        uiProgressJob = viewModelScope.launch {
+            while (isActive) {
+                runtime.tickRemotePlaybackPosition()
+                delay(100L)
             }
         }
     }
@@ -68,6 +76,21 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
         runtime.finishSeekDrag()
         if (!serviceBridge.seekTo(target)) {
             runtime.setStatusText("后台播放进程未连接")
+        }
+    }
+
+    fun updatePlaybackSpeed(speed: Float) {
+        val previousSpeed = uiStateFlow.value.playbackSpeed
+        val normalizedSpeed = PlaybackSpeed.normalizeValue(speed)
+        runtime.updateLocalPlaybackSpeed(normalizedSpeed)
+        serviceBridge.connectIfNeeded()
+        if (!serviceBridge.setPlaybackSpeed(normalizedSpeed) { success ->
+                if (!success) {
+                    runtime.revertPendingPlaybackSpeed(previousSpeed)
+                }
+            }) {
+            runtime.revertPendingPlaybackSpeed(previousSpeed)
+            runtime.setStatusText("倍速设置失败：后台播放进程未连接")
         }
     }
 
@@ -178,6 +201,7 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
 
     override fun onCleared() {
         remoteSyncJob.cancel()
+        uiProgressJob.cancel()
         runtime.onHostStop()
         serviceBridge.release()
         super.onCleared()
@@ -192,7 +216,9 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
             playbackState = mapRemotePlaybackState(snapshot),
             positionMs = snapshot.currentPositionMs,
             durationMs = snapshot.durationMs,
-            isSeekSupported = snapshot.isSeekSupported
+            isSeekSupported = snapshot.isSeekSupported,
+            playbackSpeed = snapshot.playbackSpeed,
+            isProgressAdvancing = snapshot.isPlaying
         )
         runtime.updateRemotePlaybackOutputInfo(snapshot.playbackOutputInfo)
         runtime.syncActiveItemById(snapshot.currentMediaId)

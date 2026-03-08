@@ -75,6 +75,7 @@ class PlaybackControlActionHandlerTest {
 
         override fun setProgressListener(listener: ((Long) -> Unit)?) = Unit
         override fun setPlaybackOutputInfoListener(listener: ((PlaybackOutputInfo) -> Unit)?) = Unit
+        override fun setPlaybackSpeed(speed: Float): Int = 0
         override fun playFromSource(source: IPlaysource): Int = 0
         override fun pause(): Int = 0
         override fun resume(): Int = 0

@@ -19,10 +19,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,9 +45,10 @@ import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.ui.components.PlaybackControls
 import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
-import com.wxy.playerlite.feature.player.ui.components.PlaylistFloatingButton
 import com.wxy.playerlite.player.AudioMetaDisplay
+import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.player.PlaybackOutputInfo
+import kotlin.math.roundToInt
 
 @Composable
 internal fun PlayerScreen(
@@ -60,6 +63,7 @@ internal fun PlayerScreen(
     isPreparing: Boolean,
     playbackState: Int,
     isSeekSupported: Boolean,
+    playbackSpeed: Float,
     seekValueMs: Long,
     currentDurationText: String,
     durationMs: Long,
@@ -78,9 +82,13 @@ internal fun PlayerScreen(
     onNext: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
+    onPlaybackSpeedChange: (Float) -> Unit,
     onSeekValueChange: (Long) -> Unit,
     onSeekFinished: () -> Unit
 ) {
+    var showSpeedDialog by remember { mutableStateOf(false) }
+    var speedPreviewIndex by remember { mutableStateOf(PlaybackSpeed.DEFAULT.index.toFloat()) }
+
     Column(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(0.dp)
@@ -406,10 +414,17 @@ internal fun PlayerScreen(
                     hasSelection = hasSelection,
                     hasPreviousTrack = hasPreviousTrack,
                     hasNextTrack = hasNextTrack,
+                    playlistItemCount = playlistItems.size,
                     isPreparing = isPreparing,
                     isPlaying = isPlaying,
                     isPaused = isPaused,
+                    playbackSpeed = playbackSpeed,
                     onPlay = onPlay,
+                    onPlaylistClick = onTogglePlaylistSheet,
+                    onSpeedClick = {
+                        speedPreviewIndex = PlaybackSpeed.indexFromValue(playbackSpeed).toFloat()
+                        showSpeedDialog = true
+                    },
                     onPrevious = onPrevious,
                     onNext = onNext,
                     onPause = onPause,
@@ -417,14 +432,6 @@ internal fun PlayerScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-
-            PlaylistFloatingButton(
-                itemCount = playlistItems.size,
-                onClick = onTogglePlaylistSheet,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 20.dp, bottom = 132.dp)
-            )
 
             PlaylistBottomSheet(
                 visible = showPlaylistSheet,
@@ -437,5 +444,67 @@ internal fun PlayerScreen(
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
+    }
+
+    if (showSpeedDialog) {
+        val previewSpeed = PlaybackSpeed.fromIndex(speedPreviewIndex.roundToInt())
+        AlertDialog(
+            onDismissRequest = { showSpeedDialog = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onPlaybackSpeedChange(previewSpeed.value)
+                        showSpeedDialog = false
+                    }
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSpeedDialog = false }) {
+                    Text("取消")
+                }
+            },
+            title = {
+                Text("播放倍速")
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = previewSpeed.label,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Slider(
+                        value = speedPreviewIndex,
+                        onValueChange = { value ->
+                            speedPreviewIndex = value.roundToInt().toFloat()
+                        },
+                        valueRange = 0f..15f,
+                        steps = 14,
+                        colors = SliderDefaults.colors(
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                        )
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "0.5X",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "2.0X",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        )
     }
 }

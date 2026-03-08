@@ -16,6 +16,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
+import com.wxy.playerlite.player.PlaybackSpeed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -114,6 +115,7 @@ class PlayerMediaSessionService : MediaSessionService() {
         val extras = Bundle().apply {
             PlaybackMetadataExtras.writeStatusText(this, state.statusText)
             PlaybackMetadataExtras.writeSeekSupported(this, state.isSeekSupported)
+            PlaybackMetadataExtras.writePlaybackSpeed(this, state.playbackSpeed)
             state.playbackOutputInfo?.let { info ->
                 PlaybackMetadataExtras.writePlaybackOutputInfo(this, info)
             }
@@ -190,6 +192,7 @@ class PlayerMediaSessionService : MediaSessionService() {
             val sessionCommands = baseResult.availableSessionCommands
                 .buildUpon()
                 .add(SessionCommand(PlaybackSessionCommands.ACTION_CLEAR_CACHE, Bundle.EMPTY))
+                .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_SPEED, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
@@ -203,16 +206,33 @@ class PlayerMediaSessionService : MediaSessionService() {
             customCommand: SessionCommand,
             args: Bundle
         ): ListenableFuture<SessionResult> {
-            if (customCommand.customAction != PlaybackSessionCommands.ACTION_CLEAR_CACHE) {
-                return super.onCustomCommand(session, controller, customCommand, args)
+            return when (customCommand.customAction) {
+                PlaybackSessionCommands.ACTION_CLEAR_CACHE -> {
+                    val success = runtime.clearCache()
+                    val resultCode = if (success) {
+                        SessionResult.RESULT_SUCCESS
+                    } else {
+                        SessionResult.RESULT_ERROR_UNKNOWN
+                    }
+                    Futures.immediateFuture(SessionResult(resultCode))
+                }
+
+                PlaybackSessionCommands.ACTION_SET_PLAYBACK_SPEED -> {
+                    val requested = args.getFloat(
+                        PlaybackSessionCommands.EXTRA_PLAYBACK_SPEED,
+                        PlaybackSpeed.DEFAULT.value
+                    )
+                    val success = runtime.setPlaybackSpeed(requested)
+                    val resultCode = if (success) {
+                        SessionResult.RESULT_SUCCESS
+                    } else {
+                        SessionResult.RESULT_ERROR_BAD_VALUE
+                    }
+                    Futures.immediateFuture(SessionResult(resultCode))
+                }
+
+                else -> super.onCustomCommand(session, controller, customCommand, args)
             }
-            val success = runtime.clearCache()
-            val resultCode = if (success) {
-                SessionResult.RESULT_SUCCESS
-            } else {
-                SessionResult.RESULT_ERROR_UNKNOWN
-            }
-            return Futures.immediateFuture(SessionResult(resultCode))
         }
     }
 }

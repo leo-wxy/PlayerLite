@@ -1,6 +1,8 @@
 #include <jni.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -33,6 +35,9 @@ constexpr jint kAudioTrackInitCode = -3001;
 constexpr jint kAlreadyPlayingCode = -2005;
 constexpr jint kSeekUnavailableCode = -2006;
 constexpr jint kContextUnavailableCode = -6;
+constexpr int kDefaultPlaybackSpeedTenths = 10;
+constexpr int kMinPlaybackSpeedTenths = 5;
+constexpr int kMaxPlaybackSpeedTenths = 20;
 constexpr int64_t kProgressNotifyIntervalMs = 500;
 constexpr int kAudioWriteChunkBytes = 16 * 1024;
 constexpr int kAudioWriteRecoverMaxRetries = 2;
@@ -67,6 +72,7 @@ struct PlayerContext {
     std::atomic<bool> stop_requested{false};
     std::atomic<bool> pause_requested{false};
     std::atomic<int64_t> seek_position_ms{-1};
+    std::atomic<int> playback_speed_tenths{kDefaultPlaybackSpeedTenths};
 
     std::mutex pause_mutex;
     std::condition_variable pause_cv;
@@ -78,6 +84,10 @@ struct PlayerContext {
     std::atomic<int> active_playbacks{0};
     std::atomic<bool> release_requested{false};
 };
+
+int NormalizePlaybackSpeedTenths(int speed_tenths) {
+    return std::clamp(speed_tenths, kMinPlaybackSpeedTenths, kMaxPlaybackSpeedTenths);
+}
 
 std::mutex g_context_init_mutex;
 std::mutex g_native_field_init_mutex;
@@ -651,6 +661,14 @@ public:
         return seek_ms;
     }
 
+    int CurrentPlaybackSpeedTenths() const override {
+        if (context_ == nullptr) {
+            return kDefaultPlaybackSpeedTenths;
+        }
+        return NormalizePlaybackSpeedTenths(
+                context_->playback_speed_tenths.load(std::memory_order_relaxed));
+    }
+
 private:
     struct OutputCandidate {
         jint sample_rate = 0;
@@ -760,6 +778,7 @@ private:
         last_notified_progress_ms_ = -1;
         pending_audio_track_flush_ = false;
         is_paused_ = false;
+        applied_playback_speed_tenths_ = CurrentPlaybackSpeedTenths();
 
         return true;
     }
@@ -809,6 +828,16 @@ private:
             return true;
         }
 
+        const bool should_pause =
+                context_ != nullptr && context_->pause_requested.load(std::memory_order_relaxed);
+        if (CurrentPlaybackSpeedTenths() != kDefaultPlaybackSpeedTenths) {
+            if (!RestartAudioTrackAfterSeek(should_pause, error_message)) {
+                return false;
+            }
+            pending_audio_track_flush_ = false;
+            return true;
+        }
+
         env_->CallVoidMethod(audio_track_, pause_mid_);
         if (env_->ExceptionCheck()) {
             env_->ExceptionClear();
@@ -821,8 +850,6 @@ private:
             return Fail(error_message, "AudioTrack.flush for seek threw exception");
         }
 
-        const bool should_pause =
-                context_ != nullptr && context_->pause_requested.load(std::memory_order_relaxed);
         if (!should_pause && !ShouldStop()) {
             env_->CallVoidMethod(audio_track_, play_mid_);
             if (env_->ExceptionCheck()) {
@@ -842,6 +869,35 @@ private:
         seek_anchor_head_frames_ = 0;
         last_notified_progress_ms_ = -1;
         pending_audio_track_flush_ = false;
+        return true;
+    }
+
+    bool RestartAudioTrackAfterSeek(bool should_pause, std::string* error_message) {
+        OutputCandidate candidate;
+        candidate.sample_rate = output_sample_rate_ > 0 ? output_sample_rate_ : kFallbackSampleRate;
+        candidate.channels = output_channel_count_ > 0 ? output_channel_count_ : 2;
+        candidate.channel_config = ResolveChannelConfig(candidate.channels);
+        if (candidate.channel_config == 0) {
+            candidate.channels = 2;
+            candidate.channel_config = kChannelConfigStereo;
+        }
+        candidate.encoding = output_encoding_;
+        if (candidate.encoding != kEncodingPcm16Bit && candidate.encoding != kEncodingPcmFloat) {
+            candidate.encoding = kEncodingPcm16Bit;
+        }
+
+        if (!TryStartAudioTrack(candidate, error_message)) {
+            return false;
+        }
+
+        if (should_pause && audio_track_ != nullptr) {
+            env_->CallVoidMethod(audio_track_, pause_mid_);
+            if (env_->ExceptionCheck()) {
+                env_->ExceptionClear();
+                return Fail(error_message, "AudioTrack.pause after seek restart threw exception");
+            }
+            is_paused_ = true;
+        }
         return true;
     }
 
@@ -871,10 +927,46 @@ private:
         return true;
     }
 
+    int64_t ComputeSourceProgressMs(
+            uint64_t playback_head_frames,
+            int playback_speed_tenths) const {
+        int64_t delta_frames = static_cast<int64_t>(playback_head_frames - seek_anchor_head_frames_);
+        if (delta_frames < 0) {
+            delta_frames = 0;
+        }
+
+        const int64_t progress_sample_rate =
+                output_sample_rate_ > 0 ? output_sample_rate_ : kFallbackSampleRate;
+        return seek_base_ms_ +
+                (delta_frames * 1000 * playback_speed_tenths) /
+                        (progress_sample_rate * 10);
+    }
+
+    void SyncPlaybackSpeedAnchor() {
+        const int target_speed_tenths = CurrentPlaybackSpeedTenths();
+        if (target_speed_tenths == applied_playback_speed_tenths_) {
+            return;
+        }
+
+        uint64_t playback_head_frames = 0;
+        std::string ignored_error;
+        if (ReadPlaybackHeadFrames(&playback_head_frames, &ignored_error)) {
+            seek_base_ms_ = ComputeSourceProgressMs(
+                    playback_head_frames,
+                    applied_playback_speed_tenths_);
+            seek_anchor_head_frames_ = playback_head_frames;
+        }
+
+        applied_playback_speed_tenths_ = target_speed_tenths;
+        last_notified_progress_ms_ = -1;
+    }
+
     bool NotifyProgressIfNeeded(bool force, std::string* error_message) {
         if (callback_owner_ == nullptr || on_native_progress_mid_ == nullptr) {
             return true;
         }
+
+        SyncPlaybackSpeedAnchor();
 
         uint64_t playback_head_frames = 0;
         if (!ReadPlaybackHeadFrames(&playback_head_frames, error_message)) {
@@ -888,17 +980,13 @@ private:
             seek_base_ms_ = pending_seek_base_ms_;
             seek_anchor_head_frames_ = playback_head_frames;
             has_pending_seek_base_ = false;
+            applied_playback_speed_tenths_ = CurrentPlaybackSpeedTenths();
             last_notified_progress_ms_ = -1;
         }
 
-        int64_t delta_frames = static_cast<int64_t>(playback_head_frames - seek_anchor_head_frames_);
-        if (delta_frames < 0) {
-            delta_frames = 0;
-        }
-
-        const int64_t progress_sample_rate =
-                output_sample_rate_ > 0 ? output_sample_rate_ : kFallbackSampleRate;
-        const int64_t progress_ms = seek_base_ms_ + (delta_frames * 1000) / progress_sample_rate;
+        const int64_t progress_ms = ComputeSourceProgressMs(
+                playback_head_frames,
+                applied_playback_speed_tenths_);
         if (!force &&
             last_notified_progress_ms_ >= 0 &&
             progress_ms >= last_notified_progress_ms_ &&
@@ -1078,6 +1166,7 @@ private:
     int output_sample_rate_ = kFallbackSampleRate;
     int output_channel_count_ = 2;
     jint output_encoding_ = kEncodingPcm16Bit;
+    int applied_playback_speed_tenths_ = kDefaultPlaybackSpeedTenths;
 };
 
 int RunPlaybackInternal(JNIEnv* env, jobject thiz, PlayerContext* context, IPlaySource* source) {
@@ -1204,6 +1293,29 @@ Java_com_wxy_playerlite_player_NativePlayer_nativeResume(JNIEnv* env, jobject th
 
     context->pause_requested.store(false, std::memory_order_relaxed);
     context->pause_cv.notify_all();
+    return 0;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_wxy_playerlite_player_NativePlayer_nativeSetPlaybackSpeed(
+        JNIEnv* env,
+        jobject thiz,
+        jfloat speed) {
+    PlayerContext* context = GetOrCreateContext(env, thiz);
+    if (context == nullptr) {
+        return kContextUnavailableCode;
+    }
+    ScopedContextUse scoped_context(env, thiz, context);
+
+    if (!std::isfinite(speed) || speed <= 0.f) {
+        SetLastError(context, "playback speed must be finite and > 0");
+        return -1;
+    }
+
+    const int speed_tenths = NormalizePlaybackSpeedTenths(
+            static_cast<int>(std::lround(speed * 10.f)));
+    context->playback_speed_tenths.store(speed_tenths, std::memory_order_relaxed);
+    SetLastError(context, "ok");
     return 0;
 }
 

@@ -16,6 +16,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.wxy.playerlite.playback.model.MusicInfo
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
+import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.playback.process.PlayerMediaSessionService
 import com.wxy.playerlite.player.PlaybackOutputInfo
 
@@ -26,6 +27,7 @@ data class RemotePlaybackSnapshot(
     val isSeekSupported: Boolean,
     val currentPositionMs: Long,
     val durationMs: Long,
+    val playbackSpeed: Float,
     val statusText: String?,
     val currentMediaId: String?,
     val playbackOutputInfo: PlaybackOutputInfo?
@@ -171,6 +173,38 @@ class PlayerServiceBridge(
         }
     }
 
+    fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)? = null): Boolean {
+        val args = Bundle().apply {
+            putFloat(PlaybackSessionCommands.EXTRA_PLAYBACK_SPEED, speed)
+        }
+        return withController { controller ->
+            val future = controller.sendCustomCommand(
+                SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_SPEED, Bundle.EMPTY),
+                args
+            )
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess { result ->
+                            if (result.resultCode != SessionResult.RESULT_SUCCESS) {
+                                onControllerError("Set speed rejected: ${result.resultCode}")
+                                onResult?.invoke(false)
+                            } else {
+                                onResult?.invoke(true)
+                            }
+                        }
+                        .onFailure { error ->
+                            onControllerError(
+                                "Set speed failed: ${error.message ?: "unknown"}"
+                            )
+                            onResult?.invoke(false)
+                        }
+                },
+                mainExecutor
+            )
+        }
+    }
+
     fun currentSnapshot(): RemotePlaybackSnapshot? {
         val activeController = controller ?: return null
         val sessionExtras = activeController.sessionExtras
@@ -182,6 +216,12 @@ class PlayerServiceBridge(
             ?: PlaybackMetadataExtras.readSeekSupported(sessionExtras)
             ?: PlaybackMetadataExtras.readSeekSupported(activeController.mediaMetadata.extras)
             ?: false
+        val playbackSpeed = activeController.playbackParameters.speed
+            .takeIf { it > 0f }
+            ?: PlaybackMetadataExtras.readPlaybackSpeed(currentMetadata?.extras)
+            ?: PlaybackMetadataExtras.readPlaybackSpeed(sessionExtras)
+            ?: PlaybackMetadataExtras.readPlaybackSpeed(activeController.mediaMetadata.extras)
+            ?: PlaybackSpeed.DEFAULT.value
         return RemotePlaybackSnapshot(
             playbackState = activeController.playbackState,
             playWhenReady = activeController.playWhenReady,
@@ -189,6 +229,7 @@ class PlayerServiceBridge(
             isSeekSupported = seekSupported,
             currentPositionMs = activeController.currentPosition,
             durationMs = activeController.duration.takeIf { it != C.TIME_UNSET } ?: 0L,
+            playbackSpeed = playbackSpeed,
             statusText = PlaybackMetadataExtras.readStatusText(sessionExtras)
                 ?: currentMetadata?.subtitle?.toString()
                 ?: activeController.mediaMetadata.subtitle?.toString(),

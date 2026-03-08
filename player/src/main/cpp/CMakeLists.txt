@@ -23,6 +23,7 @@ target_link_libraries(player PRIVATE log)
 set(FFMPEG_SUBMODULE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/FFmpeg-n6.1.4")
 set(FFMPEG_INCLUDE_DIR "${FFMPEG_SUBMODULE_ROOT}/out/${ANDROID_ABI}/include")
 set(FFMPEG_LIB_FILE "${FFMPEG_SUBMODULE_ROOT}/out-jniLibs/${ANDROID_ABI}/libffmpeg.so")
+set(FFMPEG_AVFILTER_HEADER "${FFMPEG_INCLUDE_DIR}/libavfilter/avfilter.h")
 
 set(FFMPEG_READY TRUE)
 
@@ -31,6 +32,10 @@ if(NOT EXISTS "${FFMPEG_INCLUDE_DIR}/libavformat/avformat.h")
 endif()
 
 if(NOT EXISTS "${FFMPEG_LIB_FILE}")
+    set(FFMPEG_READY FALSE)
+endif()
+
+if(NOT EXISTS "${FFMPEG_AVFILTER_HEADER}")
     set(FFMPEG_READY FALSE)
 endif()
 

@@ -101,7 +101,7 @@ cd "$BUILD_DIR"
   --strip="$STRIP" \
   --disable-shared --enable-static --enable-pic \
   --disable-programs --disable-doc \
-  --disable-avdevice --disable-avfilter --disable-postproc --disable-swscale \
+  --disable-avdevice --enable-avfilter --disable-postproc --disable-swscale \
   --disable-network \
   --disable-asm \
   --disable-vulkan \
@@ -109,7 +109,7 @@ cd "$BUILD_DIR"
   --disable-symver \
   --enable-small \
   --disable-everything \
-  --enable-avutil --enable-avcodec --enable-avformat --enable-swresample \
+  --enable-avutil --enable-avcodec --enable-avformat --enable-avfilter --enable-swresample \
   --enable-protocol=file --enable-protocol=pipe \
   --enable-demuxer=mov --enable-demuxer=matroska --enable-demuxer=ogg \
   --enable-demuxer=mp3 --enable-demuxer=wav --enable-demuxer=flac --enable-demuxer=aac \
@@ -117,6 +117,7 @@ cd "$BUILD_DIR"
   --enable-decoder=aac --enable-decoder=mp3float --enable-decoder=opus --enable-decoder=vorbis --enable-decoder=flac --enable-decoder=alac \
   --enable-decoder=pcm_s16le --enable-decoder=pcm_s16be --enable-decoder=pcm_u8 \
   --enable-decoder=pcm_s24le --enable-decoder=pcm_s32le --enable-decoder=pcm_f32le \
+  --enable-filter=abuffer --enable-filter=abuffersink --enable-filter=atempo \
   --extra-cflags="$EXTRA_CFLAGS" \
   --extra-ldflags="-Wl,--gc-sections" \
   --extra-libs="-lm -lz -llog"
@@ -135,6 +136,7 @@ cp "$PREFIX/lib/libavutil.a" "$MERGE_AVUTIL"
   -Wl,--whole-archive \
   "$PREFIX/lib/libavformat.a" \
   "$PREFIX/lib/libavcodec.a" \
+  "$PREFIX/lib/libavfilter.a" \
   "$PREFIX/lib/libswresample.a" \
   "$MERGE_AVUTIL" \
   -Wl,--no-whole-archive \

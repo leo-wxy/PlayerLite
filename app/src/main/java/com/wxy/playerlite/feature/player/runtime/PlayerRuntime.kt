@@ -2,6 +2,7 @@ package com.wxy.playerlite.feature.player.runtime
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import com.wxy.playerlite.core.playlist.PlaylistController
 import com.wxy.playerlite.core.playlist.PlaylistItem
@@ -9,6 +10,7 @@ import com.wxy.playerlite.core.playlist.SharedPreferencesPlaylistStorage
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.emptyAudioMeta
+import com.wxy.playerlite.feature.player.model.withPlaybackSpeed
 import com.wxy.playerlite.feature.player.runtime.action.PlayActionHandler
 import com.wxy.playerlite.feature.player.runtime.action.PlaybackControlActionHandler
 import com.wxy.playerlite.feature.player.runtime.action.PlaylistActionHandler
@@ -24,7 +26,8 @@ import java.util.UUID
 
 internal class PlayerRuntime(
     appContext: Context,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val elapsedRealtimeProvider: () -> Long = { SystemClock.elapsedRealtime() }
 ) {
     private val mediaSourceRepository = MediaSourceRepository(appContext)
     private val playbackCoordinator = PlaybackCoordinator(
@@ -47,6 +50,10 @@ internal class PlayerRuntime(
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiStateFlow: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+    private var remoteProgressAnchorPositionMs: Long = 0L
+    private var remoteProgressAnchorElapsedRealtimeMs: Long = 0L
+    private var remoteProgressShouldAdvance: Boolean = false
+    private var pendingPlaybackSpeed: Float? = null
 
     private var uiState: PlayerUiState
         get() = _uiState.value
@@ -166,6 +173,7 @@ internal class PlayerRuntime(
             seekDragPositionMs = bounded,
             isSeekDragging = false
         )
+        updateRemoteProgressAnchor(bounded)
     }
 
     fun seekTo(positionMs: Long) {
@@ -218,21 +226,62 @@ internal class PlayerRuntime(
         playbackState: Int,
         positionMs: Long,
         durationMs: Long,
-        isSeekSupported: Boolean
+        isSeekSupported: Boolean,
+        playbackSpeed: Float,
+        isProgressAdvancing: Boolean
     ) {
+        val speedResolution = PlaybackSpeedSyncResolver.onRemoteUpdate(
+            remoteSpeed = playbackSpeed,
+            pendingSpeed = pendingPlaybackSpeed
+        )
+        pendingPlaybackSpeed = speedResolution.pendingSpeed
         val nextDuration = if (durationMs > 0L) durationMs else uiState.durationMs
         val bounded = if (nextDuration > 0L) {
             positionMs.coerceIn(0L, nextDuration)
         } else {
             positionMs.coerceAtLeast(0L)
         }
+        remoteProgressShouldAdvance = isProgressAdvancing
+        updateRemoteProgressAnchor(bounded)
         uiState = uiState.copy(
             playbackState = playbackState,
             durationMs = nextDuration,
             isSeekSupported = isSeekSupported,
             seekPositionMs = if (uiState.isSeekDragging) uiState.seekPositionMs else bounded,
             seekDragPositionMs = if (uiState.isSeekDragging) uiState.seekDragPositionMs else bounded
+        ).withPlaybackSpeed(speedResolution.resolvedSpeed)
+    }
+
+    fun updateLocalPlaybackSpeed(playbackSpeed: Float) {
+        val speedResolution = PlaybackSpeedSyncResolver.onLocalRequest(
+            requestedSpeed = playbackSpeed
         )
+        pendingPlaybackSpeed = speedResolution.pendingSpeed
+        uiState = uiState.withPlaybackSpeed(speedResolution.resolvedSpeed)
+        updateRemoteProgressAnchor(uiState.displayedSeekMs)
+    }
+
+    fun revertPendingPlaybackSpeed(playbackSpeed: Float) {
+        val speedResolution = PlaybackSpeedSyncResolver.onCommandRejected(playbackSpeed)
+        pendingPlaybackSpeed = speedResolution.pendingSpeed
+        uiState = uiState.withPlaybackSpeed(speedResolution.resolvedSpeed)
+    }
+
+    fun tickRemotePlaybackPosition() {
+        if (uiState.isSeekDragging || !remoteProgressShouldAdvance) {
+            return
+        }
+        val estimated = PlaybackProgressEstimator.estimatePositionMs(
+            anchorPositionMs = remoteProgressAnchorPositionMs,
+            anchorElapsedRealtimeMs = remoteProgressAnchorElapsedRealtimeMs,
+            nowElapsedRealtimeMs = elapsedRealtimeProvider(),
+            playbackState = uiState.playbackState,
+            playbackSpeed = uiState.playbackSpeed,
+            durationMs = uiState.durationMs
+        )
+        if (estimated != uiState.seekPositionMs) {
+            uiState = uiState.copy(seekPositionMs = estimated)
+        }
     }
 
     fun skipToPreviousTrack() {
@@ -339,6 +388,8 @@ internal class PlayerRuntime(
             seekDragPositionMs = 0L,
             isSeekDragging = false
         )
+        pendingPlaybackSpeed = null
+        resetRemoteProgressAnchor()
     }
 
     private fun syncSelectionFromPlaylist() {
@@ -355,6 +406,7 @@ internal class PlayerRuntime(
     private fun stopPlaybackOnly(updateStatus: Boolean) {
         sourceSession.stopCurrent()
         playbackCoordinator.stopPlayback()
+        remoteProgressShouldAdvance = false
 
         uiState = uiState.copy(
             seekPositionMs = 0L,
@@ -363,6 +415,8 @@ internal class PlayerRuntime(
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
             statusText = if (updateStatus) "Stopped" else uiState.statusText
         )
+        pendingPlaybackSpeed = null
+        resetRemoteProgressAnchor()
     }
 
     private fun releaseSelectedSource() {
@@ -373,6 +427,16 @@ internal class PlayerRuntime(
         playbackCoordinator.startPlaybackStateObserver(intervalMs = 200L) { playState ->
             uiState = uiState.copy(playbackState = playState)
         }
+    }
+
+    private fun updateRemoteProgressAnchor(positionMs: Long) {
+        remoteProgressAnchorPositionMs = positionMs
+        remoteProgressAnchorElapsedRealtimeMs = elapsedRealtimeProvider()
+    }
+
+    private fun resetRemoteProgressAnchor() {
+        remoteProgressAnchorPositionMs = 0L
+        remoteProgressAnchorElapsedRealtimeMs = elapsedRealtimeProvider()
     }
 
     private suspend fun refreshPlaybackStateNow() {

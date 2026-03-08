@@ -3,14 +3,18 @@ package com.wxy.playerlite.feature.player.ui.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
@@ -20,6 +24,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -27,17 +33,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.wxy.playerlite.player.PlaybackSpeed
 
 @Composable
 internal fun PlaybackControls(
     hasSelection: Boolean,
     hasPreviousTrack: Boolean,
     hasNextTrack: Boolean,
+    playlistItemCount: Int,
     isPreparing: Boolean,
     isPlaying: Boolean,
     isPaused: Boolean,
+    playbackSpeed: Float,
     onPlay: () -> Unit,
+    onPlaylistClick: () -> Unit,
+    onSpeedClick: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onPause: () -> Unit,
@@ -47,6 +59,8 @@ internal fun PlaybackControls(
     val toggleEnabled = !isPreparing && (hasSelection || isPlaying || isPaused)
     val previousEnabled = !isPreparing && hasPreviousTrack
     val nextEnabled = !isPreparing && hasNextTrack
+    val speedEnabled = !isPreparing && hasSelection
+    val playlistEnabled = !isPreparing
     val showingPause = isPlaying
     val haloAlpha by animateFloatAsState(
         targetValue = if (isPlaying) 0.24f else 0f,
@@ -59,79 +73,136 @@ internal fun PlaybackControls(
         label = "play_center_scale"
     )
 
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(88.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically
+            .height(88.dp)
     ) {
-        IconButton(
-            onClick = onPrevious,
-            enabled = previousEnabled,
-            modifier = Modifier.size(52.dp),
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = Color(0x1544B3A2),
-                contentColor = Color(0xFF0F766E),
-                disabledContainerColor = Color(0x1044B3A2),
-                disabledContentColor = Color(0x660F766E)
-            )
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.SkipPrevious,
-                contentDescription = "上一首",
-                modifier = Modifier.size(24.dp)
-            )
-        }
+        SideControlButton(
+            icon = Icons.Rounded.Speed,
+            contentDescription = "调整倍速",
+            badgeText = PlaybackSpeed.format(playbackSpeed),
+            enabled = speedEnabled,
+            onClick = onSpeedClick,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+        )
 
-        Box(
-            modifier = Modifier.size(88.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(88.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = haloAlpha))
-            )
+        SideControlButton(
+            icon = Icons.AutoMirrored.Rounded.QueueMusic,
+            contentDescription = "打开播放列表",
+            badgeText = playlistItemCount
+                .takeIf { it > 0 }
+                ?.coerceAtMost(99)
+                ?.toString(),
+            enabled = playlistEnabled,
+            onClick = onPlaylistClick,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+        )
 
-            FilledIconButton(
-                onClick = {
-                    when {
-                        isPlaying -> onPause()
-                        isPaused -> onResume()
-                        else -> onPlay()
-                    }
-                },
-                enabled = toggleEnabled,
-                modifier = Modifier
-                    .size(72.dp)
-                    .graphicsLayer {
-                        scaleX = centerScale
-                        scaleY = centerScale
-                    },
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f),
-                    disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.58f)
+        Row(
+            modifier = Modifier.align(Alignment.Center),
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onPrevious,
+                enabled = previousEnabled,
+                modifier = Modifier.size(52.dp),
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = Color(0x1544B3A2),
+                    contentColor = Color(0xFF0F766E),
+                    disabledContainerColor = Color(0x1044B3A2),
+                    disabledContentColor = Color(0x660F766E)
                 )
             ) {
                 Icon(
-                    imageVector = if (showingPause) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (showingPause) "暂停" else "播放",
+                    imageVector = Icons.Rounded.SkipPrevious,
+                    contentDescription = "上一首",
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Box(
+                modifier = Modifier.size(88.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
                     modifier = Modifier
-                        .size(34.dp)
-                        .graphicsLayer {
-                            rotationZ = if (showingPause) 0f else -8f
+                        .size(88.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = haloAlpha))
+                )
+
+                FilledIconButton(
+                    onClick = {
+                        when {
+                            isPlaying -> onPause()
+                            isPaused -> onResume()
+                            else -> onPlay()
                         }
+                    },
+                    enabled = toggleEnabled,
+                    modifier = Modifier
+                        .size(72.dp)
+                        .graphicsLayer {
+                            scaleX = centerScale
+                            scaleY = centerScale
+                        },
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f),
+                        disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.58f)
+                    )
+                ) {
+                    Icon(
+                        imageVector = if (showingPause) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (showingPause) "暂停" else "播放",
+                        modifier = Modifier
+                            .size(34.dp)
+                            .graphicsLayer {
+                                rotationZ = if (showingPause) 0f else -8f
+                            }
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = onNext,
+                enabled = nextEnabled,
+                modifier = Modifier.size(52.dp),
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = Color(0x1544B3A2),
+                    contentColor = Color(0xFF0F766E),
+                    disabledContainerColor = Color(0x1044B3A2),
+                    disabledContentColor = Color(0x660F766E)
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.SkipNext,
+                    contentDescription = "下一首",
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
+    }
+}
 
+@Composable
+private fun SideControlButton(
+    icon: ImageVector,
+    contentDescription: String,
+    badgeText: String?,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier) {
         IconButton(
-            onClick = onNext,
-            enabled = nextEnabled,
+            onClick = onClick,
+            enabled = enabled,
             modifier = Modifier.size(52.dp),
             colors = IconButtonDefaults.iconButtonColors(
                 containerColor = Color(0x1544B3A2),
@@ -141,10 +212,28 @@ internal fun PlaybackControls(
             )
         ) {
             Icon(
-                imageVector = Icons.Rounded.SkipNext,
-                contentDescription = "下一首",
+                imageVector = icon,
+                contentDescription = contentDescription,
                 modifier = Modifier.size(24.dp)
             )
+        }
+
+        if (!badgeText.isNullOrBlank()) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 2.dp, y = (-2).dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary,
+                tonalElevation = 2.dp
+            ) {
+                Text(
+                    text = badgeText,
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
         }
     }
 }
