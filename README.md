@@ -121,6 +121,7 @@ player-lite/
 - Android SDK `36`
 - NDK `27.0.12077973`
 - Java `11`
+- Node.js `20+`（如需使用仓库内 OpenSpec / `.codex` 相关工作流，避免旧版 Node 无法运行 `openspec` CLI）
 
 初始化 FFmpeg submodule：
 
