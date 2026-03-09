@@ -1,5 +1,6 @@
 package com.wxy.playerlite.playback.process
 
+import com.wxy.playerlite.playback.model.PlaybackMode
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -11,19 +12,34 @@ class PlaybackCompletionActionTest {
             PlaybackCompletionAction.resolve(
                 playCode = 0,
                 activeIndex = 0,
-                trackCount = 2
+                trackCount = 2,
+                playbackMode = PlaybackMode.LIST_LOOP
             )
         )
     }
 
     @Test
-    fun resolve_returnsStopAtEndWhenNaturalCompletionIsLastTrack() {
+    fun resolve_returnsLoopToFirstWhenNaturalCompletionIsLastTrack() {
         assertEquals(
-            PlaybackCompletionAction.STOP_AT_END,
+            PlaybackCompletionAction.LOOP_TO_FIRST,
             PlaybackCompletionAction.resolve(
                 playCode = 0,
                 activeIndex = 1,
-                trackCount = 2
+                trackCount = 2,
+                playbackMode = PlaybackMode.LIST_LOOP
+            )
+        )
+    }
+
+    @Test
+    fun resolve_returnsRepeatCurrentWhenSingleLoopCompletes() {
+        assertEquals(
+            PlaybackCompletionAction.REPEAT_CURRENT,
+            PlaybackCompletionAction.resolve(
+                playCode = 0,
+                activeIndex = 0,
+                trackCount = 2,
+                playbackMode = PlaybackMode.SINGLE_LOOP
             )
         )
     }
@@ -35,7 +51,8 @@ class PlaybackCompletionActionTest {
             PlaybackCompletionAction.resolve(
                 playCode = -2001,
                 activeIndex = 0,
-                trackCount = 2
+                trackCount = 2,
+                playbackMode = PlaybackMode.SHUFFLE
             )
         )
     }

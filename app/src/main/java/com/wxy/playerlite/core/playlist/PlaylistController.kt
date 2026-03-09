@@ -1,5 +1,6 @@
 package com.wxy.playerlite.core.playlist
 
+import com.wxy.playerlite.playback.model.PlaybackMode
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,7 +16,8 @@ class PlaylistController(
     private val scope: CoroutineScope,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val storageKey: String = STORAGE_KEY,
-    private val persistDebounceMs: Long = DEFAULT_PERSIST_DEBOUNCE_MS
+    private val persistDebounceMs: Long = DEFAULT_PERSIST_DEBOUNCE_MS,
+    private val orderShuffler: (List<String>) -> List<String> = { ids -> ids.shuffled() }
 ) {
     var state: PlaylistState = PlaylistState.empty()
         private set
@@ -36,8 +38,8 @@ class PlaylistController(
             return state
         }
 
-        val filteredItems = decoded.items.filter(validator)
-        val restored = decoded.copy(items = filteredItems).normalized()
+        val filteredItems = decoded.originalItems.filter(validator)
+        val restored = decoded.copy(originalItems = filteredItems).normalized()
         state = restored
 
         if (restored != decoded) {
@@ -51,27 +53,40 @@ class PlaylistController(
         return updateState(
             PlaylistState(
                 version = PlaylistState.VERSION,
-                items = listOf(item),
-                activeIndex = 0
-            )
+                originalItems = listOf(item),
+                shuffledOrderIds = listOf(item.id),
+                activeItemId = item.id
+            ).normalized()
         )
     }
 
     fun addItem(item: PlaylistItem, makeActive: Boolean = true): PlaylistState {
-        val nextItems = state.items + item
-        val nextActiveIndex = when {
-            nextItems.isEmpty() -> -1
-            makeActive -> nextItems.lastIndex
-            state.activeIndex in nextItems.indices -> state.activeIndex
-            else -> 0
+        val nextItems = state.originalItems + item
+        val nextActiveItemId = when {
+            nextItems.isEmpty() -> null
+            makeActive -> item.id
+            state.activeItemId in nextItems.map { it.id } -> state.activeItemId
+            else -> nextItems.first().id
+        }
+        val nextShuffleOrder = when (state.playbackMode) {
+            PlaybackMode.SHUFFLE -> PlaylistState.normalizedPlaybackOrderIds(
+                nextItems,
+                state.shuffledOrderIds + item.id
+            )
+
+            else -> PlaylistState.normalizedPlaybackOrderIds(nextItems, state.shuffledOrderIds)
         }
         return updateState(
-            state.copy(items = nextItems, activeIndex = nextActiveIndex).normalized()
+            state.copy(
+                originalItems = nextItems,
+                shuffledOrderIds = nextShuffleOrder,
+                activeItemId = nextActiveItemId
+            ).normalized()
         )
     }
 
     fun removeItemById(id: String): PlaylistState {
-        val targetIndex = state.items.indexOfFirst { it.id == id }
+        val targetIndex = state.originalItems.indexOfFirst { it.id == id }
         if (targetIndex < 0) {
             return state
         }
@@ -79,71 +94,119 @@ class PlaylistController(
     }
 
     fun removeAt(index: Int): PlaylistState {
-        if (index !in state.items.indices) {
+        if (index !in state.originalItems.indices) {
             return state
         }
 
-        val nextItems = state.items.toMutableList().also { it.removeAt(index) }
-        val nextActiveIndex = when {
-            nextItems.isEmpty() -> -1
-            state.activeIndex > index -> state.activeIndex - 1
-            state.activeIndex == index -> state.activeIndex.coerceAtMost(nextItems.lastIndex)
-            else -> state.activeIndex
+        val nextItems = state.originalItems.toMutableList().also { it.removeAt(index) }
+        val removedId = state.originalItems[index].id
+        val nextActiveId = when {
+            nextItems.isEmpty() -> null
+            state.activeItemId == removedId -> nextItems.getOrNull(index)?.id ?: nextItems.last().id
+            else -> state.activeItemId
         }
 
         return updateState(
-            state.copy(items = nextItems, activeIndex = nextActiveIndex).normalized()
+            state.copy(
+                originalItems = nextItems,
+                shuffledOrderIds = state.shuffledOrderIds.filterNot { it == removedId },
+                activeItemId = nextActiveId
+            ).normalized()
         )
     }
 
     fun moveItem(fromIndex: Int, toIndex: Int): PlaylistState {
-        if (fromIndex !in state.items.indices || toIndex !in state.items.indices || fromIndex == toIndex) {
+        if (fromIndex !in state.originalItems.indices || toIndex !in state.originalItems.indices || fromIndex == toIndex) {
             return state
         }
 
-        val nextItems = state.items.toMutableList()
+        val nextItems = state.originalItems.toMutableList()
         val moving = nextItems.removeAt(fromIndex)
         nextItems.add(toIndex, moving)
 
-        val nextActiveIndex = when {
-            state.activeIndex == fromIndex -> toIndex
-            fromIndex < state.activeIndex && toIndex >= state.activeIndex -> state.activeIndex - 1
-            fromIndex > state.activeIndex && toIndex <= state.activeIndex -> state.activeIndex + 1
-            else -> state.activeIndex
-        }
-
         return updateState(
-            state.copy(items = nextItems, activeIndex = nextActiveIndex).normalized()
+            state.copy(originalItems = nextItems).normalized()
         )
     }
 
     fun setActiveIndex(index: Int): PlaylistState {
-        if (index !in state.items.indices || state.activeIndex == index) {
+        if (index !in state.originalItems.indices) {
             return state
         }
-        return updateState(state.copy(activeIndex = index).normalized())
+        val nextActiveId = state.originalItems[index].id
+        if (state.activeItemId == nextActiveId) {
+            return state
+        }
+        return updateState(state.copy(activeItemId = nextActiveId).normalized())
+    }
+
+    fun setActiveItemId(itemId: String): PlaylistState {
+        if (state.originalItems.none { it.id == itemId } || state.activeItemId == itemId) {
+            return state
+        }
+        return updateState(state.copy(activeItemId = itemId).normalized())
+    }
+
+    fun setPlaybackMode(playbackMode: PlaybackMode): PlaylistState {
+        if (state.playbackMode == playbackMode) {
+            return state
+        }
+        val nextShuffleOrder = if (playbackMode == PlaybackMode.SHUFFLE) {
+            buildShuffleOrder(state.originalItems.map { it.id }, state.activeItemId)
+        } else {
+            state.shuffledOrderIds
+        }
+        return updateState(
+            state.copy(
+                playbackMode = playbackMode,
+                shuffledOrderIds = nextShuffleOrder
+            ).normalized()
+        )
+    }
+
+    fun setShowOriginalOrderInShuffle(show: Boolean): PlaylistState {
+        if (state.showOriginalOrderInShuffle == show) {
+            return state
+        }
+        return updateState(state.copy(showOriginalOrderInShuffle = show).normalized())
     }
 
     fun moveToNext(): PlaylistState {
         val nextIndex = state.activeIndex + 1
-        if (nextIndex !in state.items.indices) {
+        if (nextIndex !in state.originalItems.indices) {
             return state
         }
-        return updateState(state.copy(activeIndex = nextIndex).normalized())
+        return setActiveIndex(nextIndex)
     }
 
     fun moveToPrevious(): PlaylistState {
         val nextIndex = state.activeIndex - 1
-        if (nextIndex !in state.items.indices) {
+        if (nextIndex !in state.originalItems.indices) {
             return state
         }
-        return updateState(state.copy(activeIndex = nextIndex).normalized())
+        return setActiveIndex(nextIndex)
     }
 
     fun flush() {
         persistJob?.cancel()
         persistJob = null
         persistNow()
+    }
+
+    private fun buildShuffleOrder(ids: List<String>, activeItemId: String?): List<String> {
+        if (ids.isEmpty()) {
+            return emptyList()
+        }
+        val shuffled = orderShuffler(ids)
+        val normalized = PlaylistState.normalizedPlaybackOrderIds(
+            items = ids.map { id -> PlaylistItem(id = id, uri = id, displayName = id) },
+            shuffledOrderIds = shuffled
+        )
+        return if (activeItemId != null && activeItemId in normalized) {
+            normalized
+        } else {
+            normalized
+        }
     }
 
     private fun updateState(next: PlaylistState): PlaylistState {
@@ -164,7 +227,7 @@ class PlaylistController(
     }
 
     private fun persistNow() {
-        if (state.items.isEmpty()) {
+        if (state.originalItems.isEmpty()) {
             storage.remove(storageKey)
             return
         }
@@ -181,17 +244,20 @@ internal object PlaylistStateCodec {
     fun encode(state: PlaylistState): String {
         val root = JSONObject()
         root.put("version", PlaylistState.VERSION)
-        root.put("activeIndex", state.activeIndex)
+        root.put("activeItemId", state.activeItemId)
+        root.put("playbackMode", state.playbackMode.wireValue)
+        root.put("showOriginalOrderInShuffle", state.showOriginalOrderInShuffle)
 
-        val items = JSONArray()
-        state.items.forEach { item ->
+        val originalItems = JSONArray()
+        state.originalItems.forEach { item ->
             val itemJson = JSONObject()
             itemJson.put("id", item.id)
             itemJson.put("uri", item.uri)
             itemJson.put("displayName", item.displayName)
-            items.put(itemJson)
+            originalItems.put(itemJson)
         }
-        root.put("items", items)
+        root.put("originalItems", originalItems)
+        root.put("shuffledOrderIds", JSONArray(state.shuffledOrderIds))
 
         return root.toString()
     }
@@ -199,39 +265,67 @@ internal object PlaylistStateCodec {
     fun decode(raw: String): PlaylistState? {
         return try {
             val root = JSONObject(raw)
-            val version = root.optInt("version", -1)
-            if (version != PlaylistState.VERSION) {
-                return null
+            when (val version = root.optInt("version", -1)) {
+                1 -> decodeLegacyV1(root)
+                PlaylistState.VERSION -> decodeV2(root)
+                else -> null
             }
-
-            val activeIndex = root.optInt("activeIndex", -1)
-            val itemsJson = root.optJSONArray("items") ?: JSONArray()
-            val items = buildList {
-                for (i in 0 until itemsJson.length()) {
-                    val itemJson = itemsJson.optJSONObject(i) ?: continue
-                    val id = itemJson.optString("id", "").trim()
-                    val uri = itemJson.optString("uri", "").trim()
-                    val displayName = itemJson.optString("displayName", "").trim()
-                    if (id.isEmpty() || uri.isEmpty()) {
-                        continue
-                    }
-                    add(
-                        PlaylistItem(
-                            id = id,
-                            uri = uri,
-                            displayName = if (displayName.isNotEmpty()) displayName else "Unknown audio"
-                        )
-                    )
-                }
-            }
-
-            PlaylistState(
-                version = version,
-                items = items,
-                activeIndex = activeIndex
-            ).normalized()
         } catch (_: JSONException) {
             null
+        }
+    }
+
+    private fun decodeLegacyV1(root: JSONObject): PlaylistState {
+        val activeIndex = root.optInt("activeIndex", -1)
+        val items = readItems(root.optJSONArray("items") ?: JSONArray())
+        return PlaylistState(
+            version = PlaylistState.VERSION,
+            originalItems = items,
+            shuffledOrderIds = items.map { it.id },
+            activeItemId = items.getOrNull(activeIndex)?.id,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            showOriginalOrderInShuffle = false
+        ).normalized()
+    }
+
+    private fun decodeV2(root: JSONObject): PlaylistState {
+        val originalItems = readItems(root.optJSONArray("originalItems") ?: JSONArray())
+        val shuffledOrderIds = buildList {
+            val idsJson = root.optJSONArray("shuffledOrderIds") ?: JSONArray()
+            for (i in 0 until idsJson.length()) {
+                idsJson.optString(i, "").trim().takeIf { it.isNotEmpty() }?.let(::add)
+            }
+        }
+        return PlaylistState(
+            version = PlaylistState.VERSION,
+            originalItems = originalItems,
+            shuffledOrderIds = shuffledOrderIds,
+            activeItemId = root.optString("activeItemId", "").trim().ifEmpty { null },
+            playbackMode = PlaybackMode.fromWireValue(
+                root.takeIf { it.has("playbackMode") }?.optString("playbackMode")
+            ),
+            showOriginalOrderInShuffle = root.optBoolean("showOriginalOrderInShuffle", false)
+        ).normalized()
+    }
+
+    private fun readItems(itemsJson: JSONArray): List<PlaylistItem> {
+        return buildList {
+            for (i in 0 until itemsJson.length()) {
+                val itemJson = itemsJson.optJSONObject(i) ?: continue
+                val id = itemJson.optString("id", "").trim()
+                val uri = itemJson.optString("uri", "").trim()
+                val displayName = itemJson.optString("displayName", "").trim()
+                if (id.isEmpty() || uri.isEmpty()) {
+                    continue
+                }
+                add(
+                    PlaylistItem(
+                        id = id,
+                        uri = uri,
+                        displayName = if (displayName.isNotEmpty()) displayName else "Unknown audio"
+                    )
+                )
+            }
         }
     }
 }

@@ -2,6 +2,7 @@ package com.wxy.playerlite.feature.player.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
@@ -27,7 +27,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,7 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import com.wxy.playerlite.player.PlaybackSpeed
+import com.wxy.playerlite.playback.model.PlaybackMode
 
 @Composable
 internal fun PlaybackControls(
@@ -46,10 +48,10 @@ internal fun PlaybackControls(
     isPreparing: Boolean,
     isPlaying: Boolean,
     isPaused: Boolean,
-    playbackSpeed: Float,
+    playbackMode: PlaybackMode,
     onPlay: () -> Unit,
     onPlaylistClick: () -> Unit,
-    onSpeedClick: () -> Unit,
+    onPlaybackModeClick: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onPause: () -> Unit,
@@ -59,7 +61,7 @@ internal fun PlaybackControls(
     val toggleEnabled = !isPreparing && (hasSelection || isPlaying || isPaused)
     val previousEnabled = !isPreparing && hasPreviousTrack
     val nextEnabled = !isPreparing && hasNextTrack
-    val speedEnabled = !isPreparing && hasSelection
+    val modeEnabled = !isPreparing && hasSelection
     val playlistEnabled = !isPreparing
     val showingPause = isPlaying
     val haloAlpha by animateFloatAsState(
@@ -79,11 +81,14 @@ internal fun PlaybackControls(
             .height(88.dp)
     ) {
         SideControlButton(
-            icon = Icons.Rounded.Speed,
-            contentDescription = "调整倍速",
-            badgeText = PlaybackSpeed.format(playbackSpeed),
-            enabled = speedEnabled,
-            onClick = onSpeedClick,
+            icon = playbackMode.modeIcon(),
+            contentDescription = playbackMode.modeContentDescription(),
+            badgeText = null,
+            enabled = modeEnabled,
+            palette = playbackMode.modePalette(),
+            motionSpec = playbackMode.modeMotionSpec(),
+            motionKey = playbackMode,
+            onClick = onPlaybackModeClick,
             modifier = Modifier
                 .align(Alignment.CenterStart)
         )
@@ -96,6 +101,9 @@ internal fun PlaybackControls(
                 ?.coerceAtMost(99)
                 ?.toString(),
             enabled = playlistEnabled,
+            palette = defaultSideControlPalette(),
+            motionSpec = SideControlMotionSpec(),
+            motionKey = "playlist",
             onClick = onPlaylistClick,
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -196,25 +204,83 @@ private fun SideControlButton(
     contentDescription: String,
     badgeText: String?,
     enabled: Boolean,
+    palette: SideControlPalette,
+    motionSpec: SideControlMotionSpec,
+    motionKey: Any,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier = modifier) {
+    val pulseProgress = remember(motionKey) { Animatable(0f) }
+    LaunchedEffect(motionKey, motionSpec) {
+        pulseProgress.snapTo(0f)
+        if (motionSpec.animated) {
+            pulseProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = motionSpec.durationMs)
+            )
+            if (!motionSpec.repeat) {
+                pulseProgress.snapTo(0f)
+            }
+        }
+    }
+    val pulsePhase = when {
+        !motionSpec.animated -> 0f
+        pulseProgress.value <= 0.5f -> pulseProgress.value * 2f
+        else -> (1f - pulseProgress.value) * 2f
+    }
+    val animatedScale = lerp(
+        start = motionSpec.minScale,
+        stop = motionSpec.maxScale,
+        fraction = pulsePhase
+    )
+    val animatedIconRotation = lerp(
+        start = motionSpec.minIconRotationDeg,
+        stop = motionSpec.maxIconRotationDeg,
+        fraction = pulsePhase
+    )
+    val animatedHaloAlpha = lerp(
+        start = motionSpec.minHaloAlpha,
+        stop = motionSpec.maxHaloAlpha,
+        fraction = pulsePhase
+    )
+
+    Box(
+        modifier = modifier.size(58.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (animatedHaloAlpha > 0f) {
+            Box(
+                modifier = Modifier
+                    .size(58.dp)
+                    .clip(CircleShape)
+                    .background(palette.contentColor.copy(alpha = animatedHaloAlpha))
+            )
+        }
+
         IconButton(
             onClick = onClick,
             enabled = enabled,
-            modifier = Modifier.size(52.dp),
+            modifier = Modifier
+                .size(52.dp)
+                .graphicsLayer {
+                    scaleX = animatedScale
+                    scaleY = animatedScale
+                },
             colors = IconButtonDefaults.iconButtonColors(
-                containerColor = Color(0x1544B3A2),
-                contentColor = Color(0xFF0F766E),
-                disabledContainerColor = Color(0x1044B3A2),
-                disabledContentColor = Color(0x660F766E)
+                containerColor = palette.containerColor,
+                contentColor = palette.contentColor,
+                disabledContainerColor = palette.disabledContainerColor,
+                disabledContentColor = palette.disabledContentColor
             )
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier
+                    .size(24.dp)
+                    .graphicsLayer {
+                        rotationZ = animatedIconRotation
+                    }
             )
         }
 
@@ -236,4 +302,8 @@ private fun SideControlButton(
             }
         }
     }
+}
+
+private fun lerp(start: Float, stop: Float, fraction: Float): Float {
+    return start + (stop - start) * fraction.coerceIn(0f, 1f)
 }

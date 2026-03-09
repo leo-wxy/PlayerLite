@@ -14,17 +14,26 @@ internal class PlaylistSessionCoordinator(
         get() = state.activeItem
 
     val activeIndex: Int
-        get() = state.activeIndex
+        get() = state.displayActiveIndex
 
     val items: List<PlaylistItem>
-        get() = state.items
+        get() = state.displayItems
+
+    val playbackItems: List<PlaylistItem>
+        get() = state.playbackItems
+
+    val playbackActiveIndex: Int
+        get() = state.playbackActiveIndex
+
+    val canReorderCurrentView: Boolean
+        get() = state.canReorderDisplayItems
 
     fun containsIndex(index: Int): Boolean {
-        return index in state.items.indices
+        return index in state.displayItems.indices
     }
 
     fun itemAt(index: Int): PlaylistItem? {
-        return state.items.getOrNull(index)
+        return state.displayItems.getOrNull(index)
     }
 
     fun restore(validator: (PlaylistItem) -> Boolean): PlaylistState {
@@ -38,7 +47,8 @@ internal class PlaylistSessionCoordinator(
     }
 
     fun removeAt(index: Int): PlaylistState {
-        state = controller.removeAt(index)
+        val item = itemAt(index) ?: return state
+        state = controller.removeItemById(item.id)
         return state
     }
 
@@ -48,12 +58,31 @@ internal class PlaylistSessionCoordinator(
     }
 
     fun moveItem(fromIndex: Int, toIndex: Int): PlaylistState {
+        if (!state.canReorderDisplayItems) {
+            return state
+        }
         state = controller.moveItem(fromIndex, toIndex)
         return state
     }
 
     fun setActiveIndex(index: Int): PlaylistState {
-        state = controller.setActiveIndex(index)
+        val item = itemAt(index) ?: return state
+        state = controller.setActiveItemId(item.id)
+        return state
+    }
+
+    fun setActiveItemId(itemId: String): PlaylistState {
+        state = controller.setActiveItemId(itemId)
+        return state
+    }
+
+    fun setPlaybackMode(playbackMode: com.wxy.playerlite.playback.model.PlaybackMode): PlaylistState {
+        state = controller.setPlaybackMode(playbackMode)
+        return state
+    }
+
+    fun setShowOriginalOrderInShuffle(show: Boolean): PlaylistState {
+        state = controller.setShowOriginalOrderInShuffle(show)
         return state
     }
 

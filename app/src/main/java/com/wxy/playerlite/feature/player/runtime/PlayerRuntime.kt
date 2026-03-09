@@ -10,6 +10,7 @@ import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.emptyAudioMeta
 import com.wxy.playerlite.feature.player.model.withPlaybackSpeed
+import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.PlaybackOutputInfo
 import java.util.UUID
@@ -37,6 +38,7 @@ internal class PlayerRuntime(
     private var remoteProgressAnchorElapsedRealtimeMs: Long = 0L
     private var remoteProgressShouldAdvance: Boolean = false
     private var pendingPlaybackSpeed: Float? = null
+    private var pendingPlaybackMode: PlaybackMode? = null
 
     private var uiState: PlayerUiState
         get() = _uiState.value
@@ -62,6 +64,23 @@ internal class PlayerRuntime(
 
     fun onDismissPlaylistSheet() {
         uiState = uiState.copy(showPlaylistSheet = false)
+    }
+
+    fun updateLocalPlaybackMode(playbackMode: PlaybackMode) {
+        pendingPlaybackMode = playbackMode
+        playlistSession.setPlaybackMode(playbackMode)
+        syncSelectionFromPlaylist()
+    }
+
+    fun revertPendingPlaybackMode(playbackMode: PlaybackMode) {
+        pendingPlaybackMode = null
+        playlistSession.setPlaybackMode(playbackMode)
+        syncSelectionFromPlaylist()
+    }
+
+    fun setShowOriginalOrderInShuffle(show: Boolean) {
+        playlistSession.setShowOriginalOrderInShuffle(show)
+        syncSelectionFromPlaylist()
     }
 
     fun onSeekValueChange(value: Long) {
@@ -161,12 +180,10 @@ internal class PlayerRuntime(
         if (itemId.isNullOrBlank()) {
             return
         }
-        val targetIndex = playlistSession.items.indexOfFirst { it.id == itemId }
-        if (targetIndex < 0 || targetIndex == playlistSession.activeIndex) {
+        if (playlistSession.activeItem?.id == itemId) {
             return
         }
-
-        playlistSession.setActiveIndex(targetIndex)
+        playlistSession.setActiveItemId(itemId)
         syncSelectionFromPlaylist()
     }
 
@@ -176,6 +193,8 @@ internal class PlayerRuntime(
         durationMs: Long,
         isSeekSupported: Boolean,
         playbackSpeed: Float,
+        playbackMode: PlaybackMode,
+        currentMediaId: String?,
         isProgressAdvancing: Boolean,
         playbackOutputInfo: PlaybackOutputInfo?,
         audioMeta: AudioMetaDisplay?
@@ -185,6 +204,19 @@ internal class PlayerRuntime(
             pendingSpeed = pendingPlaybackSpeed
         )
         pendingPlaybackSpeed = speedResolution.pendingSpeed
+        val localPlaybackMode = playlistSession.state.playbackMode
+        val remoteModeAuthoritative = !currentMediaId.isNullOrBlank()
+        val resolvedPlaybackMode = when {
+            pendingPlaybackMode != null && pendingPlaybackMode != playbackMode -> pendingPlaybackMode!!
+            remoteModeAuthoritative -> playbackMode
+            else -> localPlaybackMode
+        }
+        pendingPlaybackMode = if (remoteModeAuthoritative && resolvedPlaybackMode == playbackMode) {
+            null
+        } else {
+            pendingPlaybackMode
+        }
+        playlistSession.setPlaybackMode(resolvedPlaybackMode)
         val nextDuration = if (durationMs > 0L) durationMs else uiState.durationMs
         val bounded = if (nextDuration > 0L) {
             positionMs.coerceIn(0L, nextDuration)
@@ -205,8 +237,10 @@ internal class PlayerRuntime(
                 remote = audioMeta,
                 reportedDurationMs = durationMs,
                 isSeekSupported = isSeekSupported
-            )
+            ),
+            playbackMode = playlistSession.state.playbackMode
         ).withPlaybackSpeed(speedResolution.resolvedSpeed)
+        syncSelectionFromPlaylist()
     }
 
     fun updateLocalPlaybackSpeed(playbackSpeed: Float) {
@@ -244,6 +278,7 @@ internal class PlayerRuntime(
     fun stopAll(updateStatus: Boolean) {
         remoteProgressShouldAdvance = false
         pendingPlaybackSpeed = null
+        pendingPlaybackMode = null
         resetRemoteProgressAnchor()
         uiState = uiState.copy(
             audioMeta = emptyAudioMeta(),
@@ -260,6 +295,14 @@ internal class PlayerRuntime(
 
     fun formatDuration(durationMs: Long): String {
         return PlayerUiFormatter.formatDuration(durationMs)
+    }
+
+    fun playbackQueueItems(): List<PlaylistItem> {
+        return playlistSession.playbackItems
+    }
+
+    fun playbackQueueActiveIndex(): Int {
+        return playlistSession.playbackActiveIndex
     }
 
     private fun restorePlaylistState() {
@@ -314,7 +357,10 @@ internal class PlayerRuntime(
             hasSelection = playlistSession.items.isNotEmpty(),
             playlistItems = playlistSession.items,
             activePlaylistIndex = playlistSession.activeIndex,
-            showPlaylistSheet = if (playlistSession.items.isEmpty()) false else uiState.showPlaylistSheet
+            showPlaylistSheet = if (playlistSession.items.isEmpty()) false else uiState.showPlaylistSheet,
+            playbackMode = playlistSession.state.playbackMode,
+            showOriginalOrderInShuffle = playlistSession.state.showOriginalOrderInShuffle,
+            canReorderPlaylist = playlistSession.canReorderCurrentView
         )
     }
 

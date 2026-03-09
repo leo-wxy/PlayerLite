@@ -2,6 +2,7 @@ package com.wxy.playerlite.playback.client
 
 import android.os.Bundle
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
+import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.PlaybackSpeed
 
 internal object RemotePlaybackSnapshotMapper {
@@ -25,6 +26,10 @@ internal object RemotePlaybackSnapshotMapper {
             ?: PlaybackMetadataExtras.readPlaybackSpeed(sessionExtras)
             ?: PlaybackMetadataExtras.readPlaybackSpeed(rootMetadataExtras)
             ?: PlaybackSpeed.DEFAULT.value
+        val playbackMode = PlaybackMetadataExtras.readPlaybackMode(currentMetadataExtras)
+            ?: PlaybackMetadataExtras.readPlaybackMode(sessionExtras)
+            ?: PlaybackMetadataExtras.readPlaybackMode(rootMetadataExtras)
+            ?: PlaybackMode.LIST_LOOP
         return RemotePlaybackSnapshot(
             playbackState = playbackState,
             playWhenReady = playWhenReady,
@@ -33,6 +38,7 @@ internal object RemotePlaybackSnapshotMapper {
             currentPositionMs = currentPositionMs,
             durationMs = durationMs,
             playbackSpeed = playbackSpeed,
+            playbackMode = playbackMode,
             statusText = statusText,
             currentMediaId = currentMediaId,
             playbackOutputInfo = PlaybackMetadataExtras.readPlaybackOutputInfo(currentMetadataExtras)

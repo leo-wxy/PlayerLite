@@ -15,6 +15,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.wxy.playerlite.playback.model.MusicInfo
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
+import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
 
 @UnstableApi
@@ -92,7 +93,8 @@ class PlayerServiceBridge(
     fun syncQueue(
         queue: List<MusicInfo>,
         activeIndex: Int,
-        playWhenReady: Boolean
+        playWhenReady: Boolean,
+        startPositionMs: Long = C.TIME_UNSET
     ): Boolean {
         return withController { activeController ->
             if (queue.isEmpty()) {
@@ -103,7 +105,7 @@ class PlayerServiceBridge(
 
             val mediaItems = queue.map { it.toMediaItem() }
             val normalizedIndex = activeIndex.coerceIn(0, mediaItems.lastIndex)
-            activeController.setMediaItems(mediaItems, normalizedIndex, C.TIME_UNSET)
+            activeController.setMediaItems(mediaItems, normalizedIndex, startPositionMs)
             activeController.prepare()
             if (playWhenReady) {
                 activeController.play()
@@ -189,6 +191,38 @@ class PlayerServiceBridge(
                         .onFailure { error ->
                             onControllerError(
                                 "Set speed failed: ${error.message ?: "unknown"}"
+                            )
+                            onResult?.invoke(false)
+                        }
+                },
+                mainExecutor
+            )
+        }
+    }
+
+    fun setPlaybackMode(playbackMode: PlaybackMode, onResult: ((Boolean) -> Unit)? = null): Boolean {
+        val args = Bundle().apply {
+            putString(PlaybackSessionCommands.EXTRA_PLAYBACK_MODE, playbackMode.wireValue)
+        }
+        return withController { activeController ->
+            val future = activeController.sendCustomCommand(
+                SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_MODE, Bundle.EMPTY),
+                args
+            )
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess { result ->
+                            if (result.resultCode != SessionResult.RESULT_SUCCESS) {
+                                onControllerError("Set mode rejected: ${result.resultCode}")
+                                onResult?.invoke(false)
+                            } else {
+                                onResult?.invoke(true)
+                            }
+                        }
+                        .onFailure { error ->
+                            onControllerError(
+                                "Set mode failed: ${error.message ?: "unknown"}"
                             )
                             onResult?.invoke(false)
                         }

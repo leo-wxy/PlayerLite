@@ -1,5 +1,6 @@
 package com.wxy.playerlite.core.playlist
 
+import com.wxy.playerlite.playback.model.PlaybackMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -100,12 +101,16 @@ class PlaylistControllerTest {
             PlaylistController.STORAGE_KEY,
             """
             {
-              "version":1,
+              "version":2,
               "activeIndex":9,
-              "items":[
+              "originalItems":[
                 {"id":"valid","uri":"uri://ok","displayName":"ok"},
                 {"id":"invalid","uri":"uri://drop","displayName":"drop"}
-              ]
+              ],
+              "shuffledOrderIds":["invalid","valid"],
+              "activeItemId":"invalid",
+              "playbackMode":"shuffle",
+              "showOriginalOrderInShuffle":true
             }
             """.trimIndent()
         )
@@ -132,7 +137,7 @@ class PlaylistControllerTest {
             PlaylistController.STORAGE_KEY,
             """
             {
-              "version":2,
+              "version":999,
               "activeIndex":0,
               "items":[{"id":"a","uri":"uri://a","displayName":"A"}]
             }
@@ -145,12 +150,100 @@ class PlaylistControllerTest {
         assertNull(storage.read(PlaylistController.STORAGE_KEY))
     }
 
-    private fun createController(): PlaylistController {
+    @Test
+    fun restore_shouldMigrateLegacyStateToDualOrderModel() {
+        storage.write(
+            PlaylistController.STORAGE_KEY,
+            """
+            {
+              "version":1,
+              "activeIndex":1,
+              "items":[
+                {"id":"a","uri":"uri://a","displayName":"A"},
+                {"id":"b","uri":"uri://b","displayName":"B"}
+              ]
+            }
+            """.trimIndent()
+        )
+
+        val restored = createController().restore { true }
+
+        assertEquals(listOf("a", "b"), restored.originalItems.map { it.id })
+        assertEquals(listOf("a", "b"), restored.shuffledOrderIds)
+        assertEquals("b", restored.activeItemId)
+        assertEquals(PlaybackMode.LIST_LOOP, restored.playbackMode)
+        assertFalse(restored.showOriginalOrderInShuffle)
+    }
+
+    @Test
+    fun setPlaybackMode_shuffle_shouldPreserveActiveItemAndPersistDisplayPreference() {
+        val controller = createController(orderShuffler = { ids -> ids.reversed() })
+        controller.addItem(item("a", "uri://a"), makeActive = true)
+        controller.addItem(item("b", "uri://b"), makeActive = true)
+        controller.addItem(item("c", "uri://c"), makeActive = false)
+
+        controller.setPlaybackMode(PlaybackMode.SHUFFLE)
+        controller.setShowOriginalOrderInShuffle(true)
+        controller.flush()
+
+        assertEquals(PlaybackMode.SHUFFLE, controller.state.playbackMode)
+        assertEquals("b", controller.state.activeItemId)
+        assertEquals(listOf("c", "b", "a"), controller.state.shuffledOrderIds)
+        assertTrue(controller.state.showOriginalOrderInShuffle)
+
+        val restored = createController(orderShuffler = { ids -> ids }).restore { true }
+        assertEquals(PlaybackMode.SHUFFLE, restored.playbackMode)
+        assertEquals("b", restored.activeItemId)
+        assertEquals(listOf("c", "b", "a"), restored.shuffledOrderIds)
+        assertTrue(restored.showOriginalOrderInShuffle)
+    }
+
+    @Test
+    fun shuffleMode_shouldSwitchDisplayOrderWithoutChangingPlaybackOrder() {
+        val controller = createController(orderShuffler = { ids -> ids.reversed() })
+        controller.addItem(item("a", "uri://a"), makeActive = false)
+        controller.addItem(item("b", "uri://b"), makeActive = true)
+        controller.addItem(item("c", "uri://c"), makeActive = false)
+
+        controller.setPlaybackMode(PlaybackMode.SHUFFLE)
+
+        assertEquals(listOf("c", "b", "a"), controller.state.displayItems.map { it.id })
+        assertEquals(1, controller.state.displayActiveIndex)
+        assertFalse(controller.state.canReorderDisplayItems)
+
+        controller.setShowOriginalOrderInShuffle(true)
+
+        assertEquals(listOf("a", "b", "c"), controller.state.displayItems.map { it.id })
+        assertEquals(1, controller.state.displayActiveIndex)
+        assertTrue(controller.state.canReorderDisplayItems)
+        assertEquals(listOf("c", "b", "a"), controller.state.playbackItems.map { it.id })
+    }
+
+    @Test
+    fun selectingItemInShuffle_shouldKeepExistingShuffleOrder() {
+        val controller = createController(orderShuffler = { ids -> ids.reversed() })
+        controller.addItem(item("a", "uri://a"), makeActive = true)
+        controller.addItem(item("b", "uri://b"), makeActive = false)
+        controller.addItem(item("c", "uri://c"), makeActive = false)
+        controller.setPlaybackMode(PlaybackMode.SHUFFLE)
+
+        val previousOrder = controller.state.shuffledOrderIds
+
+        controller.setActiveItemId("a")
+
+        assertEquals(previousOrder, controller.state.shuffledOrderIds)
+        assertEquals("a", controller.state.activeItemId)
+    }
+
+    private fun createController(
+        orderShuffler: (List<String>) -> List<String> = { ids -> ids.shuffled() }
+    ): PlaylistController {
         return PlaylistController(
             storage = storage,
             scope = scope,
             ioDispatcher = Dispatchers.Unconfined,
-            persistDebounceMs = 0L
+            persistDebounceMs = 0L,
+            orderShuffler = orderShuffler
         )
     }
 

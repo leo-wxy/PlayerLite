@@ -3,7 +3,9 @@ package com.wxy.playerlite.playback.process
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
+import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.MusicInfo
 import com.wxy.playerlite.player.AudioMetaDisplay
 import java.util.concurrent.atomic.AtomicReference
@@ -100,6 +102,72 @@ class PlayerSessionPlayerTest {
         assertNotNull(audioMeta)
         assertEquals("FLAC", audioMeta?.codec)
         assertEquals(321_000L, audioMeta?.durationMs)
+    }
+
+    @Test
+    fun getState_writesPlaybackModeIntoCurrentItemExtras() {
+        val runtime = createRuntime(
+            PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        music = MusicInfo(
+                            id = "track-1",
+                            title = "Track 1",
+                            playbackUri = "https://example.com/track-1.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 0,
+                playbackMode = PlaybackMode.SHUFFLE
+            )
+        )
+
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+        val extrasRef = AtomicReference<android.os.Bundle?>()
+
+        Handler(Looper.getMainLooper()).post {
+            extrasRef.set(player.currentMediaItem?.mediaMetadata?.extras)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(PlaybackMode.SHUFFLE, PlaybackMetadataExtras.readPlaybackMode(extrasRef.get()))
+    }
+
+    @Test
+    fun getState_keepsNextCommandAvailableOnListLoopTail() {
+        val runtime = createRuntime(
+            PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        music = MusicInfo(
+                            id = "track-1",
+                            title = "Track 1",
+                            playbackUri = "https://example.com/track-1.mp3"
+                        )
+                    ),
+                    PlaybackTrack(
+                        music = MusicInfo(
+                            id = "track-2",
+                            title = "Track 2",
+                            playbackUri = "https://example.com/track-2.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 1,
+                playbackMode = PlaybackMode.LIST_LOOP
+            )
+        )
+
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+        val commandsRef = AtomicReference<Player.Commands>()
+
+        Handler(Looper.getMainLooper()).post {
+            commandsRef.set(player.availableCommands)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val commands = commandsRef.get()
+        assertEquals(true, commands.contains(Player.COMMAND_SEEK_TO_NEXT))
     }
 
     private fun createRuntime(state: PlaybackProcessState): PlaybackProcessRuntime {

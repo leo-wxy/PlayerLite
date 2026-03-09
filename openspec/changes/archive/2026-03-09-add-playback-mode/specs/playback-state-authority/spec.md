@@ -1,8 +1,4 @@
-## Purpose
-
-定义后台播放服务作为唯一播放真相源的职责边界，以及前台 UI 如何通过远端快照进行状态投影，确保播放控制、会话状态与模块依赖方向保持清晰一致。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Playback service is the authoritative playback state owner
 The system SHALL manage the active playback execution state inside the background playback service. The currently projected queue, current media item, playback speed, play/pause readiness, seek position, and the playback-mode projection exposed through the media session MUST stay consistent with the business-layer playback state that drives the service.

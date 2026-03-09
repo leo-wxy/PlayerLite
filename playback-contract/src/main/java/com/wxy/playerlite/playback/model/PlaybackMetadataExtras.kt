@@ -15,6 +15,7 @@ object PlaybackMetadataExtras {
     private const val KEY_OUTPUT_RESAMPLER = "output_uses_resampler"
     private const val KEY_SEEK_SUPPORTED = "seek_supported"
     private const val KEY_PLAYBACK_SPEED = "playback_speed"
+    private const val KEY_PLAYBACK_MODE = "playback_mode"
     private const val KEY_AUDIO_META_CODEC = "audio_meta_codec"
     private const val KEY_AUDIO_META_SAMPLE_RATE = "audio_meta_sample_rate"
     private const val KEY_AUDIO_META_CHANNELS = "audio_meta_channels"
@@ -43,6 +44,10 @@ object PlaybackMetadataExtras {
         extras.putFloat(KEY_PLAYBACK_SPEED, playbackSpeed)
     }
 
+    fun writePlaybackMode(extras: Bundle, playbackMode: PlaybackMode) {
+        extras.putString(KEY_PLAYBACK_MODE, playbackMode.wireValue)
+    }
+
     fun writeAudioMeta(extras: Bundle, audioMeta: AudioMetaDisplay) {
         extras.putString(KEY_AUDIO_META_CODEC, audioMeta.codec)
         extras.putString(KEY_AUDIO_META_SAMPLE_RATE, audioMeta.sampleRate)
@@ -67,6 +72,13 @@ object PlaybackMetadataExtras {
             return null
         }
         return extras.getFloat(KEY_PLAYBACK_SPEED)
+    }
+
+    fun readPlaybackMode(extras: Bundle?): PlaybackMode? {
+        if (extras == null || !extras.containsKey(KEY_PLAYBACK_MODE)) {
+            return null
+        }
+        return PlaybackMode.fromWireValue(extras.getString(KEY_PLAYBACK_MODE))
     }
 
     fun readAudioMeta(extras: Bundle?): AudioMetaDisplay? {

@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DragIndicator
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.wxy.playerlite.core.playlist.PlaylistItem
+import com.wxy.playerlite.playback.model.PlaybackMode
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
@@ -58,7 +60,11 @@ internal fun PlaylistBottomSheet(
     visible: Boolean,
     items: List<PlaylistItem>,
     activeIndex: Int,
+    playbackMode: PlaybackMode,
+    showOriginalOrderInShuffle: Boolean,
+    canReorder: Boolean,
     onDismiss: () -> Unit,
+    onShowOriginalOrderInShuffleChange: (Boolean) -> Unit,
     onSelect: (Int) -> Unit,
     onRemove: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
@@ -142,6 +148,23 @@ internal fun PlaylistBottomSheet(
                         }
                     }
 
+                    if (playbackMode == PlaybackMode.SHUFFLE) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "显示原始顺序",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Checkbox(
+                                checked = showOriginalOrderInShuffle,
+                                onCheckedChange = onShowOriginalOrderInShuffleChange
+                            )
+                        }
+                    }
+
                     if (items.isEmpty()) {
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -171,46 +194,52 @@ internal fun PlaylistBottomSheet(
                                             scaleX = if (isDragging) 1.01f else 1f
                                             scaleY = if (isDragging) 1.01f else 1f
                                         }
-                                        .pointerInput(items.size, index, reorderStepPx) {
-                                            detectDragGesturesAfterLongPress(
-                                                onDragStart = {
-                                                    draggingIndex = index
-                                                    draggingOffsetY = 0f
-                                                },
-                                                onDragEnd = {
-                                                    draggingIndex = -1
-                                                    draggingOffsetY = 0f
-                                                },
-                                                onDragCancel = {
-                                                    draggingIndex = -1
-                                                    draggingOffsetY = 0f
-                                                },
-                                                onDrag = { change, dragAmount ->
-                                                    change.consume()
+                                        .let { baseModifier ->
+                                            if (!canReorder) {
+                                                baseModifier
+                                            } else {
+                                                baseModifier.pointerInput(items.size, index, reorderStepPx) {
+                                                    detectDragGesturesAfterLongPress(
+                                                        onDragStart = {
+                                                            draggingIndex = index
+                                                            draggingOffsetY = 0f
+                                                        },
+                                                        onDragEnd = {
+                                                            draggingIndex = -1
+                                                            draggingOffsetY = 0f
+                                                        },
+                                                        onDragCancel = {
+                                                            draggingIndex = -1
+                                                            draggingOffsetY = 0f
+                                                        },
+                                                        onDrag = { change, dragAmount ->
+                                                            change.consume()
 
-                                                    if (draggingIndex < 0) {
-                                                        return@detectDragGesturesAfterLongPress
-                                                    }
+                                                            if (draggingIndex < 0) {
+                                                                return@detectDragGesturesAfterLongPress
+                                                            }
 
-                                                    draggingOffsetY += dragAmount.y
+                                                            draggingOffsetY += dragAmount.y
 
-                                                    if (draggingOffsetY > reorderStepPx && draggingIndex < items.lastIndex) {
-                                                        val from = draggingIndex
-                                                        val to = from + 1
-                                                        onMove(from, to)
-                                                        draggingIndex = to
-                                                        draggingOffsetY -= reorderStepPx
-                                                    }
+                                                            if (draggingOffsetY > reorderStepPx && draggingIndex < items.lastIndex) {
+                                                                val from = draggingIndex
+                                                                val to = from + 1
+                                                                onMove(from, to)
+                                                                draggingIndex = to
+                                                                draggingOffsetY -= reorderStepPx
+                                                            }
 
-                                                    if (draggingOffsetY < -reorderStepPx && draggingIndex > 0) {
-                                                        val from = draggingIndex
-                                                        val to = from - 1
-                                                        onMove(from, to)
-                                                        draggingIndex = to
-                                                        draggingOffsetY += reorderStepPx
-                                                    }
+                                                            if (draggingOffsetY < -reorderStepPx && draggingIndex > 0) {
+                                                                val from = draggingIndex
+                                                                val to = from - 1
+                                                                onMove(from, to)
+                                                                draggingIndex = to
+                                                                draggingOffsetY += reorderStepPx
+                                                            }
+                                                        }
+                                                    )
                                                 }
-                                            )
+                                            }
                                         }
                                         .clickable(enabled = !isDragging) { onSelect(index) },
                                     shape = RoundedCornerShape(16.dp),
@@ -262,14 +291,14 @@ internal fun PlaylistBottomSheet(
                                                 .clip(RoundedCornerShape(10.dp))
                                                 .background(
                                                     MaterialTheme.colorScheme.onSurface.copy(
-                                                        alpha = if (isDragging) 0.16f else 0.08f
+                                                        alpha = if (!canReorder) 0.04f else if (isDragging) 0.16f else 0.08f
                                                     )
                                                 ),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Rounded.DragIndicator,
-                                                contentDescription = "长按拖拽排序",
+                                                contentDescription = if (canReorder) "长按拖拽排序" else "当前视图不支持拖拽排序",
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }

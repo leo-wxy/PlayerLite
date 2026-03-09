@@ -3,7 +3,9 @@ package com.wxy.playerlite.feature.player
 import android.app.Application
 import android.net.Uri
 import android.util.Log
+import android.widget.Toast
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.lifecycle.AndroidViewModel
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
@@ -14,6 +16,7 @@ import com.wxy.playerlite.feature.player.runtime.PlayerRuntimeRegistry
 import com.wxy.playerlite.playback.client.PlayerServiceBridge
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.MusicInfo
+import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.process.PlayerMediaSessionService
 import com.wxy.playerlite.player.PlaybackSpeed
 import java.util.UUID
@@ -32,6 +35,8 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
     }
     private val remoteSyncJob: Job
     private val uiProgressJob: Job
+    private var playbackModeToast: Toast? = null
+    private var playbackModeToastDismissJob: Job? = null
 
     val uiStateFlow: StateFlow<PlayerUiState> = runtime.uiStateFlow
 
@@ -93,6 +98,26 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
             runtime.revertPendingPlaybackSpeed(previousSpeed)
             runtime.setStatusText("倍速设置失败：后台播放进程未连接")
         }
+    }
+
+    fun updatePlaybackMode(playbackMode: PlaybackMode) {
+        val shouldContinue = uiStateFlow.value.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING
+        val currentPosition = uiStateFlow.value.displayedSeekMs
+        runtime.updateLocalPlaybackMode(playbackMode)
+        syncQueueToPlaybackProcess(
+            playWhenReady = shouldContinue,
+            startPositionMs = currentPosition
+        )
+    }
+
+    fun cyclePlaybackMode() {
+        val nextMode = uiStateFlow.value.playbackMode.nextPlaybackMode()
+        updatePlaybackMode(nextMode)
+        showPlaybackModeToast(nextMode.toastText())
+    }
+
+    fun setShowOriginalOrderInShuffle(show: Boolean) {
+        runtime.setShowOriginalOrderInShuffle(show)
     }
 
     fun onHostStop() {
@@ -203,6 +228,8 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
     }
 
     override fun onCleared() {
+        playbackModeToastDismissJob?.cancel()
+        playbackModeToast?.cancel()
         remoteSyncJob.cancel()
         uiProgressJob.cancel()
         runtime.onHostStop()
@@ -221,6 +248,8 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
             durationMs = snapshot.durationMs,
             isSeekSupported = snapshot.isSeekSupported,
             playbackSpeed = snapshot.playbackSpeed,
+            playbackMode = snapshot.playbackMode,
+            currentMediaId = snapshot.currentMediaId,
             isProgressAdvancing = snapshot.isPlaying,
             playbackOutputInfo = snapshot.playbackOutputInfo,
             audioMeta = snapshot.audioMeta
@@ -241,15 +270,18 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
         }
     }
 
-    private fun syncQueueToPlaybackProcess(playWhenReady: Boolean): Boolean {
-        val state = uiStateFlow.value
-        if (state.playlistItems.isEmpty()) {
+    private fun syncQueueToPlaybackProcess(
+        playWhenReady: Boolean,
+        startPositionMs: Long = C.TIME_UNSET
+    ): Boolean {
+        val queueItems = runtime.playbackQueueItems()
+        if (queueItems.isEmpty()) {
             runtime.setStatusText("Pick audio first")
             return false
         }
 
-        val activeIndex = state.activePlaylistIndex.takeIf { it in state.playlistItems.indices } ?: 0
-        val queue = state.playlistItems.map { item ->
+        val activeIndex = runtime.playbackQueueActiveIndex().takeIf { it in queueItems.indices } ?: 0
+        val queue = queueItems.map { item ->
             MusicInfo(
                 id = item.id,
                 title = item.displayName,
@@ -262,12 +294,14 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
         val synced = serviceBridge.syncQueue(
             queue = queue,
             activeIndex = activeIndex,
-            playWhenReady = playWhenReady
+            playWhenReady = playWhenReady,
+            startPositionMs = startPositionMs
         )
 
         if (!synced) {
             runtime.setStatusText("播放失败：后台播放进程未连接")
         } else {
+            serviceBridge.setPlaybackMode(uiStateFlow.value.playbackMode)
             runtime.setStatusText(
                 if (playWhenReady) {
                     "已同步队列并开始后台播放"
@@ -277,6 +311,21 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
             )
         }
         return synced
+    }
+
+    private fun showPlaybackModeToast(message: String) {
+        playbackModeToastDismissJob?.cancel()
+        playbackModeToast?.cancel()
+        val toast = Toast.makeText(appContext, message, Toast.LENGTH_SHORT)
+        playbackModeToast = toast
+        toast.show()
+        playbackModeToastDismissJob = viewModelScope.launch {
+            delay(900L)
+            if (playbackModeToast === toast) {
+                toast.cancel()
+                playbackModeToast = null
+            }
+        }
     }
 
     private companion object {

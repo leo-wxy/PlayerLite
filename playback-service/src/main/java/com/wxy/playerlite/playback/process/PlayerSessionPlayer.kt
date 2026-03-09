@@ -10,6 +10,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
+import com.wxy.playerlite.playback.model.PlaybackMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -41,6 +42,7 @@ internal class PlayerSessionPlayer(
             val item = if (track.id == currentTrackId) {
                 val extras = Bundle(baseItem.mediaMetadata.extras ?: Bundle())
                 PlaybackMetadataExtras.writePlaybackSpeed(extras, runtimeState.playbackSpeed)
+                PlaybackMetadataExtras.writePlaybackMode(extras, runtimeState.playbackMode)
                 runtimeState.audioMeta?.let { audioMeta ->
                     PlaybackMetadataExtras.writeAudioMeta(extras, audioMeta)
                 }
@@ -108,8 +110,15 @@ internal class PlayerSessionPlayer(
         startPositionMs: Long
     ): ListenableFuture<*> {
         return runSerializedCommand {
+            val previousMediaId = runtime.currentMediaId()
             runtime.setQueue(mediaItems = mediaItems, startIndex = startIndex)
-            if (mediaItems.isNotEmpty() && startPositionMs != C.TIME_UNSET) {
+            val nextMediaId = runtime.currentMediaId()
+            if (mediaItems.isNotEmpty() && QueueSyncPolicy.shouldRestorePosition(
+                    previousMediaId = previousMediaId,
+                    nextMediaId = nextMediaId,
+                    requestedStartPositionMs = startPositionMs
+                )
+            ) {
                 runtime.prepareCurrent()
                 runtime.seekTo(startPositionMs)
             }

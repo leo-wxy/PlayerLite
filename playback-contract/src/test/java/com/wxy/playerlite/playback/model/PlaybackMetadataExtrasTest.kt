@@ -25,6 +25,15 @@ class PlaybackMetadataExtrasTest {
     }
 
     @Test
+    fun writePlaybackMode_roundTripsValue() {
+        val extras = Bundle()
+
+        PlaybackMetadataExtras.writePlaybackMode(extras, PlaybackMode.SHUFFLE)
+
+        assertEquals(PlaybackMode.SHUFFLE, PlaybackMetadataExtras.readPlaybackMode(extras))
+    }
+
+    @Test
     fun writeAudioMeta_roundTripsValue() {
         val extras = Bundle()
         val audioMeta = AudioMetaDisplay(

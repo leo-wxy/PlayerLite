@@ -45,7 +45,9 @@ class MainActivity : ComponentActivity() {
                         isPreparing = state.isPreparing,
                         playbackState = state.playbackState,
                         isSeekSupported = state.isSeekSupported,
-                        playbackSpeed = state.playbackSpeed,
+                        playbackMode = state.playbackMode,
+                        showOriginalOrderInShuffle = state.showOriginalOrderInShuffle,
+                        canReorderPlaylist = state.canReorderPlaylist,
                         seekValueMs = state.displayedSeekMs,
                         currentDurationText = viewModel.formatDuration(state.displayedSeekMs),
                         durationMs = state.durationMs,
@@ -70,7 +72,8 @@ class MainActivity : ComponentActivity() {
                         onNext = viewModel::skipToNextTrack,
                         onPause = viewModel::pausePlayback,
                         onResume = viewModel::resumePlayback,
-                        onPlaybackSpeedChange = viewModel::updatePlaybackSpeed,
+                        onCyclePlaybackMode = viewModel::cyclePlaybackMode,
+                        onShowOriginalOrderInShuffleChange = viewModel::setShowOriginalOrderInShuffle,
                         onSeekValueChange = viewModel::onSeekValueChange,
                         onSeekFinished = viewModel::onSeekFinished
                     )

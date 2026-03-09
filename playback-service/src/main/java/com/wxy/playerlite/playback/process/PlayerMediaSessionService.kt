@@ -15,6 +15,7 @@ import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
+import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
 import com.wxy.playerlite.player.PlaybackSpeed
 import kotlinx.coroutines.CoroutineScope
@@ -116,6 +117,7 @@ class PlayerMediaSessionService : MediaSessionService() {
             PlaybackMetadataExtras.writeStatusText(this, state.statusText)
             PlaybackMetadataExtras.writeSeekSupported(this, state.isSeekSupported)
             PlaybackMetadataExtras.writePlaybackSpeed(this, state.playbackSpeed)
+            PlaybackMetadataExtras.writePlaybackMode(this, state.playbackMode)
             state.audioMeta?.let { audioMeta ->
                 PlaybackMetadataExtras.writeAudioMeta(this, audioMeta)
             }
@@ -196,6 +198,7 @@ class PlayerMediaSessionService : MediaSessionService() {
                 .buildUpon()
                 .add(SessionCommand(PlaybackSessionCommands.ACTION_CLEAR_CACHE, Bundle.EMPTY))
                 .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_SPEED, Bundle.EMPTY))
+                .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_MODE, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
@@ -232,6 +235,14 @@ class PlayerMediaSessionService : MediaSessionService() {
                         SessionResult.RESULT_ERROR_BAD_VALUE
                     }
                     Futures.immediateFuture(SessionResult(resultCode))
+                }
+
+                PlaybackSessionCommands.ACTION_SET_PLAYBACK_MODE -> {
+                    val requested = PlaybackMode.fromWireValue(
+                        args.getString(PlaybackSessionCommands.EXTRA_PLAYBACK_MODE)
+                    )
+                    runtime.setPlaybackMode(requested)
+                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
 
                 else -> super.onCustomCommand(session, controller, customCommand, args)

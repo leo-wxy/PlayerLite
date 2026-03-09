@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import android.util.Log
+import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.config.CacheCoreConfig
 import com.wxy.playerlite.player.AudioMetaDisplay
@@ -25,6 +26,7 @@ internal data class PlaybackProcessState(
     val playWhenReady: Boolean = false,
     val playbackOutputInfo: PlaybackOutputInfo? = null,
     val playbackSpeed: Float = PlaybackSpeed.DEFAULT.value,
+    val playbackMode: PlaybackMode = PlaybackMode.LIST_LOOP,
     val playbackState: Int = PLAYBACK_STATE_STOPPED,
     val isSeekSupported: Boolean = false,
     val positionMs: Long = 0L,
@@ -128,16 +130,30 @@ internal class PlaybackProcessRuntime(
     }
 
     fun moveToNext(): Boolean {
-        val nextIndex = _state.value.activeIndex + 1
-        if (nextIndex !in _state.value.tracks.indices) {
+        val value = _state.value
+        val nextIndex = when {
+            value.playbackMode == PlaybackMode.LIST_LOOP &&
+                value.tracks.size > 1 &&
+                value.activeIndex == value.tracks.lastIndex -> 0
+
+            else -> value.activeIndex + 1
+        }
+        if (nextIndex !in value.tracks.indices) {
             return false
         }
         return setActiveIndex(nextIndex)
     }
 
     fun moveToPrevious(): Boolean {
-        val nextIndex = _state.value.activeIndex - 1
-        if (nextIndex !in _state.value.tracks.indices) {
+        val value = _state.value
+        val nextIndex = when {
+            value.playbackMode == PlaybackMode.LIST_LOOP &&
+                value.tracks.size > 1 &&
+                value.activeIndex == 0 -> value.tracks.lastIndex
+
+            else -> value.activeIndex - 1
+        }
+        if (nextIndex !in value.tracks.indices) {
             return false
         }
         return setActiveIndex(nextIndex)
@@ -145,11 +161,20 @@ internal class PlaybackProcessRuntime(
 
     fun canMoveToNext(): Boolean {
         val value = _state.value
-        return value.activeIndex in value.tracks.indices && value.activeIndex < value.tracks.lastIndex
+        return when {
+            value.activeIndex !in value.tracks.indices -> false
+            value.playbackMode == PlaybackMode.LIST_LOOP -> value.tracks.size > 1
+            else -> value.activeIndex < value.tracks.lastIndex
+        }
     }
 
     fun canMoveToPrevious(): Boolean {
-        return _state.value.activeIndex > 0
+        val value = _state.value
+        return when {
+            value.activeIndex !in value.tracks.indices -> false
+            value.playbackMode == PlaybackMode.LIST_LOOP -> value.tracks.size > 1
+            else -> value.activeIndex > 0
+        }
     }
 
     fun currentMediaId(): String? {
@@ -171,6 +196,10 @@ internal class PlaybackProcessRuntime(
         }
         _state.value = _state.value.copy(playbackSpeed = normalizedSpeed)
         return true
+    }
+
+    fun setPlaybackMode(playbackMode: PlaybackMode) {
+        _state.value = _state.value.copy(playbackMode = playbackMode)
     }
 
     suspend fun prepareCurrent() {
@@ -236,10 +265,13 @@ internal class PlaybackProcessRuntime(
                 completionAction = PlaybackCompletionAction.resolve(
                     playCode = playCode,
                     activeIndex = _state.value.activeIndex,
-                    trackCount = _state.value.tracks.size
+                    trackCount = _state.value.tracks.size,
+                    playbackMode = _state.value.playbackMode
                 )
                 when (completionAction) {
                     PlaybackCompletionAction.AUTO_NEXT,
+                    PlaybackCompletionAction.LOOP_TO_FIRST,
+                    PlaybackCompletionAction.REPEAT_CURRENT,
                     PlaybackCompletionAction.STOP_AT_END -> {
                         val durationMs = _state.value.durationMs
                         _state.value = _state.value.copy(
@@ -263,16 +295,30 @@ internal class PlaybackProcessRuntime(
                 }
             },
             onFinally = {
-                if (completionAction != PlaybackCompletionAction.AUTO_NEXT) {
-                    return@launchPlay
-                }
-                val moved = moveToNext()
-                if (!moved) {
-                    safeLogI("playCurrent auto-next skipped: already at tail")
-                    return@launchPlay
+                when (completionAction) {
+                    PlaybackCompletionAction.AUTO_NEXT -> {
+                        val moved = moveToNext()
+                        if (!moved) {
+                            safeLogI("playCurrent auto-next skipped: already at tail")
+                            return@launchPlay
+                        }
+                    }
+
+                    PlaybackCompletionAction.LOOP_TO_FIRST -> {
+                        val moved = setActiveIndex(0)
+                        if (!moved && _state.value.activeIndex != 0) {
+                            safeLogI("playCurrent loop-to-first skipped: queue unavailable")
+                            return@launchPlay
+                        }
+                    }
+
+                    PlaybackCompletionAction.REPEAT_CURRENT -> Unit
+                    PlaybackCompletionAction.STOP_AT_END,
+                    PlaybackCompletionAction.STOP_WITH_ERROR -> return@launchPlay
                 }
                 safeLogI("playCurrent auto-next: nextIndex=${_state.value.activeIndex}, speed=${_state.value.playbackSpeed}")
                 serviceScope.launch {
+                    _state.value = _state.value.copy(playWhenReady = true)
                     playCurrent()
                 }
             }
