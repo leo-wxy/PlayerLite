@@ -12,6 +12,12 @@ internal data class PlaybackTrack(
     val uri: String
         get() = music.playbackUri
 
+    val requestHeaders: Map<String, String>
+        get() = music.requestHeaders
+
+    val requiresAuthorization: Boolean
+        get() = music.requiresAuthorization
+
     val displayName: String
         get() = music.title
 

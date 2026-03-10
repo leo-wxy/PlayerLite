@@ -1,5 +1,6 @@
 package com.wxy.playerlite.feature.player.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
@@ -15,7 +16,10 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Login
+import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Science
@@ -29,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -36,13 +41,90 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import coil.compose.AsyncImage
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
+
+@Composable
+internal fun LoginEntryButton(
+    enabled: Boolean,
+    isLoggedIn: Boolean,
+    avatarUrl: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val buttonScale by animateFloatAsState(
+        targetValue = if (enabled) 1f else 0.94f,
+        animationSpec = tween(durationMillis = 200),
+        label = "login_entry_button_scale"
+    )
+
+    Surface(
+        modifier = modifier.graphicsLayer {
+            scaleX = buttonScale
+            scaleY = buttonScale
+        }.testTag("login_entry_button_root"),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
+        tonalElevation = 6.dp,
+        shadowElevation = 12.dp
+    ) {
+        IconButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.size(42.dp),
+            colors = IconButtonDefaults.iconButtonColors(
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.primary,
+                disabledContainerColor = Color.Transparent,
+                disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)
+            )
+        ) {
+            if (isLoggedIn && !avatarUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = avatarUrl,
+                    contentDescription = "账户头像入口",
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f),
+                            shape = CircleShape
+                        )
+                        .testTag("login_entry_avatar"),
+                    contentScale = ContentScale.Crop,
+                    error = rememberVectorPainter(Icons.Rounded.AccountCircle),
+                    fallback = rememberVectorPainter(Icons.Rounded.AccountCircle),
+                    placeholder = rememberVectorPainter(Icons.Rounded.AccountCircle)
+                )
+            } else {
+                Icon(
+                    imageVector = if (isLoggedIn) Icons.Rounded.AccountCircle else Icons.AutoMirrored.Rounded.Login,
+                    contentDescription = if (isLoggedIn) "账户中心" else "登录入口",
+                    modifier = Modifier
+                        .size(20.dp)
+                        .testTag(
+                            if (isLoggedIn) {
+                                "login_entry_account_icon"
+                            } else {
+                                "login_entry_login_icon"
+                            }
+                        )
+                )
+            }
+        }
+    }
+}
 
 @Composable
 internal fun FloatingPickButton(

@@ -41,6 +41,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":network-core"))
+    implementation(project(":user"))
     implementation(project(":playback-client"))
     implementation(project(":playback-contract"))
     implementation(project(":playback-service"))
@@ -56,7 +58,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.coil.compose)
     testImplementation(libs.junit)
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("org.json:json:20240303")
     testImplementation("org.robolectric:robolectric:4.12.2")
     androidTestImplementation(libs.androidx.junit)

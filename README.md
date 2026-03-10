@@ -1,6 +1,6 @@
 # PlayerLite
 
-一个面向 Android 的音频播放器示例工程，基于 Compose + Media3 + FFmpeg + JNI + Native Cache Core 构建，当前已具备独立后台播放进程、系统媒体控制、本地/Content URI/HTTP(S) 音源播放、播放列表持久化恢复、播放模式控制，以及网络音频缓存能力。
+一个面向 Android 的音频播放器示例工程，基于 Compose + Media3 + FFmpeg + JNI + Native Cache Core 构建，当前已具备独立后台播放进程、系统媒体控制、本地/Content URI/HTTP(S) 音源播放、播放列表持久化恢复、播放模式控制、登录与用户会话基础设施，以及网络音频缓存能力。
 
 ## 当前能力
 
@@ -20,18 +20,26 @@
 - 输出链路信息透传展示：输入/输出采样率、声道数、编码格式、是否发生重采样
 - `http/https` 网络音源播放，支持 Range 请求、边播边缓存、seek 取消在途读取
 - 网络缓存支持内存 + 磁盘复用，并提供清理缓存入口
+- 登录与用户会话：提供独立 `LoginActivity`，支持手机号/邮箱登录切换、欢迎页式首屏、右上角“跳过”入口，以及“登录仅作为受保护在线能力前置，本地播放不受影响”的产品流
+- 用户资料与会话恢复：持久化保存当前用户会话和 `UserInfo` 快照，应用重启后可恢复登录状态，并支持获取用户详情、退出登录与失效降级
+- 顶栏账户入口：未登录显示默认登录图标，已登录优先展示在线头像，头像缺失或加载失败时回退为默认人像图标
+- 受保护在线播放前置卡口：为后续依赖登录态的在线能力提供统一准入判断，但不会污染本地播放、本地列表恢复或已有本地播放状态
 - 内置 UI 测试流入口，便于验证本地 Range 服务与网络播放链路
 
 ## 模块划分
 
 - `:app`
-  - Compose UI、`PlayerViewModel`、播放页状态、播放列表持久化与 UI 投影层 `PlayerRuntime`
+  - Compose UI、`PlayerViewModel`、播放页状态、`LoginActivity`、播放列表持久化与 UI 投影层 `PlayerRuntime`
+- `:network-core`
+  - 统一承载 `OkHttp + kotlinx.serialization` 网络基础设施、JSON 解码、请求执行与通用错误映射
+- `:user`
+  - 用户域能力边界，承载手机号/邮箱登录、`UserInfo` / `UserSession`、用户详情读取、登录状态恢复与退出登录
 - `:playback-client`
   - `MediaController` 客户端桥接、命令派发、远端快照读取与映射
 - `:playback-contract`
-  - 跨模块共享的播放协议、`MusicInfo`、Session custom commands、metadata extras 与共享 DTO
+  - 跨模块共享的播放协议、`MusicInfo`、Session custom commands、metadata extras、受保护在线上下文与共享 DTO
 - `:playback-service`
-  - 独立播放进程宿主，提供 `MediaSessionService`、`PlayerSessionPlayer`、播放进程运行时与网络音源接入
+  - 独立播放进程宿主，提供 `MediaSessionService`、`PlayerSessionPlayer`、播放进程运行时与网络音源接入；仅消费前台已授权的受保护在线上下文
 - `:player`
   - 播放器内核，暴露 Kotlin API，并通过 JNI 驱动 Native C++ + FFmpeg 播放
 - `:cache-core`
@@ -87,11 +95,26 @@ OkHttpRangeDataProvider
   -> FFmpeg playback pipeline
 ```
 
+用户会话链路：
+
+```text
+MainActivity
+  -> InitialLoginLaunchGate
+  -> LoginActivity (phone/email/skip)
+  -> :user UserRepository
+  -> :network-core JsonHttpClient
+  -> remote login / user detail APIs
+  -> persisted UserSession + UserInfo snapshot
+  -> PlayerScreen top-right avatar entry
+```
+
 补充说明：
 
 - 业务层播放列表状态负责维护原始顺序、随机顺序、当前激活项、播放模式与 `显示原始顺序` 偏好；后台播放服务消费的是投影后的当前生效队列
 - `PlaybackProcessRuntime` 负责当前投影队列的执行态、seek、倍速与自然播完衔接；`PlayerRuntime` 保留 UI 局部状态、乐观更新与远端快照投影
 - `:playback-contract` 用于隔离共享协议，避免 `:app` 直接依赖 `:playback-service` 内部实现包
+- 受保护在线播放的登录卡口在前台业务层判断；`playback-service` 只接收已经附带有效授权上下文的在线播放请求
+- 登录与用户资料能力收口在 `:user`，网络执行与 JSON 序列化能力收口在 `:network-core`，避免播放器 UI 直接散落账号逻辑与原始 JSON 解析
 - `NativePlayer` 使用实例级 native context，避免多实例间状态污染
 - JNI 读取链路优先尝试 `ByteBuffer` 直写，失败后自动回退到 `byte[]` 路径
 - 播放状态、seek 能力、倍速、播放模式、音频元信息、输出链路信息等会通过 `MediaSession` extras/metadata 与 `playbackParameters` 回传给 UI
@@ -101,6 +124,8 @@ OkHttpRangeDataProvider
 ```text
 player-lite/
 ├── app/
+├── network-core/
+├── user/
 ├── playback-client/
 ├── playback-contract/
 ├── playback-service/
@@ -116,7 +141,10 @@ player-lite/
 关键路径：
 
 - `app/src/main/java/com/wxy/playerlite/feature/player/`
+- `app/src/main/java/com/wxy/playerlite/feature/user/`
 - `app/src/main/java/com/wxy/playerlite/core/playlist/`
+- `network-core/src/main/java/com/wxy/playerlite/network/core/`
+- `user/src/main/java/com/wxy/playerlite/user/`
 - `playback-client/src/main/java/com/wxy/playerlite/playback/client/`
 - `playback-contract/src/main/java/com/wxy/playerlite/playback/model/`
 - `playback-service/src/main/java/com/wxy/playerlite/playback/`
@@ -166,6 +194,14 @@ bash scripts/build_ffmpeg_android.sh
 ```
 
 ## 运行与调试
+
+### 0. 登录与账户入口
+
+- 未登录启动应用时，会先进入欢迎页式 `LoginActivity`
+- 右上角提供描边“跳过”按钮；点击后可直接进入主界面，继续使用本地播放
+- 登录页支持 `手机号` / `邮箱` 两种登录方式切换，提交后都会建立同一套 `UserSession`
+- 登录成功后，主界面右上角账户入口优先展示在线头像；头像不可用时安全回退默认人像图标
+- 当前右上角头像入口仍作为轻量账户入口，后续可继续扩展为独立二级页面
 
 ### 主控区按钮语义
 
@@ -248,15 +284,18 @@ source.close()
 
 - 已完成独立后台播放进程与 `MediaSession` 集成
 - 已完成 `:playback-client` / `:playback-contract` / `:playback-service` 分层拆分
+- 已新增 `:network-core` / `:user` 模块，收口登录、用户会话与网络基础能力
 - 已完成播放列表管理与持久化恢复
 - 已引入 `:cache-core`，打通 `http/https` 网络播放缓存主链路
 - 已支持清理缓存、自定义测试流入口与输出链路信息展示
 - 已完成播放模式控制、随机双顺序播放列表与 `MediaSession` 播放模式投影
+- 已完成欢迎页式 `LoginActivity`、手机号/邮箱登录、用户会话持久化恢复与右上角头像入口
 - Native Source 读取链路已支持 direct buffer 优先与兼容回退
 
 ## 后续可演进方向
 
 - 扩展更多网络协议与更完整的流媒体场景
+- 在当前头像入口基础上扩展完整账户二级页面与更多用户态展示
 - 丰富缓存可观测性与缓存命中分析工具
 - 重新安置倍速入口并补全对应前台交互
 - 扩展通知栏 / 外部控制器对播放模式的可见性与交互能力

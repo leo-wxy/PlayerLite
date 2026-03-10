@@ -15,6 +15,7 @@ import okhttp3.Response
 
 internal class OkHttpRangeDataProvider(
     url: String,
+    private val requestHeaders: Map<String, String> = emptyMap(),
     private val connectTimeoutMs: Int = 2_000,
     private val readTimeoutMs: Int = 8_000,
     private val maxReadBurstBytes: Int = 256 * 1024,
@@ -103,6 +104,7 @@ internal class OkHttpRangeDataProvider(
             .get()
             .header("Accept-Encoding", "identity")
             .header("Range", "bytes=0-0")
+            .applyRequestHeaders()
             .build()
         return runCatching {
             client.newCall(request).execute().use { response ->
@@ -146,6 +148,7 @@ internal class OkHttpRangeDataProvider(
             .get()
             .header("Accept-Encoding", "identity")
             .header("Range", "bytes=$offset-")
+            .applyRequestHeaders()
             .build()
         val call = client.newCall(request)
         synchronized(inFlightLock) {
@@ -256,6 +259,15 @@ internal class OkHttpRangeDataProvider(
         if (fromHeader != null && fromHeader >= 0L) {
             cachedContentLength = fromHeader
         }
+    }
+
+    private fun Request.Builder.applyRequestHeaders(): Request.Builder {
+        requestHeaders.forEach { (key, value) ->
+            if (value.isNotBlank()) {
+                header(key, value)
+            }
+        }
+        return this
     }
 
     private fun parseContentRangeTotal(contentRange: String?): Long? {

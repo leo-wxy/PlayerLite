@@ -4,45 +4,60 @@ import android.app.Application
 import android.net.Uri
 import android.util.Log
 import android.widget.Toast
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
 import androidx.media3.common.Player
-import androidx.lifecycle.AndroidViewModel
+import com.wxy.playerlite.core.AppContainer
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.runtime.PlayerRuntimeRegistry
+import com.wxy.playerlite.feature.user.model.UserSessionUiState
+import com.wxy.playerlite.feature.user.model.toUserSessionUiState
 import com.wxy.playerlite.playback.client.PlayerServiceBridge
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.MusicInfo
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.process.PlayerMediaSessionService
 import com.wxy.playerlite.player.PlaybackSpeed
+import com.wxy.playerlite.user.model.LoginState
+import com.wxy.playerlite.user.model.toAuthHeaders
 import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 internal class PlayerViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
     private val runtime = PlayerRuntimeRegistry.get(appContext)
+    private val userRepository = AppContainer.userRepository(appContext)
     private val serviceBridge = PlayerServiceBridge(appContext, PlayerMediaSessionService::class.java) { errorMessage ->
         runtime.setStatusText(errorMessage)
         Log.w(TAG, errorMessage)
     }
     private val remoteSyncJob: Job
     private val uiProgressJob: Job
+    private val userStateJob: Job
     private var playbackModeToast: Toast? = null
     private var playbackModeToastDismissJob: Job? = null
+    private val _userSessionUiState = MutableStateFlow(UserSessionUiState(isBusy = true))
 
     val uiStateFlow: StateFlow<PlayerUiState> = runtime.uiStateFlow
+    val userSessionUiStateFlow: StateFlow<UserSessionUiState> = _userSessionUiState.asStateFlow()
 
     init {
         serviceBridge.ensureServiceStarted()
         serviceBridge.connectIfNeeded()
+        userStateJob = viewModelScope.launch {
+            userRepository.loginStateFlow.collect(::publishUserState)
+        }
         remoteSyncJob = viewModelScope.launch {
             while (isActive) {
                 syncRemotePlaybackState()
@@ -54,6 +69,11 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
                 runtime.tickRemotePlaybackPosition()
                 delay(100L)
             }
+        }
+        viewModelScope.launch {
+            setUserBusy(true)
+            userRepository.restorePersistedSession()
+            setUserBusy(false)
         }
     }
 
@@ -191,6 +211,15 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
         )
     }
 
+    fun logout() {
+        viewModelScope.launch {
+            setUserBusy(true)
+            userRepository.logout()
+            runtime.setStatusText("已退出登录")
+            setUserBusy(false)
+        }
+    }
+
     fun clearCache() {
         serviceBridge.ensureServiceStarted()
         serviceBridge.connectIfNeeded()
@@ -230,6 +259,7 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
     override fun onCleared() {
         playbackModeToastDismissJob?.cancel()
         playbackModeToast?.cancel()
+        userStateJob.cancel()
         remoteSyncJob.cancel()
         uiProgressJob.cancel()
         runtime.onHostStop()
@@ -326,6 +356,16 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
                 playbackModeToast = null
             }
         }
+    }
+
+    private fun publishUserState(loginState: LoginState) {
+        _userSessionUiState.value = loginState.toUserSessionUiState(
+            isBusy = _userSessionUiState.value.isBusy
+        )
+    }
+
+    private fun setUserBusy(isBusy: Boolean) {
+        _userSessionUiState.value = _userSessionUiState.value.copy(isBusy = isBusy)
     }
 
     private companion object {

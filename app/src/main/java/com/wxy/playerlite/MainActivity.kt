@@ -10,10 +10,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wxy.playerlite.feature.player.PlayerViewModel
 import com.wxy.playerlite.feature.player.ui.PlayerScreen
+import com.wxy.playerlite.feature.user.InitialLoginLaunchGate
+import com.wxy.playerlite.feature.user.LoginActivity
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 class MainActivity : ComponentActivity() {
@@ -25,12 +32,32 @@ class MainActivity : ComponentActivity() {
         viewModel.onAudioPicked(uri)
     }
 
+    private val loginLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        Unit
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         setContent {
             val state = viewModel.uiStateFlow.collectAsStateWithLifecycle().value
+            val userState = viewModel.userSessionUiStateFlow.collectAsStateWithLifecycle().value
+            var initialLoginGateHandled by rememberSaveable { mutableStateOf(false) }
+            LaunchedEffect(userState.isBusy, userState.isLoggedIn, initialLoginGateHandled) {
+                if (
+                    InitialLoginLaunchGate.shouldLaunch(
+                        isSessionReady = !userState.isBusy,
+                        isLoggedIn = userState.isLoggedIn,
+                        hasHandledInitialGate = initialLoginGateHandled
+                    )
+                ) {
+                    initialLoginGateHandled = true
+                    loginLauncher.launch(LoginActivity.createIntent(this@MainActivity))
+                }
+            }
             PlayerLiteTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     PlayerScreen(
@@ -52,12 +79,17 @@ class MainActivity : ComponentActivity() {
                         currentDurationText = viewModel.formatDuration(state.displayedSeekMs),
                         durationMs = state.durationMs,
                         totalDurationText = viewModel.formatDuration(state.durationMs),
+                        isLoggedIn = userState.isLoggedIn,
+                        avatarUrl = userState.avatarUrl,
                         modifier = Modifier.padding(innerPadding),
                         onPickAudio = {
                             pickAudioLauncher.launch(arrayOf("audio/*"))
                         },
                         onRunUiTestEntry = viewModel::runUiTestEntry,
                         onClearCache = viewModel::clearCache,
+                        onOpenLogin = {
+                            startActivity(LoginActivity.createIntent(this))
+                        },
                         onTogglePlaylistSheet = viewModel::onTogglePlaylistSheet,
                         onDismissPlaylistSheet = viewModel::onDismissPlaylistSheet,
                         onSelectPlaylistItem = { index ->

@@ -24,6 +24,7 @@ android {
 dependencies {
     implementation(project(":player"))
     implementation(libs.androidx.media3.session)
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.12.2")

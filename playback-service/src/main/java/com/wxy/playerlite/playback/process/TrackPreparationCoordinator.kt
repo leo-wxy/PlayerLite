@@ -79,7 +79,10 @@ internal class TrackPreparationCoordinator(
         return prepareNetworkSourceInternal(
             item = item,
             createSource = {
-                val provider = OkHttpRangeDataProvider(item.uri)
+                val provider = OkHttpRangeDataProvider(
+                    url = item.uri,
+                    requestHeaders = item.requestHeaders
+                )
                 CachedNetworkSource(
                     resourceKey = item.id.ifBlank { item.uri },
                     provider = provider,
@@ -89,7 +92,10 @@ internal class TrackPreparationCoordinator(
             createMetadataProbeSource = {
                 ProviderBackedNetworkProbeSource(
                     id = item.id.ifBlank { item.uri },
-                    provider = OkHttpRangeDataProvider(item.uri)
+                    provider = OkHttpRangeDataProvider(
+                        url = item.uri,
+                        requestHeaders = item.requestHeaders
+                    )
                 )
             },
             loadAudioMeta = { source ->
@@ -121,6 +127,9 @@ internal suspend fun prepareNetworkSourceInternal(
     logInfo: (String) -> Unit = {},
     logError: (String) -> Unit = {}
 ): PreparationResult {
+    if (item.requiresAuthorization && item.requestHeaders.isEmpty()) {
+        return PreparationResult.Invalid("Missing authorization context for protected online source")
+    }
     logInfo("prepareNetworkSource: key=${item.id}, uri=${item.uri}")
     val source = createSource()
     source.setSourceMode(IPlaysource.SourceMode.NORMAL)

@@ -51,6 +51,8 @@ import com.wxy.playerlite.player.PlaybackOutputInfo
 internal fun PlayerScreen(
     fileName: String,
     status: String,
+    isLoggedIn: Boolean,
+    avatarUrl: String?,
     audioMeta: AudioMetaDisplay,
     playbackOutputInfo: PlaybackOutputInfo?,
     hasSelection: Boolean,
@@ -71,6 +73,7 @@ internal fun PlayerScreen(
     onPickAudio: () -> Unit,
     onRunUiTestEntry: () -> Unit,
     onClearCache: () -> Unit,
+    onOpenLogin: () -> Unit,
     onTogglePlaylistSheet: () -> Unit,
     onDismissPlaylistSheet: () -> Unit,
     onSelectPlaylistItem: (Int) -> Unit,
@@ -291,6 +294,16 @@ internal fun PlayerScreen(
                                 .offset(y = (-8).dp)
                         )
 
+                        LoginEntryButton(
+                            enabled = !isPreparing,
+                            isLoggedIn = isLoggedIn,
+                            avatarUrl = avatarUrl,
+                            onClick = onOpenLogin,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = (-48).dp, y = (-8).dp)
+                        )
+
                         UiTestEntryButton(
                             enabled = !isPreparing,
                             onClick = onRunUiTestEntry,
@@ -364,6 +377,7 @@ internal fun PlayerScreen(
                             }
                         }
                     }
+
                 }
 
                 Surface(
