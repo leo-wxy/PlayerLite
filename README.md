@@ -1,6 +1,6 @@
 # PlayerLite
 
-一个面向 Android 的音频播放器示例工程，基于 Compose + Media3 + FFmpeg + JNI + Native Cache Core 构建，当前已具备独立后台播放进程、系统媒体控制、本地/Content URI/HTTP(S) 音源播放、播放列表持久化恢复、播放模式控制、登录与用户会话基础设施，以及网络音频缓存能力。
+一个面向 Android 的音频播放器示例工程，基于 Compose + Media3 + FFmpeg + JNI + Native Cache Core 构建，当前已具备独立后台播放进程、系统媒体控制、本地/Content URI/HTTP(S) 音源播放、播放列表持久化恢复、播放模式控制、登录与用户会话基础设施、首页/用户中心双 Tab 主壳，以及网络音频缓存能力。
 
 ## 当前能力
 
@@ -14,6 +14,8 @@
 - 随机播放：仅在切入随机模式时生成随机顺序，支持 `显示原始顺序` 视图切换，且随机顺序与展示偏好支持重启恢复
 - 倍速内核能力仍保留：支持 `0.5X` ~ `2.0X`、`0.1X` 步进，native 侧变速不变调；但主控区旧倍速入口已由播放模式占用，新的前台入口仍待后续规划
 - 主控区入口：左侧播放模式入口、右侧播放列表入口，统一图标化 UI 风格与 badge 展示
+- 前台页面外壳：`MainActivity` 使用底部双 Tab，左侧为首页 `Home`，右侧为用户中心 `我的`
+- 首页结构：保留轻量概览态，并通过底部小按钮进入 Home 域内的播放展开态；播放展开态会隐藏底部 Tab 并提供显式返回按钮
 - 播放完成后的推进规则由当前播放模式决定：列表循环回环、单曲循环重播当前项、随机播放按当前随机顺序推进
 - 播放列表管理：新增、删除、激活项切换、拖拽排序、Bottom Sheet 展示；随机顺序视图下禁用拖拽，切回原始顺序后恢复
 - 播放列表持久化与启动恢复，不可读项会在恢复阶段校验并过滤
@@ -22,14 +24,14 @@
 - 网络缓存支持内存 + 磁盘复用，并提供清理缓存入口
 - 登录与用户会话：提供独立 `LoginActivity`，支持手机号/邮箱登录切换、欢迎页式首屏、右上角“跳过”入口，以及“登录仅作为受保护在线能力前置，本地播放不受影响”的产品流
 - 用户资料与会话恢复：持久化保存当前用户会话和 `UserInfo` 快照，应用重启后可恢复登录状态，并支持获取用户详情、退出登录与失效降级
-- 顶栏账户入口：未登录显示默认登录图标，已登录优先展示在线头像，头像缺失或加载失败时回退为默认人像图标
+- 用户中心首版：集中展示头像、昵称和基础账户信息；登录入口与退出登录操作也收口到用户中心页，收藏歌单等内容后续补充
 - 受保护在线播放前置卡口：为后续依赖登录态的在线能力提供统一准入判断，但不会污染本地播放、本地列表恢复或已有本地播放状态
 - 内置 UI 测试流入口，便于验证本地 Range 服务与网络播放链路
 
 ## 模块划分
 
 - `:app`
-  - Compose UI、`PlayerViewModel`、播放页状态、`LoginActivity`、播放列表持久化与 UI 投影层 `PlayerRuntime`
+  - Compose UI、`MainActivity` 双 Tab 主壳、`PlayerViewModel`、Home 概览/播放展开态、`LoginActivity`、播放列表持久化与 UI 投影层 `PlayerRuntime`
 - `:network-core`
   - 统一承载 `OkHttp + kotlinx.serialization` 网络基础设施、JSON 解码、请求执行与通用错误映射
 - `:user`
@@ -62,6 +64,7 @@ App 控制链路：
 
 ```text
 MainActivity
+  -> MainShellState (Home / UserCenter)
   -> PlayerViewModel
   -> PlayerRuntime (UI projection)
   -> PlayerServiceBridge (:playback-client)
@@ -101,11 +104,12 @@ OkHttpRangeDataProvider
 MainActivity
   -> InitialLoginLaunchGate
   -> LoginActivity (phone/email/skip)
+  -> UserCenterScreen
   -> :user UserRepository
   -> :network-core JsonHttpClient
   -> remote login / user detail APIs
   -> persisted UserSession + UserInfo snapshot
-  -> PlayerScreen top-right avatar entry
+  -> Home / UserCenter shared session projection
 ```
 
 补充说明：
@@ -200,8 +204,15 @@ bash scripts/build_ffmpeg_android.sh
 - 未登录启动应用时，会先进入欢迎页式 `LoginActivity`
 - 右上角提供描边“跳过”按钮；点击后可直接进入主界面，继续使用本地播放
 - 登录页支持 `手机号` / `邮箱` 两种登录方式切换，提交后都会建立同一套 `UserSession`
-- 登录成功后，主界面右上角账户入口优先展示在线头像；头像不可用时安全回退默认人像图标
-- 当前右上角头像入口仍作为轻量账户入口，后续可继续扩展为独立二级页面
+- 登录成功后，用户中心页展示头像、昵称与基础账户信息
+- 当前账户入口已从首页右上角移出，统一收口到右侧 `我的` Tab；后续可继续扩展为更完整的账户二级页面
+
+### 0.1 主外壳与 Home 展开态
+
+- `MainActivity` 当前使用底部双 Tab：左侧 `首页`，右侧 `我的`
+- 首页先展示轻量概览态；点击底部的 `进入播放页` 小按钮后，进入 Home 域内的播放展开态
+- 播放展开态仍属于首页上下文，不是单独 Activity；这样更适合后续做封面放大等共享元素过渡
+- 进入播放展开态后，底部 Tab 会隐藏，并在左上角提供显式返回按钮
 
 ### 主控区按钮语义
 
@@ -285,18 +296,22 @@ source.close()
 - 已完成独立后台播放进程与 `MediaSession` 集成
 - 已完成 `:playback-client` / `:playback-contract` / `:playback-service` 分层拆分
 - 已新增 `:network-core` / `:user` 模块，收口登录、用户会话与网络基础能力
+- 已完成 `MainActivity` 底部双 Tab 主壳与用户中心首版页面
+- 已完成 Home 概览态 / 播放展开态分层，播放展开态保持在 Home 域内并支持显式返回
 - 已完成播放列表管理与持久化恢复
 - 已引入 `:cache-core`，打通 `http/https` 网络播放缓存主链路
 - 已支持清理缓存、自定义测试流入口与输出链路信息展示
 - 已完成播放模式控制、随机双顺序播放列表与 `MediaSession` 播放模式投影
-- 已完成欢迎页式 `LoginActivity`、手机号/邮箱登录、用户会话持久化恢复与右上角头像入口
+- 已完成欢迎页式 `LoginActivity`、手机号/邮箱登录、用户会话持久化恢复与用户中心账户承载位
+- 已将登录页主视觉同步收敛为当前 app icon 的同源图形
 - Native Source 读取链路已支持 direct buffer 优先与兼容回退
 
 ## 后续可演进方向
 
 - 扩展更多网络协议与更完整的流媒体场景
-- 在当前头像入口基础上扩展完整账户二级页面与更多用户态展示
+- 在当前用户中心基础上扩展完整账户二级页面、收藏歌单与更多用户态展示
 - 丰富缓存可观测性与缓存命中分析工具
 - 重新安置倍速入口并补全对应前台交互
+- 将 Home 概览态到播放展开态升级为更完整的共享元素过渡
 - 扩展通知栏 / 外部控制器对播放模式的可见性与交互能力
 - 完善 UI 自动化与真机网络回归测试覆盖

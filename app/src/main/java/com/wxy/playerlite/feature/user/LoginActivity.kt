@@ -26,10 +26,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.AlternateEmail
-import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material3.Button
@@ -52,6 +51,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -59,6 +59,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.wxy.playerlite.R
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 internal const val LOGIN_WELCOME_TITLE = "登录后解锁在线播放"
@@ -220,36 +221,10 @@ private fun LoginHeroArtwork() {
                     )
                 )
         )
-        Box(
-            modifier = Modifier
-                .size(130.dp)
-                .clip(RoundedCornerShape(36.dp))
-                .background(Color.White.copy(alpha = 0.94f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(86.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFFC79A)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Album,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(42.dp)
-                )
-            }
-        }
-        Icon(
-            imageVector = Icons.Rounded.GraphicEq,
+        Image(
+            painter = painterResource(R.drawable.ic_playerlite_brand),
             contentDescription = null,
-            tint = Color(0xFFEF9B5B),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(12.dp)
-                .size(24.dp)
+            modifier = Modifier.size(136.dp)
         )
     }
 }

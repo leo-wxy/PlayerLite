@@ -8,4 +8,12 @@ internal object InitialLoginLaunchGate {
     ): Boolean {
         return isSessionReady && !isLoggedIn && !hasHandledInitialGate
     }
+
+    fun shouldShowMainContent(
+        isSessionReady: Boolean,
+        isLoggedIn: Boolean,
+        hasHandledInitialGate: Boolean
+    ): Boolean {
+        return isSessionReady && (isLoggedIn || hasHandledInitialGate)
+    }
 }

@@ -37,4 +37,37 @@ class InitialLoginLaunchGateTest {
             )
         )
     }
+
+    @Test
+    fun shouldNotShowMainContent_whenStillRestoringSession() {
+        assertFalse(
+            InitialLoginLaunchGate.shouldShowMainContent(
+                isSessionReady = false,
+                isLoggedIn = false,
+                hasHandledInitialGate = false
+            )
+        )
+    }
+
+    @Test
+    fun shouldNotShowMainContent_beforeInitialLoginGateLaunches() {
+        assertFalse(
+            InitialLoginLaunchGate.shouldShowMainContent(
+                isSessionReady = true,
+                isLoggedIn = false,
+                hasHandledInitialGate = false
+            )
+        )
+    }
+
+    @Test
+    fun shouldShowMainContent_afterInitialLoginGateHandled() {
+        assertTrue(
+            InitialLoginLaunchGate.shouldShowMainContent(
+                isSessionReady = true,
+                isLoggedIn = false,
+                hasHandledInitialGate = true
+            )
+        )
+    }
 }

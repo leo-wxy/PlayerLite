@@ -69,6 +69,7 @@ internal fun PlayerScreen(
     currentDurationText: String,
     durationMs: Long,
     totalDurationText: String,
+    enableEnterMotion: Boolean = true,
     modifier: Modifier = Modifier,
     onPickAudio: () -> Unit,
     onRunUiTestEntry: () -> Unit,
@@ -123,17 +124,23 @@ internal fun PlayerScreen(
             if (info.usesResampler) "重采样" else "直通"
         } ?: "-"
 
-        var reveal by remember { mutableStateOf(false) }
+        var reveal by remember(enableEnterMotion) { mutableStateOf(!enableEnterMotion) }
         LaunchedEffect(Unit) {
-            reveal = true
+            if (enableEnterMotion) {
+                reveal = true
+            }
         }
+        val motionState = PlayerScreenMotionSpec.resolve(
+            enableEnterMotion = enableEnterMotion,
+            hasRevealed = reveal
+        )
         val contentAlpha by animateFloatAsState(
-            targetValue = if (reveal) 1f else 0f,
+            targetValue = motionState.alpha,
             animationSpec = tween(durationMillis = 550),
             label = "content_alpha"
         )
         val contentOffset by animateDpAsState(
-            targetValue = if (reveal) 0.dp else 18.dp,
+            targetValue = motionState.offsetDp.dp,
             animationSpec = tween(durationMillis = 550),
             label = "content_offset"
         )
