@@ -1,6 +1,6 @@
 # PlayerLite
 
-一个面向 Android 的音频播放器示例工程，基于 Compose + Media3 + FFmpeg + JNI + Native Cache Core 构建，当前已具备独立后台播放进程、系统媒体控制、本地/Content URI/HTTP(S) 音源播放、播放列表持久化恢复、播放模式控制、登录与用户会话基础设施、首页/用户中心双 Tab 主壳，以及网络音频缓存能力。
+一个面向 Android 的音频播放器示例工程，基于 Compose + Media3 + FFmpeg + JNI + Native Cache Core 构建，当前已具备独立后台播放进程、系统媒体控制、本地/Content URI/HTTP(S) 音源播放、播放列表持久化恢复、播放模式控制、登录与用户会话基础设施、首页发现流/用户中心双 Tab 主壳，以及网络音频缓存能力。
 
 ## 当前能力
 
@@ -15,7 +15,8 @@
 - 倍速内核能力仍保留：支持 `0.5X` ~ `2.0X`、`0.1X` 步进，native 侧变速不变调；但主控区旧倍速入口已由播放模式占用，新的前台入口仍待后续规划
 - 主控区入口：左侧播放模式入口、右侧播放列表入口，统一图标化 UI 风格与 badge 展示
 - 前台页面外壳：`MainActivity` 使用底部双 Tab，左侧为首页 `Home`，右侧为用户中心 `我的`
-- 首页结构：保留轻量概览态，并通过底部小按钮进入 Home 域内的播放展开态；播放展开态会隐藏底部 Tab 并提供显式返回按钮
+- 首页结构：首页概览态已升级为发现内容首页，顶部提供悬浮搜索框与默认关键词轮播，主体按发现接口区块展示 banner、每日推荐快捷入口和横向推荐内容，并通过底部播放入口进入 Home 域内的播放展开态
+- 首页发现体验：banner 使用固定高度轮播与真循环映射，图片 full-bleed 铺满；横向列表统一使用容器级 `contentPadding + spacedBy` 控制留白，普通推荐卡封面为满宽 `1:1` 比例，每日推荐快捷入口采用低高度纯文字彩底卡
 - 播放完成后的推进规则由当前播放模式决定：列表循环回环、单曲循环重播当前项、随机播放按当前随机顺序推进
 - 播放列表管理：新增、删除、激活项切换、拖拽排序、Bottom Sheet 展示；随机顺序视图下禁用拖拽，切回原始顺序后恢复
 - 播放列表持久化与启动恢复，不可读项会在恢复阶段校验并过滤
@@ -31,7 +32,7 @@
 ## 模块划分
 
 - `:app`
-  - Compose UI、`MainActivity` 双 Tab 主壳、`PlayerViewModel`、Home 概览/播放展开态、`LoginActivity`、播放列表持久化与 UI 投影层 `PlayerRuntime`
+  - Compose UI、`MainActivity` 双 Tab 主壳、`PlayerViewModel`、`HomeViewModel`、首页发现流/播放展开态、`LoginActivity`、播放列表持久化与 UI 投影层 `PlayerRuntime`
 - `:network-core`
   - 统一承载 `OkHttp + kotlinx.serialization` 网络基础设施、JSON 解码、请求执行与通用错误映射
 - `:user`
@@ -57,6 +58,12 @@
 
 - seek 是否可用取决于当前 Source 能力；部分顺序读取源可能不支持快速 seek
 - 网络音源当前聚焦 `http/https`，尚未在 README 范围内承诺 HLS/RTSP 等协议能力
+
+## 网络接口来源
+
+- 当前仓库中的网易云音乐相关网络接口请求均基于 [`neteasecloudmusicapienhanced/api-enhanced`](https://github.com/neteasecloudmusicapienhanced/api-enhanced)
+- 已接入或依赖该项目提供的能力包括：首页发现区块、默认搜索关键词、登录与用户资料等相关接口
+- `:network-core` 负责统一承接这些请求的 HTTP 执行、JSON 解码与错误映射，业务侧只消费 repository 输出的领域模型
 
 ## 核心架构
 
@@ -110,6 +117,19 @@ MainActivity
   -> remote login / user detail APIs
   -> persisted UserSession + UserInfo snapshot
   -> Home / UserCenter shared session projection
+```
+
+首页发现链路：
+
+```text
+MainActivity
+  -> HomeViewModel
+  -> HomeDiscoveryRepository
+  -> NeteaseHomeDiscoveryRemoteDataSource
+  -> :network-core JsonHttpClient
+  -> /homepage/block/page + /search/default
+  -> HomeSectionUiModel / HomeOverviewUiState
+  -> HomeOverviewScreen
 ```
 
 补充说明：
@@ -210,7 +230,11 @@ bash scripts/build_ffmpeg_android.sh
 ### 0.1 主外壳与 Home 展开态
 
 - `MainActivity` 当前使用底部双 Tab：左侧 `首页`，右侧 `我的`
-- 首页先展示轻量概览态；点击底部的 `进入播放页` 小按钮后，进入 Home 域内的播放展开态
+- 首页先展示发现内容概览态：顶部悬浮搜索框会轮播默认搜索关键词，列表主体按发现接口渲染 banner、每日推荐快捷入口和横向推荐卡片
+- banner 使用固定高度轮播展示，并通过虚拟页映射提供连续循环观感；banner 图片会完整铺满卡片，说明文字以浮层叠加在底部
+- banner 下方的“每日推荐 / 私人FM / 歌单 ...”快捷入口使用低高度纯文字彩底卡，不再显示图片
+- 普通推荐卡片封面取消额外外间距，直接满宽铺在卡片顶部，并固定为 `1:1` 比例；标题和副标题统一限制为单行，减少滚动时的抖动
+- 点击底部的 `进入播放页` 播放入口后，进入 Home 域内的播放展开态
 - 播放展开态仍属于首页上下文，不是单独 Activity；这样更适合后续做封面放大等共享元素过渡
 - 进入播放展开态后，底部 Tab 会隐藏，并在左上角提供显式返回按钮
 

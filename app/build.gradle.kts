@@ -38,6 +38,9 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -47,6 +50,7 @@ dependencies {
     implementation(project(":playback-contract"))
     implementation(project(":playback-service"))
     implementation(project(":player"))
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -60,6 +64,9 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.coil.compose)
     testImplementation(libs.junit)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation("androidx.compose.ui:ui-test")
+    testImplementation(libs.androidx.compose.ui.test.junit4)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("org.json:json:20240303")
     testImplementation("org.robolectric:robolectric:4.12.2")

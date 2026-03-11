@@ -14,16 +14,25 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -32,8 +41,11 @@ import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -44,6 +56,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,15 +66,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.wxy.playerlite.R
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.user.model.UserSessionUiState
+import kotlinx.coroutines.flow.collectLatest
 
 @Composable
 internal fun MainBottomBar(
@@ -90,7 +103,9 @@ internal fun MainBottomBar(
 @Composable
 internal fun HomeOverviewScreen(
     playerState: PlayerUiState,
-    userState: UserSessionUiState,
+    overviewState: HomeOverviewUiState,
+    onSearchClick: () -> Unit,
+    onRetry: () -> Unit,
     onOpenPlayer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -106,107 +121,524 @@ internal fun HomeOverviewScreen(
                     )
                 )
             )
-            .padding(20.dp)
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("home_discovery_list"),
+            contentPadding = PaddingValues(
+                start = 20.dp,
+                top = 96.dp,
+                end = 20.dp,
+                bottom = 148.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            if (overviewState.errorMessage != null && overviewState.sections.isNotEmpty()) {
+                item {
+                    HomeOverviewInlineError(
+                        message = overviewState.errorMessage,
+                        onRetry = onRetry
+                    )
+                }
+            }
+
+            when {
+                overviewState.isLoading && overviewState.sections.isEmpty() -> {
+                    item {
+                        HomeOverviewStatusCard(
+                            title = "发现内容加载中",
+                            subtitle = "正在同步首页推荐内容，请稍候。"
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                }
+
+                !overviewState.isLoading && overviewState.sections.isEmpty() && overviewState.errorMessage != null -> {
+                    item {
+                        HomeOverviewStatusCard(
+                            title = "首页加载失败",
+                            subtitle = overviewState.errorMessage
+                        ) {
+                            OutlinedButton(onClick = onRetry) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Refresh,
+                                    contentDescription = null
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("重新加载")
+                            }
+                        }
+                    }
+                }
+
+                !overviewState.isLoading && overviewState.sections.isEmpty() -> {
+                    item {
+                        HomeOverviewStatusCard(
+                            title = "首页暂无发现内容",
+                            subtitle = "稍后再来看看新的推荐内容。"
+                        )
+                    }
+                }
+
+                else -> {
+                    items(
+                        items = overviewState.sections,
+                        key = { section -> section.code }
+                    ) { section ->
+                        HomeDiscoverySection(section = section)
+                    }
+                }
+            }
+        }
+
+        HomeSearchBox(
+            keyword = overviewState.currentSearchKeyword,
+            onClick = onSearchClick,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(horizontal = 20.dp, vertical = 16.dp)
+        )
+
+        HomePlayEntryCard(
+            playerState = playerState,
+            onOpenPlayer = onOpenPlayer,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 20.dp, vertical = 20.dp)
+        )
+    }
+}
+
+@Composable
+private fun HomeSearchBox(
+    keyword: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("home_search_box")
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.White.copy(alpha = 0.96f),
+        tonalElevation = 6.dp,
+        shadowElevation = 14.dp
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)
+        ) {
+            RowLikeSearchContent(keyword = keyword)
+        }
+    }
+}
+
+@Composable
+private fun RowLikeSearchContent(keyword: String) {
+    androidx.compose.foundation.layout.Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Search,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = keyword,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun HomeOverviewInlineError(
+    message: String,
+    onRetry: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = Color.White.copy(alpha = 0.9f),
+        tonalElevation = 2.dp
+    ) {
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedButton(onClick = onRetry) {
+                Text("重试")
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeOverviewStatusCard(
+    title: String,
+    subtitle: String,
+    actionContent: @Composable (() -> Unit)? = null
+) {
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = Color.White.copy(alpha = 0.94f),
+        tonalElevation = 4.dp,
+        shadowElevation = 10.dp
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 28.dp, bottom = 20.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            actionContent?.invoke()
+        }
+    }
+}
+
+@Composable
+private fun HomeDiscoverySection(
+    section: HomeSectionUiModel
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("home_section_${section.code}"),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (section.title.isNotBlank()) {
+            Text(
+                text = section.title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        if (HomeDiscoveryLayoutSpec.usesCarousel(section.layout)) {
+            HomeBannerCarousel(items = section.items)
+        } else {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = HomeDiscoveryLayoutSpec.rowContentPadding,
+                horizontalArrangement = Arrangement.spacedBy(HomeDiscoveryLayoutSpec.itemSpacing)
             ) {
-                Surface(
-                    modifier = Modifier
-                        .size(176.dp)
-                        .testTag("home_overview_cover"),
-                    shape = CircleShape,
-                    color = Color.White.copy(alpha = 0.92f),
-                    tonalElevation = 8.dp,
-                    shadowElevation = 18.dp
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_playerlite_brand),
-                            contentDescription = null,
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(132.dp)
-                        )
+                items(
+                    items = section.items,
+                    key = { item -> item.id }
+                ) { item ->
+                    when (section.layout) {
+                        HomeSectionLayout.BANNER -> BannerSectionCard(item)
+                        HomeSectionLayout.ICON_GRID -> CompactSectionCard(item)
+                        HomeSectionLayout.HORIZONTAL_LIST -> DiscoverySectionCard(item)
                     }
                 }
-
-                Text(
-                    text = "PLAYER LITE",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                Text(
-                    text = if (userState.isLoggedIn) "已登录 · ${userState.title}" else "本地播放仍可直接使用",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Text(
-                    text = playerState.selectedFileName,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Text(
-                    text = playerState.statusText,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
             }
+        }
+    }
+}
 
+@Composable
+private fun HomeBannerCarousel(
+    items: List<HomeSectionItemUiModel>
+) {
+    val actualCount = items.size
+    val pageCount = if (actualCount > 1 && HomeDiscoveryLayoutSpec.bannerUsesInfiniteLoop) {
+        HomeDiscoveryLayoutSpec.virtualBannerPageCount
+    } else {
+        actualCount
+    }
+    val initialPage = HomeDiscoveryLayoutSpec.initialBannerPage(actualCount)
+    val pagerState = rememberPagerState(
+        initialPage = initialPage,
+        pageCount = { pageCount }
+    )
+    LaunchedEffect(actualCount, pagerState) {
+        if (actualCount <= 1 || !HomeDiscoveryLayoutSpec.bannerUsesInfiniteLoop) {
+            return@LaunchedEffect
+        }
+        snapshotFlow { pagerState.settledPage }
+            .collectLatest { page ->
+                val recenteredPage = HomeDiscoveryLayoutSpec.recenterBannerPage(
+                    currentPage = page,
+                    itemCount = actualCount
+                )
+                if (recenteredPage != page) {
+                    pagerState.scrollToPage(recenteredPage)
+                }
+            }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(HomeDiscoveryLayoutSpec.bannerHeight),
+            contentPadding = HomeDiscoveryLayoutSpec.bannerContentPadding,
+            pageSpacing = HomeDiscoveryLayoutSpec.itemSpacing
+        ) { page ->
+            val itemIndex = if (actualCount == 0) 0 else page % actualCount
+            BannerSectionCard(
+                item = items[itemIndex],
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        if (actualCount > 1) {
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                val selectedIndex = pagerState.currentPage % actualCount
+                repeat(actualCount) { index ->
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 3.dp)
+                            .size(
+                                width = if (selectedIndex == index) 18.dp else 6.dp,
+                                height = 6.dp
+                            )
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (selectedIndex == index) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.32f)
+                                }
+                            )
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BannerSectionCard(
+    item: HomeSectionItemUiModel,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(24.dp),
+        color = Color.White.copy(alpha = 0.95f),
+        tonalElevation = 6.dp,
+        shadowElevation = 12.dp
+    ) {
+        Box {
+            AsyncImage(
+                model = item.imageUrl,
+                contentDescription = item.title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
             Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = Color.White.copy(alpha = 0.96f),
-                tonalElevation = 6.dp,
-                shadowElevation = 12.dp
+                modifier = Modifier
+                    .padding(16.dp)
+                    .align(Alignment.BottomStart),
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Black.copy(alpha = 0.45f)
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = "首页先保留轻量概览，点击下方进入播放展开态",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
+                        text = item.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold
+                        ,
+                        maxLines = HomeDiscoveryLayoutSpec.titleMaxLines,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Button(
-                        onClick = onOpenPlayer,
-                        shape = RoundedCornerShape(22.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFEF8E4B),
-                            contentColor = Color.White
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("home_overview_play_entry")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Album,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.size(8.dp))
-                        Text(
-                            text = "进入播放页",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                    if (!item.badge.isNullOrBlank() && item.badge != item.title) {
+                        Surface(
+                            shape = RoundedCornerShape(999.dp),
+                            color = Color.White.copy(alpha = 0.18f)
+                        ) {
+                            Text(
+                                text = item.badge,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.92f),
+                                maxLines = HomeDiscoveryLayoutSpec.subtitleMaxLines,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoverySectionCard(
+    item: HomeSectionItemUiModel
+) {
+    Surface(
+        modifier = Modifier
+            .width(HomeDiscoveryLayoutSpec.discoveryCardWidth)
+            .height(HomeDiscoveryLayoutSpec.discoveryCardHeight),
+        shape = RoundedCornerShape(22.dp),
+        color = Color.White.copy(alpha = 0.95f),
+        tonalElevation = 4.dp,
+        shadowElevation = 8.dp
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            AsyncImage(
+                model = item.imageUrl,
+                contentDescription = item.title,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(HomeDiscoveryLayoutSpec.discoveryImageAspectRatio)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 22.dp,
+                            topEnd = 22.dp
+                        )
+                    ),
+                contentScale = ContentScale.Crop
+            )
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = HomeDiscoveryLayoutSpec.titleMaxLines,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (item.subtitle.isNotBlank()) {
+                    Text(
+                        text = item.subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = HomeDiscoveryLayoutSpec.subtitleMaxLines,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactSectionCard(
+    item: HomeSectionItemUiModel
+) {
+    val backgroundColor = HomeDiscoveryLayoutSpec.dailyShortcutBackgroundColor(
+        seed = item.id.ifBlank { item.title }
+    )
+    Surface(
+        modifier = Modifier
+            .width(HomeDiscoveryLayoutSpec.compactCardWidth)
+            .height(HomeDiscoveryLayoutSpec.compactCardHeight),
+        shape = RoundedCornerShape(20.dp),
+        color = backgroundColor,
+        tonalElevation = 2.dp,
+        shadowElevation = 6.dp
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF4E342E),
+                maxLines = HomeDiscoveryLayoutSpec.titleMaxLines,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Start
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomePlayEntryCard(
+    playerState: PlayerUiState,
+    onOpenPlayer: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        color = Color.White.copy(alpha = 0.97f),
+        tonalElevation = 6.dp,
+        shadowElevation = 14.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = playerState.selectedFileName,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = playerState.statusText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Button(
+                onClick = onOpenPlayer,
+                shape = RoundedCornerShape(22.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFEF8E4B),
+                    contentColor = Color.White
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("home_overview_play_entry")
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Album,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "进入播放页",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }

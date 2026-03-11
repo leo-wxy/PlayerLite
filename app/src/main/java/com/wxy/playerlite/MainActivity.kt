@@ -31,6 +31,7 @@ import com.wxy.playerlite.feature.player.PlayerViewModel
 import com.wxy.playerlite.feature.main.HomeContent
 import com.wxy.playerlite.feature.main.HomeSurfaceMode
 import com.wxy.playerlite.feature.main.HomeOverviewScreen
+import com.wxy.playerlite.feature.main.HomeViewModel
 import com.wxy.playerlite.feature.main.MainBottomBar
 import com.wxy.playerlite.feature.main.MainShellLayoutSpec
 import com.wxy.playerlite.feature.main.MainShellState
@@ -44,6 +45,7 @@ import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 class MainActivity : ComponentActivity() {
     private val viewModel: PlayerViewModel by viewModels()
+    private val homeViewModel: HomeViewModel by viewModels()
 
     private val pickAudioLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -64,6 +66,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state = viewModel.uiStateFlow.collectAsStateWithLifecycle().value
             val userState = viewModel.userSessionUiStateFlow.collectAsStateWithLifecycle().value
+            val homeState = homeViewModel.uiStateFlow.collectAsStateWithLifecycle().value
             val isSessionReady = !userState.isBusy
             var initialLoginGateHandled by rememberSaveable { mutableStateOf(false) }
             var shellState by rememberSaveable { mutableStateOf(MainShellState()) }
@@ -132,7 +135,9 @@ class MainActivity : ComponentActivity() {
                                     overviewContent = {
                                         HomeOverviewScreen(
                                             playerState = state,
-                                            userState = userState,
+                                            overviewState = homeState,
+                                            onSearchClick = homeViewModel::onSearchClick,
+                                            onRetry = homeViewModel::refresh,
                                             onOpenPlayer = {
                                                 shellState = shellState.openPlayer()
                                             },
