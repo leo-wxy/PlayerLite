@@ -29,7 +29,7 @@ class HomeDiscoveryLayoutSpecTest {
     fun cards_shouldUseFixedHeightsToAvoidViewportJitter() {
         assertEquals(188.dp, HomeDiscoveryLayoutSpec.bannerHeight)
         assertEquals(236.dp, HomeDiscoveryLayoutSpec.discoveryCardHeight)
-        assertEquals(84.dp, HomeDiscoveryLayoutSpec.compactCardHeight)
+        assertEquals(76.dp, HomeDiscoveryLayoutSpec.compactCardHeight)
     }
 
     @Test
@@ -65,7 +65,7 @@ class HomeDiscoveryLayoutSpecTest {
     @Test
     fun dailyShortcutCards_shouldUseTextOnlyCompactStyle() {
         assertTrue(HomeDiscoveryLayoutSpec.dailyShortcutUsesTextOnlyStyle)
-        assertEquals(84.dp, HomeDiscoveryLayoutSpec.compactCardHeight)
+        assertEquals(76.dp, HomeDiscoveryLayoutSpec.compactCardHeight)
     }
 
     @Test

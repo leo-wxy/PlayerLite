@@ -12,7 +12,7 @@ internal object HomeDiscoveryLayoutSpec {
     val discoveryCardWidth = 164.dp
     val discoveryCardHeight = 236.dp
     val compactCardWidth = 112.dp
-    val compactCardHeight = 84.dp
+    val compactCardHeight = 76.dp
     val compactImageSize = 56.dp
     val itemSpacing = 12.dp
 

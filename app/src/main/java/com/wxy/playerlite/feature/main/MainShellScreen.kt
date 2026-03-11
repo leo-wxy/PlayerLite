@@ -12,6 +12,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -113,13 +114,7 @@ internal fun HomeOverviewScreen(
         modifier = modifier
             .fillMaxSize()
             .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFFFFBF6),
-                        Color(0xFFFFF3E4),
-                        Color(0xFFFFF8F1)
-                    )
-                )
+                brush = HOME_OVERVIEW_BACKGROUND_BRUSH
             )
     ) {
         LazyColumn(
@@ -198,7 +193,7 @@ internal fun HomeOverviewScreen(
             onClick = onSearchClick,
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .padding(horizontal = 20.dp, vertical = 14.dp)
         )
 
         HomePlayEntryCard(
@@ -220,36 +215,48 @@ private fun HomeSearchBox(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .testTag("home_search_box")
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(24.dp),
-        color = Color.White.copy(alpha = 0.96f),
-        tonalElevation = 6.dp,
-        shadowElevation = 14.dp
+        shape = RoundedCornerShape(26.dp),
+        color = HOME_PANEL_COLOR.copy(alpha = 0.95f),
+        tonalElevation = 0.dp,
+        shadowElevation = 10.dp,
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
+        )
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)
+            modifier = Modifier
+                .testTag("home_search_box_container")
+                .padding(horizontal = 18.dp, vertical = 14.dp)
         ) {
-            RowLikeSearchContent(keyword = keyword)
+            RowLikeSearchContent(
+                keyword = keyword,
+                modifier = Modifier.testTag("home_search_box")
+            )
         }
     }
 }
 
 @Composable
-private fun RowLikeSearchContent(keyword: String) {
+private fun RowLikeSearchContent(
+    keyword: String,
+    modifier: Modifier = Modifier
+) {
     androidx.compose.foundation.layout.Row(
+        modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Icon(
             imageVector = Icons.Rounded.Search,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
+            tint = HOME_ACCENT_RED.copy(alpha = 0.86f)
         )
         Text(
             text = keyword,
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -263,8 +270,13 @@ private fun HomeOverviewInlineError(
 ) {
     Surface(
         shape = RoundedCornerShape(20.dp),
-        color = Color.White.copy(alpha = 0.9f),
-        tonalElevation = 2.dp
+        color = HOME_PANEL_COLOR.copy(alpha = 0.92f),
+        tonalElevation = 0.dp,
+        shadowElevation = 4.dp,
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.07f)
+        )
     ) {
         androidx.compose.foundation.layout.Row(
             modifier = Modifier
@@ -294,9 +306,13 @@ private fun HomeOverviewStatusCard(
 ) {
     Surface(
         shape = RoundedCornerShape(28.dp),
-        color = Color.White.copy(alpha = 0.94f),
-        tonalElevation = 4.dp,
-        shadowElevation = 10.dp
+        color = HOME_PANEL_COLOR.copy(alpha = 0.95f),
+        tonalElevation = 0.dp,
+        shadowElevation = 8.dp,
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.07f)
+        )
     ) {
         Column(
             modifier = Modifier
@@ -332,11 +348,7 @@ private fun HomeDiscoverySection(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (section.title.isNotBlank()) {
-            Text(
-                text = section.title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold
-            )
+            HomeSectionTitle(title = section.title)
         }
 
         if (HomeDiscoveryLayoutSpec.usesCarousel(section.layout)) {
@@ -424,7 +436,7 @@ private fun HomeBannerCarousel(
                             .clip(RoundedCornerShape(50))
                             .background(
                                 if (selectedIndex == index) {
-                                    MaterialTheme.colorScheme.primary
+                                    HOME_ACCENT_RED
                                 } else {
                                     MaterialTheme.colorScheme.outline.copy(alpha = 0.32f)
                                 }
@@ -442,11 +454,15 @@ private fun BannerSectionCard(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
-        color = Color.White.copy(alpha = 0.95f),
-        tonalElevation = 6.dp,
-        shadowElevation = 12.dp
+        modifier = modifier.testTag("home_banner_card_${item.id}"),
+        shape = RoundedCornerShape(26.dp),
+        color = HOME_PANEL_COLOR.copy(alpha = 0.95f),
+        tonalElevation = 0.dp,
+        shadowElevation = 10.dp,
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
+        )
     ) {
         Box {
             AsyncImage(
@@ -460,7 +476,7 @@ private fun BannerSectionCard(
                     .padding(16.dp)
                     .align(Alignment.BottomStart),
                 shape = RoundedCornerShape(16.dp),
-                color = Color.Black.copy(alpha = 0.45f)
+                color = Color.Black.copy(alpha = 0.42f)
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -478,7 +494,7 @@ private fun BannerSectionCard(
                     if (!item.badge.isNullOrBlank() && item.badge != item.title) {
                         Surface(
                             shape = RoundedCornerShape(999.dp),
-                            color = Color.White.copy(alpha = 0.18f)
+                            color = HOME_ACCENT_RED.copy(alpha = 0.18f)
                         ) {
                             Text(
                                 text = item.badge,
@@ -502,12 +518,17 @@ private fun DiscoverySectionCard(
 ) {
     Surface(
         modifier = Modifier
+            .testTag("home_discovery_card_${item.id}")
             .width(HomeDiscoveryLayoutSpec.discoveryCardWidth)
             .height(HomeDiscoveryLayoutSpec.discoveryCardHeight),
         shape = RoundedCornerShape(22.dp),
-        color = Color.White.copy(alpha = 0.95f),
-        tonalElevation = 4.dp,
-        shadowElevation = 8.dp
+        color = HOME_PANEL_COLOR.copy(alpha = 0.96f),
+        tonalElevation = 0.dp,
+        shadowElevation = 6.dp,
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
+        )
     ) {
         Column(
             modifier = Modifier.fillMaxSize()
@@ -528,7 +549,7 @@ private fun DiscoverySectionCard(
             )
             Column(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
                     text = item.title,
@@ -541,7 +562,7 @@ private fun DiscoverySectionCard(
                     Text(
                         text = item.subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f),
                         maxLines = HomeDiscoveryLayoutSpec.subtitleMaxLines,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -560,17 +581,22 @@ private fun CompactSectionCard(
     )
     Surface(
         modifier = Modifier
+            .testTag("home_compact_card_${item.id}")
             .width(HomeDiscoveryLayoutSpec.compactCardWidth)
             .height(HomeDiscoveryLayoutSpec.compactCardHeight),
         shape = RoundedCornerShape(20.dp),
-        color = backgroundColor,
-        tonalElevation = 2.dp,
-        shadowElevation = 6.dp
+        color = backgroundColor.copy(alpha = 0.88f),
+        tonalElevation = 0.dp,
+        shadowElevation = 4.dp,
+        border = BorderStroke(
+            width = 1.dp,
+            color = Color.White.copy(alpha = 0.55f)
+        )
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             Text(
@@ -593,16 +619,34 @@ private fun HomePlayEntryCard(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("home_play_entry_card"),
         shape = RoundedCornerShape(28.dp),
-        color = Color.White.copy(alpha = 0.97f),
-        tonalElevation = 6.dp,
-        shadowElevation = 14.dp
+        color = HOME_PANEL_COLOR.copy(alpha = 0.96f),
+        tonalElevation = 0.dp,
+        shadowElevation = 10.dp,
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
+        )
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = HOME_ACCENT_RED.copy(alpha = 0.12f)
+            ) {
+                Text(
+                    text = "当前播放",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = HOME_ACCENT_RED
+                )
+            }
             Text(
                 text = playerState.selectedFileName,
                 style = MaterialTheme.typography.titleMedium,
@@ -621,7 +665,7 @@ private fun HomePlayEntryCard(
                 onClick = onOpenPlayer,
                 shape = RoundedCornerShape(22.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFEF8E4B),
+                    containerColor = HOME_ACCENT_RED,
                     contentColor = Color.White
                 ),
                 modifier = Modifier
@@ -641,6 +685,26 @@ private fun HomePlayEntryCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun HomeSectionTitle(title: String) {
+    androidx.compose.foundation.layout.Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 4.dp, height = 18.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(HOME_ACCENT_RED)
+        )
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 
@@ -820,6 +884,17 @@ internal fun UserCenterScreen(
         }
     }
 }
+
+private val HOME_OVERVIEW_BACKGROUND_BRUSH = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFFFFF8F5),
+        Color(0xFFFFF4EE),
+        Color(0xFFFFFFFF)
+    )
+)
+
+private val HOME_PANEL_COLOR = Color.White
+private val HOME_ACCENT_RED = Color(0xFFD33A31)
 
 @Composable
 internal fun HomeContent(

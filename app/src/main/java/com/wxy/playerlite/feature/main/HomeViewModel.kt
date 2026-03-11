@@ -1,7 +1,6 @@
 package com.wxy.playerlite.feature.main
 
 import android.app.Application
-import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.wxy.playerlite.core.AppContainer
@@ -17,14 +16,13 @@ internal class HomeViewModel(
     application: Application,
     private val repository: HomeDiscoveryRepository,
     private val keywordRotationIntervalMs: Long
-) : AndroidViewModel(application) {
+    ) : AndroidViewModel(application) {
     constructor(application: Application) : this(
         application = application,
         repository = AppContainer.homeDiscoveryRepository(application.applicationContext),
         keywordRotationIntervalMs = DEFAULT_ROTATION_INTERVAL_MS
     )
 
-    private val appContext = runCatching { application.applicationContext }.getOrDefault(application)
     private val _uiState = MutableStateFlow(HomeOverviewUiState())
     private val rotationJob: Job?
 
@@ -74,10 +72,6 @@ internal class HomeViewModel(
                 )
             }
         }
-    }
-
-    fun onSearchClick() {
-        Toast.makeText(appContext, "搜索功能即将上线", Toast.LENGTH_SHORT).show()
     }
 
     override fun onCleared() {

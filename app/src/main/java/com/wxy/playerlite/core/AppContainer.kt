@@ -4,6 +4,10 @@ import android.content.Context
 import com.wxy.playerlite.feature.main.DefaultHomeDiscoveryRepository
 import com.wxy.playerlite.feature.main.HomeDiscoveryRepository
 import com.wxy.playerlite.feature.main.NeteaseHomeDiscoveryRemoteDataSource
+import com.wxy.playerlite.feature.search.DefaultSearchRepository
+import com.wxy.playerlite.feature.search.NeteaseSearchRemoteDataSource
+import com.wxy.playerlite.feature.search.SearchRepository
+import com.wxy.playerlite.feature.search.SharedPreferencesSearchHistoryStorage
 import com.wxy.playerlite.network.core.AuthHeaderProvider
 import com.wxy.playerlite.network.core.JsonHttpClient
 import com.wxy.playerlite.user.DefaultUserRepository
@@ -15,6 +19,7 @@ import com.wxy.playerlite.user.storage.SharedPreferencesUserSessionStorage
 internal object AppContainer {
     private const val API_BASE_URL = "http://139.9.223.233:3000"
     private const val USER_SESSION_PREFS = "user_session"
+    private const val SEARCH_HISTORY_PREFS = "search_history"
 
     @Volatile
     private var services: Services? = null
@@ -25,6 +30,10 @@ internal object AppContainer {
 
     fun homeDiscoveryRepository(context: Context): HomeDiscoveryRepository {
         return getServices(context).homeDiscoveryRepository
+    }
+
+    fun searchRepository(context: Context): SearchRepository {
+        return getServices(context).searchRepository
     }
 
     private fun getServices(context: Context): Services {
@@ -42,6 +51,9 @@ internal object AppContainer {
     private fun buildServices(context: Context): Services {
         val preferences = context.getSharedPreferences(USER_SESSION_PREFS, Context.MODE_PRIVATE)
         val storage = SharedPreferencesUserSessionStorage(preferences)
+        val searchHistoryStorage = SharedPreferencesSearchHistoryStorage(
+            context.getSharedPreferences(SEARCH_HISTORY_PREFS, Context.MODE_PRIVATE)
+        )
         val authHeaderProvider = AuthHeaderProvider {
             storage.read()?.toAuthHeaders() ?: emptyMap()
         }
@@ -57,12 +69,17 @@ internal object AppContainer {
             ),
             homeDiscoveryRepository = DefaultHomeDiscoveryRepository(
                 remoteDataSource = NeteaseHomeDiscoveryRemoteDataSource(httpClient)
+            ),
+            searchRepository = DefaultSearchRepository(
+                remoteDataSource = NeteaseSearchRemoteDataSource(httpClient),
+                historyStorage = searchHistoryStorage
             )
         )
     }
 
     private data class Services(
         val userRepository: UserRepository,
-        val homeDiscoveryRepository: HomeDiscoveryRepository
+        val homeDiscoveryRepository: HomeDiscoveryRepository,
+        val searchRepository: SearchRepository
     )
 }

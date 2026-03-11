@@ -37,6 +37,7 @@ import com.wxy.playerlite.feature.main.MainShellLayoutSpec
 import com.wxy.playerlite.feature.main.MainShellState
 import com.wxy.playerlite.feature.main.MainTab
 import com.wxy.playerlite.feature.main.PlayerExpandedScreen
+import com.wxy.playerlite.feature.search.SearchActivity
 import com.wxy.playerlite.feature.main.UserCenterScreen
 import com.wxy.playerlite.feature.player.ui.PlayerScreen
 import com.wxy.playerlite.feature.user.InitialLoginLaunchGate
@@ -136,7 +137,11 @@ class MainActivity : ComponentActivity() {
                                         HomeOverviewScreen(
                                             playerState = state,
                                             overviewState = homeState,
-                                            onSearchClick = homeViewModel::onSearchClick,
+                                            onSearchClick = {
+                                                startActivity(
+                                                    SearchActivity.createIntent(this@MainActivity)
+                                                )
+                                            },
                                             onRetry = homeViewModel::refresh,
                                             onOpenPlayer = {
                                                 shellState = shellState.openPlayer()
