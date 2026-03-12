@@ -4,10 +4,8 @@ import android.content.Context
 import com.wxy.playerlite.feature.main.DefaultHomeDiscoveryRepository
 import com.wxy.playerlite.feature.main.HomeDiscoveryRepository
 import com.wxy.playerlite.feature.main.NeteaseHomeDiscoveryRemoteDataSource
-import com.wxy.playerlite.feature.search.DefaultSearchRepository
-import com.wxy.playerlite.feature.search.NeteaseSearchRemoteDataSource
 import com.wxy.playerlite.feature.search.SearchRepository
-import com.wxy.playerlite.feature.search.SharedPreferencesSearchHistoryStorage
+import com.wxy.playerlite.feature.search.SearchFeatureServiceFactory
 import com.wxy.playerlite.network.core.AuthHeaderProvider
 import com.wxy.playerlite.network.core.JsonHttpClient
 import com.wxy.playerlite.user.DefaultUserRepository
@@ -51,9 +49,6 @@ internal object AppContainer {
     private fun buildServices(context: Context): Services {
         val preferences = context.getSharedPreferences(USER_SESSION_PREFS, Context.MODE_PRIVATE)
         val storage = SharedPreferencesUserSessionStorage(preferences)
-        val searchHistoryStorage = SharedPreferencesSearchHistoryStorage(
-            context.getSharedPreferences(SEARCH_HISTORY_PREFS, Context.MODE_PRIVATE)
-        )
         val authHeaderProvider = AuthHeaderProvider {
             storage.read()?.toAuthHeaders() ?: emptyMap()
         }
@@ -70,9 +65,12 @@ internal object AppContainer {
             homeDiscoveryRepository = DefaultHomeDiscoveryRepository(
                 remoteDataSource = NeteaseHomeDiscoveryRemoteDataSource(httpClient)
             ),
-            searchRepository = DefaultSearchRepository(
-                remoteDataSource = NeteaseSearchRemoteDataSource(httpClient),
-                historyStorage = searchHistoryStorage
+            searchRepository = SearchFeatureServiceFactory.createRepository(
+                httpClient = httpClient,
+                historyPreferences = context.getSharedPreferences(
+                    SEARCH_HISTORY_PREFS,
+                    Context.MODE_PRIVATE
+                )
             )
         )
     }

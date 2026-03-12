@@ -2,6 +2,7 @@ package com.wxy.playerlite.feature.search
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -113,12 +114,14 @@ class SearchViewModelTest {
     @Test
     fun submitSearch_shouldExposeResultItemsAndRememberSubmittedQuery() = runTest {
         val repository = FakeSearchRepository().apply {
-            searchResults["小美满"] = listOf(
-                SearchResultItemUiModel(
+            searchResults["小美满" to SearchResultType.SONG] = listOf(
+                SearchResultUiModel.Song(
                     id = "1",
                     title = "小美满",
-                    subtitle = "周深 · 小美满",
-                    coverUrl = "http://example.com/a.jpg"
+                    artistText = "周深",
+                    albumTitle = "小美满",
+                    coverUrl = "http://example.com/a.jpg",
+                    routeTarget = SearchRouteTarget.Song(songId = "1")
                 )
             )
         }
@@ -136,23 +139,26 @@ class SearchViewModelTest {
 
         assertEquals(SearchPageMode.RESULT, viewModel.uiStateFlow.value.pageMode)
         assertEquals("小美满", viewModel.uiStateFlow.value.lastSubmittedQuery)
+        assertEquals(SearchResultType.SONG, viewModel.uiStateFlow.value.selectedResultType)
         assertEquals(listOf("小美满"), repository.historyKeywords)
         val resultState = viewModel.uiStateFlow.value.resultState as SearchResultUiState.Content
-        assertEquals("小美满", resultState.items.single().title)
+        assertEquals("小美满", (resultState.items.single() as SearchResultUiModel.Song).title)
     }
 
     @Test
     fun retrySearch_shouldRetryLastSubmittedQueryAfterFailure() = runTest {
         val repository = FakeSearchRepository().apply {
-            searchFailures["周"] = ArrayDeque<Throwable>().apply {
+            searchFailures["周" to SearchResultType.SONG] = ArrayDeque<Throwable>().apply {
                 add(IllegalStateException("boom"))
             }
-            searchResults["周"] = listOf(
-                SearchResultItemUiModel(
+            searchResults["周" to SearchResultType.SONG] = listOf(
+                SearchResultUiModel.Song(
                     id = "2",
                     title = "周",
-                    subtitle = "Bethybai · 电子道种",
-                    coverUrl = null
+                    artistText = "Bethybai",
+                    albumTitle = "电子道种",
+                    coverUrl = null,
+                    routeTarget = SearchRouteTarget.Song(songId = "2")
                 )
             )
         }
@@ -173,7 +179,7 @@ class SearchViewModelTest {
         advanceUntilIdle()
 
         val resultState = viewModel.uiStateFlow.value.resultState as SearchResultUiState.Content
-        assertEquals("周", resultState.items.single().title)
+        assertEquals("周", (resultState.items.single() as SearchResultUiModel.Song).title)
     }
 
     @Test
@@ -182,12 +188,14 @@ class SearchViewModelTest {
             hotKeywords = listOf(
                 SearchHotKeywordUiModel(keyword = "海屿你", score = 10, iconType = 4)
             )
-            searchResults["海屿你"] = listOf(
-                SearchResultItemUiModel(
+            searchResults["海屿你" to SearchResultType.SONG] = listOf(
+                SearchResultUiModel.Song(
                     id = "1",
                     title = "海屿你",
-                    subtitle = "歌手 A · 专辑 B",
-                    coverUrl = null
+                    artistText = "歌手 A",
+                    albumTitle = "专辑 B",
+                    coverUrl = null,
+                    routeTarget = SearchRouteTarget.Song(songId = "1")
                 )
             )
         }
@@ -205,14 +213,147 @@ class SearchViewModelTest {
         assertEquals(SearchPageMode.RESULT, viewModel.uiStateFlow.value.pageMode)
         assertEquals(listOf("海屿你"), repository.historyKeywords)
     }
+
+    @Test
+    fun onResultTypeSelected_shouldLoadCurrentQueryWithSelectedTypeWithoutDuplicatingHistory() = runTest {
+        val repository = FakeSearchRepository().apply {
+            searchResults["周杰伦" to SearchResultType.SONG] = listOf(
+                SearchResultUiModel.Song(
+                    id = "song-1",
+                    title = "晴天",
+                    artistText = "周杰伦",
+                    albumTitle = "叶惠美",
+                    coverUrl = null,
+                    routeTarget = SearchRouteTarget.Song(songId = "song-1")
+                )
+            )
+            searchResults["周杰伦" to SearchResultType.ALBUM] = listOf(
+                SearchResultUiModel.Album(
+                    id = "album-1",
+                    title = "叶惠美",
+                    artistText = "周杰伦",
+                    songCount = 11,
+                    coverUrl = null,
+                    routeTarget = SearchRouteTarget.Album(albumId = "album-1")
+                )
+            )
+        }
+
+        val viewModel = SearchViewModel(
+            application = RuntimeEnvironment.getApplication(),
+            repository = repository,
+            suggestDebounceMs = 300L
+        )
+        advanceUntilIdle()
+
+        viewModel.onQueryChanged("周杰伦")
+        viewModel.submitSearch()
+        advanceUntilIdle()
+        viewModel.onResultTypeSelected(SearchResultType.ALBUM)
+        advanceUntilIdle()
+
+        assertEquals(SearchResultType.ALBUM, viewModel.uiStateFlow.value.selectedResultType)
+        assertEquals(listOf("周杰伦"), repository.historyKeywords)
+        assertEquals(
+            listOf(
+                "周杰伦" to SearchResultType.SONG,
+                "周杰伦" to SearchResultType.ALBUM
+            ),
+            repository.searchRequests
+        )
+        val resultState = viewModel.uiStateFlow.value.resultState as SearchResultUiState.Content
+        assertTrue(resultState.items.single() is SearchResultUiModel.Album)
+        assertTrue(
+            (viewModel.uiStateFlow.value.resultStatesByType[SearchResultType.SONG] as SearchResultUiState.Content)
+                .items.single() is SearchResultUiModel.Song
+        )
+        assertTrue(
+            (viewModel.uiStateFlow.value.resultStatesByType[SearchResultType.ALBUM] as SearchResultUiState.Content)
+                .items.single() is SearchResultUiModel.Album
+        )
+    }
+
+    @Test
+    fun onResultTypeSelected_shouldKeepLoadedPageContentWhenSwitchingBack() = runTest {
+        val repository = FakeSearchRepository().apply {
+            searchResults["周杰伦" to SearchResultType.SONG] = listOf(
+                SearchResultUiModel.Song(
+                    id = "song-1",
+                    title = "晴天",
+                    artistText = "周杰伦",
+                    albumTitle = "叶惠美",
+                    coverUrl = null,
+                    routeTarget = SearchRouteTarget.Song(songId = "song-1")
+                )
+            )
+            searchResults["周杰伦" to SearchResultType.ALBUM] = listOf(
+                SearchResultUiModel.Album(
+                    id = "album-1",
+                    title = "叶惠美",
+                    artistText = "周杰伦",
+                    songCount = 11,
+                    coverUrl = null,
+                    routeTarget = SearchRouteTarget.Album(albumId = "album-1")
+                )
+            )
+            searchDelaysMs["周杰伦" to SearchResultType.SONG] = 1_000L
+        }
+
+        val viewModel = SearchViewModel(
+            application = RuntimeEnvironment.getApplication(),
+            repository = repository,
+            suggestDebounceMs = 300L
+        )
+        advanceUntilIdle()
+
+        viewModel.onQueryChanged("周杰伦")
+        viewModel.submitSearch()
+        advanceUntilIdle()
+
+        viewModel.onResultTypeSelected(SearchResultType.ALBUM)
+        advanceUntilIdle()
+        val loadedAlbumState = viewModel.uiStateFlow.value.resultState as SearchResultUiState.Content
+        assertTrue(loadedAlbumState.items.single() is SearchResultUiModel.Album)
+
+        viewModel.onResultTypeSelected(SearchResultType.SONG)
+
+        assertEquals(SearchResultType.SONG, viewModel.uiStateFlow.value.selectedResultType)
+        val visibleState = viewModel.uiStateFlow.value.resultState as SearchResultUiState.Content
+        assertTrue(visibleState.items.single() is SearchResultUiModel.Song)
+        assertEquals(
+            listOf(
+                "周杰伦" to SearchResultType.SONG,
+                "周杰伦" to SearchResultType.ALBUM
+            ),
+            repository.searchRequests
+        )
+
+        advanceTimeBy(999L)
+        val stillVisibleState = viewModel.uiStateFlow.value.resultState as SearchResultUiState.Content
+        assertTrue(stillVisibleState.items.single() is SearchResultUiModel.Song)
+        advanceTimeBy(1L)
+        advanceUntilIdle()
+
+        val resultState = viewModel.uiStateFlow.value.resultState as SearchResultUiState.Content
+        assertTrue(resultState.items.single() is SearchResultUiModel.Song)
+        assertEquals(
+            listOf(
+                "周杰伦" to SearchResultType.SONG,
+                "周杰伦" to SearchResultType.ALBUM
+            ),
+            repository.searchRequests
+        )
+    }
 }
 
 private class FakeSearchRepository : SearchRepository {
     var hotKeywords: List<SearchHotKeywordUiModel> = emptyList()
     var historyKeywords: List<String> = emptyList()
     val suggestions: MutableMap<String, List<SearchSuggestionUiModel>> = linkedMapOf()
-    val searchResults: MutableMap<String, List<SearchResultItemUiModel>> = linkedMapOf()
-    val searchFailures: MutableMap<String, ArrayDeque<Throwable>> = linkedMapOf()
+    val searchResults: MutableMap<Pair<String, SearchResultType>, List<SearchResultUiModel>> = linkedMapOf()
+    val searchFailures: MutableMap<Pair<String, SearchResultType>, ArrayDeque<Throwable>> = linkedMapOf()
+    val searchDelaysMs: MutableMap<Pair<String, SearchResultType>, Long> = linkedMapOf()
+    val searchRequests: MutableList<Pair<String, SearchResultType>> = mutableListOf()
 
     override suspend fun fetchHotKeywords(): List<SearchHotKeywordUiModel> = hotKeywords
 
@@ -220,12 +361,16 @@ private class FakeSearchRepository : SearchRepository {
         return suggestions[keyword].orEmpty()
     }
 
-    override suspend fun search(keyword: String): List<SearchResultItemUiModel> {
-        val failures = searchFailures[keyword]
+    override suspend fun search(keyword: String, type: SearchResultType): List<SearchResultUiModel> {
+        searchRequests += keyword to type
+        searchDelaysMs[keyword to type]?.let { delayMs ->
+            delay(delayMs)
+        }
+        val failures = searchFailures[keyword to type]
         if (failures != null && failures.isNotEmpty()) {
             throw failures.removeFirst()
         }
-        return searchResults[keyword].orEmpty()
+        return searchResults[keyword to type].orEmpty()
     }
 
     override fun readSearchHistory(): List<String> = historyKeywords

@@ -7,10 +7,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,10 +28,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -50,11 +57,14 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -63,10 +73,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import com.wxy.playerlite.ui.theme.PlayerLiteTheme
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 
 class SearchActivity : ComponentActivity() {
-    private val viewModel: SearchViewModel by viewModels()
+    private val hostDependencies by lazy(LazyThreadSafetyMode.NONE) {
+        applicationContext.requireSearchHostDependencies()
+    }
+    private val viewModel: SearchViewModel by viewModels {
+        SearchViewModel.factory(
+            application = application,
+            repository = hostDependencies.repository
+        )
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,7 +93,7 @@ class SearchActivity : ComponentActivity() {
 
         setContent {
             val state = viewModel.uiStateFlow.collectAsStateWithLifecycle().value
-            PlayerLiteTheme {
+            SearchFeatureTheme {
                 SearchScreen(
                     state = state,
                     onBack = ::finish,
@@ -83,6 +102,10 @@ class SearchActivity : ComponentActivity() {
                     onHistoryKeywordClick = viewModel::submitSearch,
                     onSuggestionClick = viewModel::onSuggestionClick,
                     onHotKeywordClick = viewModel::onHotKeywordClick,
+                    onResultTypeSelected = viewModel::onResultTypeSelected,
+                    onResultClick = { target ->
+                        hostDependencies.routeHandler.open(this@SearchActivity, target)
+                    },
                     onRetry = viewModel::retryCurrentMode
                 )
             }
@@ -105,6 +128,8 @@ internal fun SearchScreen(
     onHistoryKeywordClick: (String) -> Unit,
     onSuggestionClick: (SearchSuggestionUiModel) -> Unit,
     onHotKeywordClick: (SearchHotKeywordUiModel) -> Unit,
+    onResultTypeSelected: (SearchResultType) -> Unit,
+    onResultClick: (SearchRouteTarget) -> Unit,
     onRetry: () -> Unit
 ) {
     val usesExpandedTypography = usesExpandedSearchTypography()
@@ -162,7 +187,12 @@ internal fun SearchScreen(
 
                     SearchPageMode.RESULT -> {
                         SearchResultContent(
-                            state = state.resultState,
+                            selectedResultState = state.resultState,
+                            resultStatesByType = state.resultStatesByType,
+                            selectedResultType = state.selectedResultType,
+                            availableResultTypes = state.availableResultTypes,
+                            onResultTypeSelected = onResultTypeSelected,
+                            onResultClick = onResultClick,
                             onRetry = onRetry
                         )
                     }
@@ -447,7 +477,77 @@ private fun SearchSuggestContent(
 
 @Composable
 private fun SearchResultContent(
+    selectedResultState: SearchResultUiState,
+    resultStatesByType: Map<SearchResultType, SearchResultUiState>,
+    selectedResultType: SearchResultType,
+    availableResultTypes: List<SearchResultType>,
+    onResultTypeSelected: (SearchResultType) -> Unit,
+    onResultClick: (SearchRouteTarget) -> Unit,
+    onRetry: () -> Unit
+) {
+    val selectedPageIndex = availableResultTypes.indexOf(selectedResultType).coerceAtLeast(0)
+    val pagerState = rememberPagerState(
+        initialPage = selectedPageIndex,
+        pageCount = { availableResultTypes.size }
+    )
+
+    LaunchedEffect(selectedResultType, availableResultTypes) {
+        val pageIndex = availableResultTypes.indexOf(selectedResultType)
+        if (pageIndex >= 0 && pagerState.currentPage != pageIndex) {
+            pagerState.scrollToPage(pageIndex)
+        }
+    }
+
+    LaunchedEffect(pagerState, availableResultTypes, selectedResultType) {
+        snapshotFlow { pagerState.currentPage }
+            .filter { pageIndex -> pageIndex in availableResultTypes.indices }
+            .distinctUntilChanged()
+            .collect { pageIndex ->
+                val type = availableResultTypes[pageIndex]
+                if (type != selectedResultType) {
+                    onResultTypeSelected(type)
+                }
+            }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        SearchResultTypeRow(
+            selectedResultType = selectedResultType,
+            availableResultTypes = availableResultTypes,
+            onResultTypeSelected = onResultTypeSelected,
+            modifier = Modifier.testTag("search_result_type_pinned")
+        )
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .weight(1f)
+                .testTag("search_result_pager"),
+            userScrollEnabled = availableResultTypes.size > 1,
+            beyondViewportPageCount = 1
+        ) {
+            val pageType = availableResultTypes[it]
+            val pageState = resultStatesByType[pageType]
+                ?: if (pageType == selectedResultType) {
+                    selectedResultState
+                } else {
+                    SearchResultUiState.Idle
+                }
+            SearchResultPage(
+                state = pageState,
+                onResultClick = onResultClick,
+                onRetry = onRetry
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchResultPage(
     state: SearchResultUiState,
+    onResultClick: (SearchRouteTarget) -> Unit,
     onRetry: () -> Unit
 ) {
     when (state) {
@@ -488,12 +588,116 @@ private fun SearchResultContent(
             ) {
                 items(
                     items = state.items,
-                    key = { item -> item.id }
+                    key = { item -> "${item.resultType.name}_${item.id}" }
                 ) { item ->
-                    SearchResultCard(item = item)
+                    SearchResultCard(
+                        item = item,
+                        onClick = { onResultClick(item.routeTarget) }
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SearchResultTypeRow(
+    selectedResultType: SearchResultType,
+    availableResultTypes: List<SearchResultType>,
+    onResultTypeSelected: (SearchResultType) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(selectedResultType, availableResultTypes) {
+        val selectedIndex = availableResultTypes.indexOf(selectedResultType)
+        if (selectedIndex >= 0) {
+            listState.centerSelectedTypeItem(selectedIndex)
+        }
+    }
+
+    LazyRow(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("search_result_type_row"),
+        state = listState,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 4.dp)
+    ) {
+        items(
+            items = availableResultTypes,
+            key = { type -> type.name }
+        ) { type ->
+            SearchResultTypeChip(
+                type = type,
+                selected = type == selectedResultType,
+                onClick = { onResultTypeSelected(type) }
+            )
+        }
+    }
+}
+
+private suspend fun LazyListState.centerSelectedTypeItem(index: Int) {
+    val selectedInfoBeforeScroll = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+    if (selectedInfoBeforeScroll == null) {
+        animateScrollToItem(index)
+    }
+    val selectedInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return
+    val delta = calculateTypeRowCenterScrollDelta(
+        viewportStartOffset = layoutInfo.viewportStartOffset,
+        viewportEndOffset = layoutInfo.viewportEndOffset,
+        itemOffset = selectedInfo.offset,
+        itemSize = selectedInfo.size
+    )
+    if (kotlin.math.abs(delta) > 1f) {
+        animateScrollBy(delta)
+    }
+}
+
+@Composable
+private fun SearchResultTypeChip(
+    type: SearchResultType,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val usesExpandedTypography = usesExpandedSearchTypography()
+    val scale = animateFloatAsState(
+        targetValue = if (selected) 1f else 0.96f,
+        animationSpec = tween(durationMillis = 180),
+        label = "search_result_type_chip_scale"
+    ).value
+    Surface(
+        modifier = Modifier
+            .testTag("search_result_type_${type.name.lowercase()}")
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = if (selected) SEARCH_PRIMARY_RED.copy(alpha = 0.14f) else SEARCH_PANEL_COLOR.copy(alpha = 0.92f),
+        tonalElevation = 0.dp,
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (selected) {
+                SEARCH_PRIMARY_RED.copy(alpha = 0.28f)
+            } else {
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
+            }
+        )
+    ) {
+        Text(
+            text = type.displayLabel,
+            modifier = Modifier
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            style = if (usesExpandedTypography) {
+                MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
+            } else {
+                MaterialTheme.typography.bodySmall
+            },
+            color = if (selected) SEARCH_PRIMARY_RED else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+        )
     }
 }
 
@@ -675,12 +879,18 @@ private fun SearchSectionTitle(
 }
 
 @Composable
-private fun SearchResultCard(item: SearchResultItemUiModel) {
+private fun SearchResultCard(
+    item: SearchResultUiModel,
+    onClick: () -> Unit
+) {
     val usesExpandedTypography = usesExpandedSearchTypography()
+    val supportingText = item.supportingText()
+    val tertiaryText = item.tertiaryText()
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("search_result_card_${item.id}"),
+            .testTag("search_result_card_${item.id}")
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
         color = SEARCH_PANEL_COLOR.copy(alpha = 0.96f),
         tonalElevation = 0.dp,
@@ -728,7 +938,7 @@ private fun SearchResultCard(item: SearchResultItemUiModel) {
             }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
                     text = item.title,
@@ -742,15 +952,24 @@ private fun SearchResultCard(item: SearchResultItemUiModel) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (item.subtitle.isNotBlank()) {
+                if (supportingText.isNotBlank()) {
                     Text(
-                        text = item.subtitle,
+                        text = supportingText,
                         style = if (usesExpandedTypography) {
                             MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
                         } else {
                             MaterialTheme.typography.bodySmall
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (tertiaryText.isNotBlank()) {
+                    Text(
+                        text = tertiaryText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = SEARCH_PRIMARY_RED.copy(alpha = 0.92f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -925,3 +1144,43 @@ private val SEARCH_PAGE_BACKGROUND_BRUSH = Brush.verticalGradient(
 
 private val SEARCH_PANEL_COLOR = Color.White
 private val SEARCH_PRIMARY_RED = Color(0xFFD33A31)
+private fun SearchResultUiModel.supportingText(): String {
+    return when (this) {
+        is SearchResultUiModel.Song -> listOf(artistText, albumTitle)
+            .filter { it.isNotBlank() }
+            .joinToString(separator = " · ")
+
+        is SearchResultUiModel.Album -> listOf("专辑", artistText)
+            .filter { it.isNotBlank() }
+            .joinToString(separator = " · ")
+
+        is SearchResultUiModel.Artist -> "歌手"
+
+        is SearchResultUiModel.Playlist -> listOf("歌单", creatorName)
+            .filter { it.isNotBlank() }
+            .joinToString(separator = " · ")
+
+        is SearchResultUiModel.Generic -> subtitle
+    }
+}
+
+private fun SearchResultUiModel.tertiaryText(): String {
+    return when (this) {
+        is SearchResultUiModel.Song -> ""
+        is SearchResultUiModel.Album -> songCount?.let { "共 ${it} 首" }.orEmpty()
+        is SearchResultUiModel.Artist -> albumCount?.let { "${it} 张专辑" }.orEmpty()
+        is SearchResultUiModel.Playlist -> trackCount?.let { "${it} 首歌曲" }.orEmpty()
+        is SearchResultUiModel.Generic -> tertiary
+    }
+}
+
+internal fun calculateTypeRowCenterScrollDelta(
+    viewportStartOffset: Int,
+    viewportEndOffset: Int,
+    itemOffset: Int,
+    itemSize: Int
+): Float {
+    val viewportCenter = (viewportStartOffset + viewportEndOffset) / 2f
+    val itemCenter = itemOffset + (itemSize / 2f)
+    return itemCenter - viewportCenter
+}
