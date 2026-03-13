@@ -5,7 +5,8 @@ import com.wxy.playerlite.playback.model.PlaybackMode
 data class PlaylistItem(
     val id: String,
     val uri: String,
-    val displayName: String
+    val displayName: String,
+    val songId: String? = null
 )
 
 data class PlaylistState(

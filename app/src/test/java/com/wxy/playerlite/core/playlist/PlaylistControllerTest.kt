@@ -96,6 +96,25 @@ class PlaylistControllerTest {
     }
 
     @Test
+    fun flushAndRestore_shouldPreserveOptionalSongId() {
+        val controller = createController()
+        controller.addItem(
+            PlaylistItem(
+                id = "song-1",
+                uri = "https://example.com/song.mp3",
+                displayName = "在线歌曲",
+                songId = "1973665667"
+            ),
+            makeActive = true
+        )
+        controller.flush()
+
+        val restored = createController().restore { true }
+
+        assertEquals("1973665667", restored.items.single().songId)
+    }
+
+    @Test
     fun restore_shouldDropInvalidEntriesAndClampActiveIndex() {
         storage.write(
             PlaylistController.STORAGE_KEY,

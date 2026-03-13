@@ -669,6 +669,7 @@ private fun SearchResultTypeChip(
     Surface(
         modifier = Modifier
             .testTag("search_result_type_${type.name.lowercase()}")
+            .height(SEARCH_RESULT_TYPE_CHIP_HEIGHT)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         color = if (selected) SEARCH_PRIMARY_RED.copy(alpha = 0.14f) else SEARCH_PANEL_COLOR.copy(alpha = 0.92f),
@@ -682,22 +683,28 @@ private fun SearchResultTypeChip(
             }
         )
     ) {
-        Text(
-            text = type.displayLabel,
-            modifier = Modifier
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                }
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            style = if (usesExpandedTypography) {
-                MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
-            } else {
-                MaterialTheme.typography.bodySmall
-            },
-            color = if (selected) SEARCH_PRIMARY_RED else MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
-        )
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = type.displayLabel,
+                modifier = Modifier
+                    .testTag("search_result_type_label_${type.name.lowercase()}")
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    .padding(horizontal = 14.dp),
+                style = if (usesExpandedTypography) {
+                    MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
+                } else {
+                    MaterialTheme.typography.bodySmall
+                },
+                color = if (selected) SEARCH_PRIMARY_RED else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+            )
+        }
     }
 }
 
@@ -1142,6 +1149,7 @@ private val SEARCH_PAGE_BACKGROUND_BRUSH = Brush.verticalGradient(
     )
 )
 
+internal val SEARCH_RESULT_TYPE_CHIP_HEIGHT = 36.dp
 private val SEARCH_PANEL_COLOR = Color.White
 private val SEARCH_PRIMARY_RED = Color(0xFFD33A31)
 private fun SearchResultUiModel.supportingText(): String {

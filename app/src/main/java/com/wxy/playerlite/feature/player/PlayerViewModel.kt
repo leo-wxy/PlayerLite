@@ -38,6 +38,7 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
     private val appContext = application.applicationContext
     private val runtime = PlayerRuntimeRegistry.get(appContext)
     private val userRepository = AppContainer.userRepository(appContext)
+    private val songWikiRepository = AppContainer.songWikiRepository(appContext)
     private val serviceBridge = PlayerServiceBridge(appContext, PlayerMediaSessionService::class.java) { errorMessage ->
         runtime.setStatusText(errorMessage)
         Log.w(TAG, errorMessage)
@@ -45,6 +46,7 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
     private val remoteSyncJob: Job
     private val uiProgressJob: Job
     private val userStateJob: Job
+    private var songWikiJob: Job? = null
     private var playbackModeToast: Toast? = null
     private var playbackModeToastDismissJob: Job? = null
     private val _userSessionUiState = MutableStateFlow(UserSessionUiState(isBusy = true))
@@ -87,6 +89,31 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
 
     fun onDismissPlaylistSheet() {
         runtime.onDismissPlaylistSheet()
+    }
+
+    fun onShowSongWiki() {
+        val songId = uiStateFlow.value.currentSongId ?: return
+        when (uiStateFlow.value.songWikiUiState) {
+            is com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Content,
+            is com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Empty,
+            is com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Loading -> {
+                runtime.onShowSongWiki()
+            }
+
+            com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Placeholder,
+            is com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Error -> {
+                loadSongWiki(songId)
+            }
+        }
+    }
+
+    fun onDismissSongWiki() {
+        runtime.onDismissSongWiki()
+    }
+
+    fun onRetrySongWiki() {
+        val songId = uiStateFlow.value.currentSongId ?: return
+        loadSongWiki(songId)
     }
 
     fun onSeekValueChange(value: Long) {
@@ -250,6 +277,31 @@ internal class PlayerViewModel(application: Application) : AndroidViewModel(appl
     fun stopAll(updateStatus: Boolean) {
         serviceBridge.stop()
         runtime.stopAll(updateStatus = updateStatus)
+    }
+
+    private fun loadSongWiki(songId: String) {
+        songWikiJob?.cancel()
+        runtime.onShowSongWiki()
+        runtime.updateSongWikiUiState(com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Loading)
+        songWikiJob = viewModelScope.launch {
+            val nextState = runCatching {
+                songWikiRepository.fetchSongWiki(songId)
+            }.fold(
+                onSuccess = { summary ->
+                    if (summary == null) {
+                        com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Empty("暂无歌曲百科")
+                    } else {
+                        com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Content(summary)
+                    }
+                },
+                onFailure = {
+                    com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Error("歌曲百科加载失败")
+                }
+            )
+            if (uiStateFlow.value.currentSongId == songId) {
+                runtime.updateSongWikiUiState(nextState)
+            }
+        }
     }
 
     fun formatDuration(durationMs: Long): String {

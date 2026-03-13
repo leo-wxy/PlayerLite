@@ -1,9 +1,24 @@
 package com.wxy.playerlite.core
 
 import android.content.Context
+import com.wxy.playerlite.feature.album.AlbumDetailRepository
+import com.wxy.playerlite.feature.album.DefaultAlbumDetailRepository
+import com.wxy.playerlite.feature.album.NeteaseAlbumDetailRemoteDataSource
+import com.wxy.playerlite.feature.artist.ArtistDetailRepository
+import com.wxy.playerlite.feature.artist.DefaultArtistDetailRepository
+import com.wxy.playerlite.feature.artist.NeteaseArtistDetailRemoteDataSource
 import com.wxy.playerlite.feature.main.DefaultHomeDiscoveryRepository
 import com.wxy.playerlite.feature.main.HomeDiscoveryRepository
 import com.wxy.playerlite.feature.main.NeteaseHomeDiscoveryRemoteDataSource
+import com.wxy.playerlite.feature.main.DefaultUserCenterRepository
+import com.wxy.playerlite.feature.main.NeteaseUserCenterRemoteDataSource
+import com.wxy.playerlite.feature.main.UserCenterRepository
+import com.wxy.playerlite.feature.playlist.DefaultPlaylistDetailRepository
+import com.wxy.playerlite.feature.playlist.NeteasePlaylistDetailRemoteDataSource
+import com.wxy.playerlite.feature.playlist.PlaylistDetailRepository
+import com.wxy.playerlite.feature.player.DefaultSongWikiRepository
+import com.wxy.playerlite.feature.player.NeteaseSongWikiRemoteDataSource
+import com.wxy.playerlite.feature.player.SongWikiRepository
 import com.wxy.playerlite.feature.search.SearchRepository
 import com.wxy.playerlite.feature.search.SearchFeatureServiceFactory
 import com.wxy.playerlite.network.core.AuthHeaderProvider
@@ -32,6 +47,26 @@ internal object AppContainer {
 
     fun searchRepository(context: Context): SearchRepository {
         return getServices(context).searchRepository
+    }
+
+    fun userCenterRepository(context: Context): UserCenterRepository {
+        return getServices(context).userCenterRepository
+    }
+
+    fun artistDetailRepository(context: Context): ArtistDetailRepository {
+        return getServices(context).artistDetailRepository
+    }
+
+    fun playlistDetailRepository(context: Context): PlaylistDetailRepository {
+        return getServices(context).playlistDetailRepository
+    }
+
+    fun albumDetailRepository(context: Context): AlbumDetailRepository {
+        return getServices(context).albumDetailRepository
+    }
+
+    fun songWikiRepository(context: Context): SongWikiRepository {
+        return getServices(context).songWikiRepository
     }
 
     private fun getServices(context: Context): Services {
@@ -71,6 +106,21 @@ internal object AppContainer {
                     SEARCH_HISTORY_PREFS,
                     Context.MODE_PRIVATE
                 )
+            ),
+            userCenterRepository = DefaultUserCenterRepository(
+                remoteDataSource = NeteaseUserCenterRemoteDataSource(httpClient)
+            ),
+            artistDetailRepository = DefaultArtistDetailRepository(
+                remoteDataSource = NeteaseArtistDetailRemoteDataSource(httpClient)
+            ),
+            playlistDetailRepository = DefaultPlaylistDetailRepository(
+                remoteDataSource = NeteasePlaylistDetailRemoteDataSource(httpClient)
+            ),
+            albumDetailRepository = DefaultAlbumDetailRepository(
+                remoteDataSource = NeteaseAlbumDetailRemoteDataSource(httpClient)
+            ),
+            songWikiRepository = DefaultSongWikiRepository(
+                remoteDataSource = NeteaseSongWikiRemoteDataSource(httpClient)
             )
         )
     }
@@ -78,6 +128,11 @@ internal object AppContainer {
     private data class Services(
         val userRepository: UserRepository,
         val homeDiscoveryRepository: HomeDiscoveryRepository,
-        val searchRepository: SearchRepository
+        val searchRepository: SearchRepository,
+        val userCenterRepository: UserCenterRepository,
+        val artistDetailRepository: ArtistDetailRepository,
+        val playlistDetailRepository: PlaylistDetailRepository,
+        val albumDetailRepository: AlbumDetailRepository,
+        val songWikiRepository: SongWikiRepository
     )
 }

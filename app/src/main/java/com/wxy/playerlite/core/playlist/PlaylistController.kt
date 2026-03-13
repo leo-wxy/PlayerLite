@@ -254,6 +254,7 @@ internal object PlaylistStateCodec {
             itemJson.put("id", item.id)
             itemJson.put("uri", item.uri)
             itemJson.put("displayName", item.displayName)
+            item.songId?.takeIf { it.isNotBlank() }?.let { itemJson.put("songId", it) }
             originalItems.put(itemJson)
         }
         root.put("originalItems", originalItems)
@@ -322,7 +323,8 @@ internal object PlaylistStateCodec {
                     PlaylistItem(
                         id = id,
                         uri = uri,
-                        displayName = if (displayName.isNotEmpty()) displayName else "Unknown audio"
+                        displayName = if (displayName.isNotEmpty()) displayName else "Unknown audio",
+                        songId = itemJson.optString("songId", "").trim().ifEmpty { null }
                     )
                 )
             }

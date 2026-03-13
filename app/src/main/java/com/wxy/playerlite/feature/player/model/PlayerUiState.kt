@@ -6,6 +6,23 @@ import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.player.PlaybackOutputInfo
 
+internal sealed interface PlayerSongWikiUiState {
+    data object Placeholder : PlayerSongWikiUiState
+    data object Loading : PlayerSongWikiUiState
+
+    data class Content(
+        val summary: SongWikiSummary
+    ) : PlayerSongWikiUiState
+
+    data class Empty(
+        val message: String
+    ) : PlayerSongWikiUiState
+
+    data class Error(
+        val message: String
+    ) : PlayerSongWikiUiState
+}
+
 internal data class PlayerUiState(
     val selectedFileName: String = "No audio selected",
     val statusText: String = "Pick a local audio file, then tap Play",
@@ -15,6 +32,8 @@ internal data class PlayerUiState(
     val playlistItems: List<PlaylistItem> = emptyList(),
     val activePlaylistIndex: Int = -1,
     val showPlaylistSheet: Boolean = false,
+    val showSongWikiSheet: Boolean = false,
+    val songWikiUiState: PlayerSongWikiUiState = PlayerSongWikiUiState.Placeholder,
     val isPreparing: Boolean = false,
     val playbackState: Int = AUDIO_TRACK_PLAYSTATE_UNAVAILABLE,
     val isSeekSupported: Boolean = false,
@@ -29,6 +48,12 @@ internal data class PlayerUiState(
 ) {
     val displayedSeekMs: Long
         get() = if (isSeekDragging) seekDragPositionMs else seekPositionMs
+
+    val currentSongId: String?
+        get() = playlistItems
+            .getOrNull(activePlaylistIndex)
+            ?.songId
+            ?.takeIf { it.isNotBlank() }
 }
 
 internal fun emptyAudioMeta(): AudioMetaDisplay {

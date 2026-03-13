@@ -1,5 +1,6 @@
 package com.wxy.playerlite.feature.main
 
+import com.wxy.playerlite.feature.search.SearchRouteTarget
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -118,6 +119,119 @@ class HomeDiscoveryRepositoryTest {
 
         assertEquals(HomeDefaults.fallbackSearchKeywords, result.searchKeywords)
         assertTrue(result.sections.isEmpty())
+    }
+
+    @Test
+    fun fetchHomeOverview_shouldMapContentActionsForDetailAndUriTargets() = runBlocking {
+        val repository = DefaultHomeDiscoveryRepository(
+            remoteDataSource = FakeHomeDiscoveryRemoteDataSource(
+                homepagePayload = jsonObject(
+                    """
+                    {
+                      "data": {
+                        "blocks": [
+                          {
+                            "blockCode": "HOMEPAGE_BANNER",
+                            "showType": "BANNER",
+                            "extInfo": {
+                              "banners": [
+                                {
+                                  "bannerId": "banner-album",
+                                  "pic": "http://example.com/banner.jpg",
+                                  "mainTitle": "新碟推荐",
+                                  "typeTitle": "专辑",
+                                  "targetType": 10,
+                                  "targetId": 32311
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "blockCode": "HOMEPAGE_BLOCK_PLAYLIST_RCMD",
+                            "showType": "HOMEPAGE_SLIDE_PLAYLIST",
+                            "uiElement": {
+                              "subTitle": {
+                                "title": "推荐歌单"
+                              }
+                            },
+                            "creatives": [
+                              {
+                                "resources": [
+                                  {
+                                    "resourceId": 3778678,
+                                    "uiElement": {
+                                      "mainTitle": {
+                                        "title": "热歌榜"
+                                      },
+                                      "subTitle": {
+                                        "title": "官方榜单"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "blockCode": "HOMEPAGE_SHORTCUT",
+                            "showType": "DRAGON_BALL",
+                            "uiElement": {
+                              "subTitle": {
+                                "title": "快捷入口"
+                              }
+                            },
+                            "creatives": [
+                              {
+                                "resources": [
+                                  {
+                                    "resourceId": "shortcut-1",
+                                    "action": {
+                                      "url": "https://music.163.com/topic?id=1"
+                                    },
+                                    "uiElement": {
+                                      "mainTitle": {
+                                        "title": "专题活动"
+                                      },
+                                      "subTitle": {
+                                        "title": "外部链接"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                    """
+                ),
+                searchDefaultPayload = jsonObject("""{"data":{"showKeyword":"默认热搜"}}""")
+            )
+        )
+
+        val result = repository.fetchHomeOverview()
+
+        val bannerAction = result.sections[0].items.single().action
+        assertTrue(bannerAction is ContentEntryAction.OpenDetail)
+        assertEquals(
+            SearchRouteTarget.Album(albumId = "32311"),
+            (bannerAction as ContentEntryAction.OpenDetail).target
+        )
+
+        val playlistAction = result.sections[1].items.single().action
+        assertTrue(playlistAction is ContentEntryAction.OpenDetail)
+        assertEquals(
+            SearchRouteTarget.Playlist(playlistId = "3778678"),
+            (playlistAction as ContentEntryAction.OpenDetail).target
+        )
+
+        val shortcutAction = result.sections[2].items.single().action
+        assertTrue(shortcutAction is ContentEntryAction.OpenUri)
+        assertEquals(
+            "https://music.163.com/topic?id=1",
+            (shortcutAction as ContentEntryAction.OpenUri).uri
+        )
     }
 }
 

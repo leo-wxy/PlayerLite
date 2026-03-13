@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.wxy.playerlite.playback.model.PlaybackMode
@@ -79,11 +80,13 @@ internal fun PlaybackControls(
         modifier = modifier
             .fillMaxWidth()
             .height(88.dp)
+            .testTag("player_screen_controls_strip")
     ) {
         SideControlButton(
             icon = playbackMode.modeIcon(),
             contentDescription = playbackMode.modeContentDescription(),
             badgeText = null,
+            buttonTag = "player_screen_playback_mode_button",
             enabled = modeEnabled,
             palette = playbackMode.modePalette(),
             motionSpec = playbackMode.modeMotionSpec(),
@@ -100,6 +103,7 @@ internal fun PlaybackControls(
                 .takeIf { it > 0 }
                 ?.coerceAtMost(99)
                 ?.toString(),
+            buttonTag = "player_screen_playlist_button",
             enabled = playlistEnabled,
             palette = defaultSideControlPalette(),
             motionSpec = SideControlMotionSpec(),
@@ -117,7 +121,9 @@ internal fun PlaybackControls(
             IconButton(
                 onClick = onPrevious,
                 enabled = previousEnabled,
-                modifier = Modifier.size(52.dp),
+                modifier = Modifier
+                    .size(52.dp)
+                    .testTag("player_screen_previous_button"),
                 colors = IconButtonDefaults.iconButtonColors(
                     containerColor = Color(0x1544B3A2),
                     contentColor = Color(0xFF0F766E),
@@ -154,6 +160,7 @@ internal fun PlaybackControls(
                     enabled = toggleEnabled,
                     modifier = Modifier
                         .size(72.dp)
+                        .testTag("player_screen_toggle_button")
                         .graphicsLayer {
                             scaleX = centerScale
                             scaleY = centerScale
@@ -180,7 +187,9 @@ internal fun PlaybackControls(
             IconButton(
                 onClick = onNext,
                 enabled = nextEnabled,
-                modifier = Modifier.size(52.dp),
+                modifier = Modifier
+                    .size(52.dp)
+                    .testTag("player_screen_next_button"),
                 colors = IconButtonDefaults.iconButtonColors(
                     containerColor = Color(0x1544B3A2),
                     contentColor = Color(0xFF0F766E),
@@ -203,6 +212,7 @@ private fun SideControlButton(
     icon: ImageVector,
     contentDescription: String,
     badgeText: String?,
+    buttonTag: String,
     enabled: Boolean,
     palette: SideControlPalette,
     motionSpec: SideControlMotionSpec,
@@ -262,6 +272,7 @@ private fun SideControlButton(
             enabled = enabled,
             modifier = Modifier
                 .size(52.dp)
+                .testTag(buttonTag)
                 .graphicsLayer {
                     scaleX = animatedScale
                     scaleY = animatedScale

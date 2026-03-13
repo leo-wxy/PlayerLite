@@ -16,10 +16,13 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,10 +31,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -62,6 +68,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -73,8 +80,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.wxy.playerlite.feature.player.model.PlayerUiState
+import com.wxy.playerlite.feature.user.AccountCardSurface
+import com.wxy.playerlite.feature.user.AccountPageBackground
+import com.wxy.playerlite.feature.user.AccountPrimaryButton
+import com.wxy.playerlite.feature.user.AccountStatusChip
+import com.wxy.playerlite.feature.user.AccountVisualStyle
+import com.wxy.playerlite.feature.user.accountHeroBrush
 import com.wxy.playerlite.feature.user.model.UserSessionUiState
 import kotlinx.coroutines.flow.collectLatest
+
+private val UserCenterCompactHorizontalPadding = 12.dp
 
 @Composable
 internal fun MainBottomBar(
@@ -107,6 +122,7 @@ internal fun HomeOverviewScreen(
     overviewState: HomeOverviewUiState,
     onSearchClick: () -> Unit,
     onRetry: () -> Unit,
+    onItemClick: (ContentEntryAction) -> Unit,
     onOpenPlayer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -182,7 +198,10 @@ internal fun HomeOverviewScreen(
                         items = overviewState.sections,
                         key = { section -> section.code }
                     ) { section ->
-                        HomeDiscoverySection(section = section)
+                        HomeDiscoverySection(
+                            section = section,
+                            onItemClick = onItemClick
+                        )
                     }
                 }
             }
@@ -339,7 +358,8 @@ private fun HomeOverviewStatusCard(
 
 @Composable
 private fun HomeDiscoverySection(
-    section: HomeSectionUiModel
+    section: HomeSectionUiModel,
+    onItemClick: (ContentEntryAction) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -352,7 +372,10 @@ private fun HomeDiscoverySection(
         }
 
         if (HomeDiscoveryLayoutSpec.usesCarousel(section.layout)) {
-            HomeBannerCarousel(items = section.items)
+            HomeBannerCarousel(
+                items = section.items,
+                onItemClick = onItemClick
+            )
         } else {
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
@@ -364,9 +387,20 @@ private fun HomeDiscoverySection(
                     key = { item -> item.id }
                 ) { item ->
                     when (section.layout) {
-                        HomeSectionLayout.BANNER -> BannerSectionCard(item)
-                        HomeSectionLayout.ICON_GRID -> CompactSectionCard(item)
-                        HomeSectionLayout.HORIZONTAL_LIST -> DiscoverySectionCard(item)
+                        HomeSectionLayout.BANNER -> BannerSectionCard(
+                            item = item,
+                            onClick = { onItemClick(item.action) }
+                        )
+
+                        HomeSectionLayout.ICON_GRID -> CompactSectionCard(
+                            item = item,
+                            onClick = { onItemClick(item.action) }
+                        )
+
+                        HomeSectionLayout.HORIZONTAL_LIST -> DiscoverySectionCard(
+                            item = item,
+                            onClick = { onItemClick(item.action) }
+                        )
                     }
                 }
             }
@@ -376,7 +410,8 @@ private fun HomeDiscoverySection(
 
 @Composable
 private fun HomeBannerCarousel(
-    items: List<HomeSectionItemUiModel>
+    items: List<HomeSectionItemUiModel>,
+    onItemClick: (ContentEntryAction) -> Unit
 ) {
     val actualCount = items.size
     val pageCount = if (actualCount > 1 && HomeDiscoveryLayoutSpec.bannerUsesInfiniteLoop) {
@@ -416,6 +451,7 @@ private fun HomeBannerCarousel(
             val itemIndex = if (actualCount == 0) 0 else page % actualCount
             BannerSectionCard(
                 item = items[itemIndex],
+                onClick = { onItemClick(items[itemIndex].action) },
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -451,9 +487,11 @@ private fun HomeBannerCarousel(
 @Composable
 private fun BannerSectionCard(
     item: HomeSectionItemUiModel,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
+        onClick = onClick,
         modifier = modifier.testTag("home_banner_card_${item.id}"),
         shape = RoundedCornerShape(26.dp),
         color = HOME_PANEL_COLOR.copy(alpha = 0.95f),
@@ -514,9 +552,11 @@ private fun BannerSectionCard(
 
 @Composable
 private fun DiscoverySectionCard(
-    item: HomeSectionItemUiModel
+    item: HomeSectionItemUiModel,
+    onClick: () -> Unit
 ) {
     Surface(
+        onClick = onClick,
         modifier = Modifier
             .testTag("home_discovery_card_${item.id}")
             .width(HomeDiscoveryLayoutSpec.discoveryCardWidth)
@@ -574,12 +614,14 @@ private fun DiscoverySectionCard(
 
 @Composable
 private fun CompactSectionCard(
-    item: HomeSectionItemUiModel
+    item: HomeSectionItemUiModel,
+    onClick: () -> Unit
 ) {
     val backgroundColor = HomeDiscoveryLayoutSpec.dailyShortcutBackgroundColor(
         seed = item.id.ifBlank { item.title }
     )
     Surface(
+        onClick = onClick,
         modifier = Modifier
             .testTag("home_compact_card_${item.id}")
             .width(HomeDiscoveryLayoutSpec.compactCardWidth)
@@ -712,10 +754,15 @@ private fun HomeSectionTitle(title: String) {
 internal fun PlayerExpandedScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    topEndContent: @Composable () -> Unit = {},
     content: @Composable () -> Unit
 ) {
-    Box(modifier = modifier.fillMaxSize()) {
-        content()
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = modifier.fillMaxSize()
+        ) {
+            content()
+        }
 
         AnimatedVisibility(
             visible = true,
@@ -731,27 +778,506 @@ internal fun PlayerExpandedScreen(
             ),
             exit = fadeOut(animationSpec = tween(durationMillis = 120))
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .padding(start = 12.dp)
+                        .testTag("player_expanded_back_button"),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    tonalElevation = 4.dp,
+                    shadowElevation = 10.dp
+                ) {
+                    IconButton(
+                        onClick = onBack,
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "返回首页"
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(end = 12.dp)
+                ) {
+                    topEndContent()
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun UserCenterScreen(
+    userState: UserSessionUiState,
+    contentState: UserCenterUiState,
+    onTabSelected: (UserCenterTab) -> Unit,
+    onRetryCurrentTab: () -> Unit,
+    onContentClick: (ContentEntryAction) -> Unit,
+    onLoginClick: () -> Unit,
+    onLogoutClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AccountPageBackground(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .testTag("user_center_scroll_content")
+                .padding(horizontal = UserCenterCompactHorizontalPadding),
+            contentPadding = PaddingValues(
+                top = 24.dp,
+                bottom = 28.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            item {
+                UserCenterProfileHeader(
+                    userState = userState,
+                    modifier = Modifier.padding(bottom = if (userState.isLoggedIn) 12.dp else 18.dp)
+                )
+            }
+
+            if (userState.isLoggedIn) {
+                userCenterLoggedInItems(
+                    contentState = contentState,
+                    onTabSelected = onTabSelected,
+                    onRetryCurrentTab = onRetryCurrentTab,
+                    onContentClick = onContentClick,
+                    onLogoutClick = onLogoutClick
+                )
+            } else {
+                userCenterLoggedOutItems(
+                    onLoginClick = onLoginClick
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+private fun LazyListScope.userCenterLoggedInItems(
+    contentState: UserCenterUiState,
+    onTabSelected: (UserCenterTab) -> Unit,
+    onRetryCurrentTab: () -> Unit,
+    onContentClick: (ContentEntryAction) -> Unit,
+    onLogoutClick: () -> Unit
+) {
+    stickyHeader(key = "user-center-tabs-header") {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            UserCenterPanelSurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("user_center_sticky_tabs_header"),
+                shape = UserCenterPanelHeaderShape
+            ) {
+                Box(modifier = Modifier.testTag("user_center_content_panel_header")) {
+                    UserCenterTabs(
+                        selectedTab = contentState.selectedTab,
+                        onTabSelected = onTabSelected
+                    )
+                }
+            }
+        }
+    }
+
+    when (val currentState = contentState.currentTabState) {
+        UserCenterTabContentState.Idle,
+        UserCenterTabContentState.Loading -> item {
+            UserCenterPanelSurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("user_center_content_panel_body"),
+                shape = UserCenterPanelBodyShape
+            ) {
+                UserCenterStatusPanel(
+                    title = "正在加载${contentState.selectedTab.label}",
+                    subtitle = "正在同步当前账号的个人内容，请稍候。",
+                    tag = "user_center_content_loading"
+                ) {
+                    CircularProgressIndicator(color = AccountVisualStyle.accentColor)
+                }
+            }
+        }
+
+        UserCenterTabContentState.Empty -> item {
+            UserCenterPanelSurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("user_center_content_panel_body"),
+                shape = UserCenterPanelBodyShape
+            ) {
+                UserCenterStatusPanel(
+                    title = "${contentState.selectedTab.label}暂时为空",
+                    subtitle = "当前账号下还没有可展示的内容，稍后再来看看。",
+                    tag = "user_center_content_empty"
+                )
+            }
+        }
+
+        is UserCenterTabContentState.Error -> item {
+            UserCenterPanelSurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("user_center_content_panel_body"),
+                shape = UserCenterPanelBodyShape
+            ) {
+                UserCenterStatusPanel(
+                    title = "${contentState.selectedTab.label}加载失败",
+                    subtitle = currentState.message,
+                    tag = "user_center_content_error"
+                ) {
+                    OutlinedButton(
+                        onClick = onRetryCurrentTab,
+                        modifier = Modifier.testTag("user_center_content_retry")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("重试")
+                    }
+                }
+            }
+        }
+
+        is UserCenterTabContentState.Content -> itemsIndexed(
+            items = currentState.items,
+            key = { _, item -> item.id }
+        ) { index, item ->
+            UserCenterCollectionCard(
+                item = item,
+                selectedTab = contentState.selectedTab,
+                shape = userCenterContentItemShape(
+                    index = index,
+                    total = currentState.items.size
+                ),
+                showTopDivider = true,
+                onClick = { onContentClick(item.action) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (index == 0) {
+                            Modifier.testTag("user_center_content_panel_body")
+                        } else {
+                            Modifier
+                        }
+                    )
+            )
+        }
+    }
+
+    item {
+        OutlinedButton(
+            onClick = onLogoutClick,
+            shape = RoundedCornerShape(24.dp),
+            border = BorderStroke(
+                width = 1.dp,
+                color = AccountVisualStyle.accentColor.copy(alpha = 0.32f)
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 14.dp)
+                .testTag("user_center_secondary_action")
+        ) {
+            Text(
+                text = "退出登录",
+                color = AccountVisualStyle.accentColor
+            )
+        }
+    }
+}
+
+private fun LazyListScope.userCenterLoggedOutItems(
+    onLoginClick: () -> Unit
+) {
+    item {
+        AccountCardSurface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 14.dp)
+                .testTag("user_center_info_card")
+        ) {
+            Text(
+                text = "当前为游客浏览模式",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "登录后可同步在线身份、推荐上下文以及后续扩展的个人中心能力。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "收藏歌手、专栏和用户歌单会在登录后通过 Tab 分区展示。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.testTag("user_center_future_hint")
+            )
+        }
+    }
+
+    item {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("user_center_primary_action")
+        ) {
+            AccountPrimaryButton(
+                text = "去登录",
+                onClick = onLoginClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("user_center_login_button")
+            )
+        }
+    }
+}
+
+@Composable
+private fun UserCenterTabs(
+    selectedTab: UserCenterTab,
+    onTabSelected: (UserCenterTab) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("user_center_tabs"),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        UserCenterTab.entries.forEach { tab ->
+            val selected = tab == selectedTab
             Surface(
                 modifier = Modifier
-                    .statusBarsPadding()
-                    .padding(start = 12.dp, top = 8.dp)
-                    .testTag("player_expanded_back_button"),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-                tonalElevation = 4.dp,
-                shadowElevation = 10.dp
+                    .weight(1f)
+                    .clip(RoundedCornerShape(18.dp))
+                    .clickable { onTabSelected(tab) }
+                    .testTag("user_center_tab_${tab.tagSuffix}"),
+                color = if (selected) {
+                    AccountVisualStyle.accentColor
+                } else {
+                    AccountVisualStyle.accentSoftColor
+                }
             ) {
-                IconButton(
-                    onClick = onBack,
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = Color.Transparent,
-                        contentColor = MaterialTheme.colorScheme.onSurface
-                    )
+                Text(
+                    text = tab.label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (selected) Color.White else AccountVisualStyle.accentTextColor,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
+                )
+            }
+        }
+    }
+}
+
+private val UserCenterPanelHeaderShape = RoundedCornerShape(
+    topStart = AccountVisualStyle.cardCorner,
+    topEnd = AccountVisualStyle.cardCorner,
+    bottomStart = 0.dp,
+    bottomEnd = 0.dp
+)
+
+private val UserCenterPanelBodyShape = RoundedCornerShape(
+    topStart = 0.dp,
+    topEnd = 0.dp,
+    bottomStart = AccountVisualStyle.cardCorner,
+    bottomEnd = AccountVisualStyle.cardCorner
+)
+
+private fun userCenterContentItemShape(
+    index: Int,
+    total: Int
+): RoundedCornerShape {
+    return when {
+        total <= 0 -> RoundedCornerShape(AccountVisualStyle.cardCorner)
+        index == total - 1 -> RoundedCornerShape(
+            topStart = 0.dp,
+            topEnd = 0.dp,
+            bottomStart = AccountVisualStyle.cardCorner,
+            bottomEnd = AccountVisualStyle.cardCorner
+        )
+
+        else -> RoundedCornerShape(0.dp)
+    }
+}
+
+@Composable
+private fun UserCenterPanelSurface(
+    modifier: Modifier = Modifier,
+    shape: RoundedCornerShape,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        shape = shape,
+        color = Color.White.copy(alpha = 0.94f),
+        tonalElevation = 2.dp,
+        shadowElevation = 8.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun UserCenterStatusPanel(
+    title: String,
+    subtitle: String,
+    tag: String,
+    action: (@Composable () -> Unit)? = null
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(tag),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        action?.invoke()
+    }
+}
+
+@Composable
+private fun UserCenterCollectionCard(
+    item: UserCenterCollectionItemUiModel,
+    selectedTab: UserCenterTab,
+    shape: RoundedCornerShape,
+    showTopDivider: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth(),
+        shape = shape,
+        color = Color.White.copy(alpha = 0.94f),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .testTag("user_center_content_item_${item.id}")
+        ) {
+            if (showTopDivider) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.08f))
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(64.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = AccountVisualStyle.accentSoftColor
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = "返回首页"
+                    Box(contentAlignment = Alignment.Center) {
+                        if (!item.imageUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = item.imageUrl,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = when (selectedTab) {
+                                    UserCenterTab.ARTISTS -> Icons.Rounded.Person
+                                    UserCenterTab.COLUMNS -> Icons.Rounded.Album
+                                    UserCenterTab.PLAYLISTS -> Icons.Rounded.Album
+                                },
+                                contentDescription = null,
+                                tint = AccountVisualStyle.accentColor
+                            )
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = item.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    Text(
+                        text = item.subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    item.meta?.let { meta ->
+                        Text(
+                            text = meta,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = AccountVisualStyle.accentTextColor
+                        )
+                    }
+                }
+
+                item.badge?.let { badge ->
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = AccountVisualStyle.accentSoftColor
+                    ) {
+                        Text(
+                            text = badge,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = AccountVisualStyle.accentTextColor,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
                 }
             }
         }
@@ -759,38 +1285,34 @@ internal fun PlayerExpandedScreen(
 }
 
 @Composable
-internal fun UserCenterScreen(
+private fun UserCenterProfileHeader(
     userState: UserSessionUiState,
-    onLoginClick: () -> Unit,
-    onLogoutClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val headerShape = RoundedCornerShape(AccountVisualStyle.heroCorner)
     Box(
         modifier = modifier
-            .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFFFFBF7),
-                        Color(0xFFFFF2E5),
-                        Color(0xFFFFF7F0)
-                    )
-                )
-            )
-            .padding(20.dp)
+            .fillMaxWidth()
+            .testTag("user_center_profile_header")
+            .shadow(18.dp, headerShape, clip = false)
+            .clip(headerShape)
+            .background(accountHeroBrush())
+            .padding(horizontal = 24.dp, vertical = 22.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            AccountStatusChip(
+                text = if (userState.isLoggedIn) "个人主页" else "欢迎来到个人主页"
+            )
             Surface(
                 modifier = Modifier
-                    .padding(top = 24.dp)
                     .size(112.dp)
                     .testTag("user_center_avatar"),
                 shape = CircleShape,
-                color = Color.White.copy(alpha = 0.95f),
+                color = Color.White.copy(alpha = 0.96f),
                 tonalElevation = 6.dp,
                 shadowElevation = 14.dp
             ) {
@@ -813,7 +1335,7 @@ internal fun UserCenterScreen(
                         Icon(
                             imageVector = Icons.Rounded.AccountCircle,
                             contentDescription = null,
-                            tint = Color(0xFFEF8E4B),
+                            tint = AccountVisualStyle.accentColor,
                             modifier = Modifier.size(72.dp)
                         )
                     }
@@ -823,64 +1345,19 @@ internal fun UserCenterScreen(
             Text(
                 text = userState.title,
                 style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                textAlign = TextAlign.Center,
                 modifier = Modifier.testTag("user_center_title")
             )
 
             Text(
                 text = userState.summary,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color.White.copy(alpha = 0.9f),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.testTag("user_center_summary")
             )
-
-            Surface(
-                shape = RoundedCornerShape(26.dp),
-                color = Color.White.copy(alpha = 0.96f),
-                tonalElevation = 4.dp,
-                shadowElevation = 10.dp
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = "当前先展示头像、昵称与基础信息",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "收藏歌单等内容后续继续补充",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.testTag("user_center_future_hint")
-                    )
-                }
-            }
-
-            if (userState.isLoggedIn) {
-                OutlinedButton(
-                    onClick = onLogoutClick,
-                    shape = RoundedCornerShape(22.dp)
-                ) {
-                    Text("退出登录")
-                }
-            } else {
-                Button(
-                    onClick = onLoginClick,
-                    shape = RoundedCornerShape(22.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFEF8E4B),
-                        contentColor = Color.White
-                    ),
-                    modifier = Modifier.testTag("user_center_login_button")
-                ) {
-                    Text("去登录")
-                }
-            }
         }
     }
 }

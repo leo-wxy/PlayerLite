@@ -23,6 +23,24 @@
             android:theme="@style/Theme.PlayerLite" />
 
         <activity
+            android:name=".feature.artist.ArtistDetailActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.PlayerLite" />
+
+        <activity
+            android:name=".feature.playlist.PlaylistDetailActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.PlayerLite" />
+
+        <activity
+            android:name=".feature.album.AlbumDetailActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.PlayerLite" />
+
+        <activity
             android:name=".feature.search.SearchActivity"
             android:exported="false"
             android:label="@string/app_name"

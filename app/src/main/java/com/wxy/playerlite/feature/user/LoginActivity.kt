@@ -13,19 +13,23 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AlternateEmail
@@ -36,6 +40,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -123,18 +128,9 @@ internal fun LoginScreen(
         modifier = Modifier.fillMaxSize(),
         containerColor = Color.Transparent
     ) { innerPadding ->
-        Box(
+        AccountPageBackground(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFFFFFBF6),
-                            Color(0xFFFFF4EA),
-                            Color(0xFFFFF9F3)
-                        )
-                    )
-                )
                 .padding(innerPadding)
                 .statusBarsPadding()
                 .navigationBarsPadding()
@@ -148,55 +144,95 @@ internal fun LoginScreen(
                     .defaultMinSize(minWidth = 82.dp, minHeight = 44.dp)
                     .testTag("login_skip_button"),
                 border = BorderStroke(
-                    width = 1.5.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.48f)
                 ),
                 shape = RoundedCornerShape(20.dp)
             ) {
                 Text(
                     text = "跳过",
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = AccountVisualStyle.accentDeepColor,
                     fontWeight = FontWeight.Medium
                 )
             }
 
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 24.dp),
-                verticalArrangement = Arrangement.Center,
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
+                    .testTag("login_scroll_content")
+                    .padding(
+                        start = AccountVisualStyle.contentHorizontalPadding,
+                        top = 52.dp,
+                        end = AccountVisualStyle.contentHorizontalPadding,
+                        bottom = 24.dp
+                    ),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                LoginHeroArtwork()
-                Spacer(modifier = Modifier.height(28.dp))
-                Text(
-                    text = LOGIN_WELCOME_TITLE,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.testTag("login_welcome_title")
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = LOGIN_WELCOME_SUBTITLE,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.testTag("login_welcome_subtitle")
-                )
-                Spacer(modifier = Modifier.height(28.dp))
-                LoginFormCard(
-                    state = state,
-                    onLoginMethodSelected = onLoginMethodSelected,
-                    onPhoneChanged = onPhoneChanged,
-                    onEmailChanged = onEmailChanged,
-                    onPasswordChanged = onPasswordChanged,
-                    onSubmitLogin = onSubmitLogin,
-                    onLogout = onLogout
-                )
+                LoginHeroPanel(state = state)
+                AccountCardSurface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = AccountVisualStyle.contentMaxWidth)
+                        .testTag("login_form_card")
+                ) {
+                    LoginFormCard(
+                        state = state,
+                        onLoginMethodSelected = onLoginMethodSelected,
+                        onPhoneChanged = onPhoneChanged,
+                        onEmailChanged = onEmailChanged,
+                        onPasswordChanged = onPasswordChanged,
+                        onSubmitLogin = onSubmitLogin,
+                        onLogout = onLogout
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun LoginHeroPanel(state: LoginUiState) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = AccountVisualStyle.contentMaxWidth)
+            .testTag("login_hero_panel")
+            .shadow(18.dp, RoundedCornerShape(AccountVisualStyle.heroCorner), clip = false)
+            .clip(RoundedCornerShape(AccountVisualStyle.heroCorner))
+            .background(accountHeroBrush())
+            .padding(horizontal = 22.dp, vertical = 20.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            AccountStatusChip(
+                text = if (state.isLoggedIn) "在线音乐身份已连接" else "PlayerLite 在线音乐身份",
+                modifier = Modifier.testTag("login_status_chip")
+            )
+            LoginHeroArtwork()
+            Text(
+                text = LOGIN_WELCOME_TITLE,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.testTag("login_welcome_title")
+            )
+            Text(
+                text = LOGIN_WELCOME_SUBTITLE,
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.9f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.testTag("login_welcome_subtitle")
+            )
         }
     }
 }
@@ -204,19 +240,26 @@ internal fun LoginScreen(
 @Composable
 private fun LoginHeroArtwork() {
     Box(
-        modifier = Modifier.size(168.dp),
+        modifier = Modifier.size(AccountVisualStyle.heroArtworkSize),
         contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
-                .size(168.dp)
-                .shadow(20.dp, CircleShape, clip = false)
+                .matchParentSize()
+                .offset(y = 10.dp)
+                .shadow(26.dp, CircleShape, clip = false)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.12f))
+        )
+        Box(
+            modifier = Modifier
+                .size(152.dp)
                 .clip(CircleShape)
                 .background(
                     brush = Brush.linearGradient(
                         colors = listOf(
-                            Color(0xFFFFE4C9),
-                            Color(0xFFFFF1E2)
+                            Color.White.copy(alpha = 0.94f),
+                            Color(0xFFFFE8E4)
                         )
                     )
                 )
@@ -224,7 +267,7 @@ private fun LoginHeroArtwork() {
         Image(
             painter = painterResource(R.drawable.ic_playerlite_brand),
             contentDescription = null,
-            modifier = Modifier.size(136.dp)
+            modifier = Modifier.size(110.dp)
         )
     }
 }
@@ -239,100 +282,84 @@ private fun LoginFormCard(
     onSubmitLogin: () -> Unit,
     onLogout: () -> Unit
 ) {
-    Surface(
+    LoginMethodToggle(
+        selected = state.loginMethod,
+        onSelected = onLoginMethodSelected
+    )
+
+    if (state.loginMethod == LoginMethod.PHONE) {
+        LoginInputField(
+            value = state.phone,
+            onValueChange = onPhoneChanged,
+            label = "手机号",
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Rounded.PhoneAndroid,
+                    contentDescription = null
+                )
+            },
+            enabled = !state.isBusy
+        )
+    } else {
+        LoginInputField(
+            value = state.email,
+            onValueChange = onEmailChanged,
+            label = "邮箱",
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Rounded.AlternateEmail,
+                    contentDescription = null
+                )
+            },
+            enabled = !state.isBusy,
+            keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Email)
+        )
+    }
+
+    LoginInputField(
+        value = state.password,
+        onValueChange = onPasswordChanged,
+        label = "密码",
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Rounded.Lock,
+                contentDescription = null
+            )
+        },
+        enabled = !state.isBusy,
+        visualTransformation = PasswordVisualTransformation()
+    )
+
+    AccountPrimaryButton(
+        text = if (state.isBusy) "登录中..." else "登录",
+        onClick = onSubmitLogin,
+        enabled = !state.isBusy,
         modifier = Modifier
             .fillMaxWidth()
-            .widthIn(max = 420.dp),
-        shape = RoundedCornerShape(30.dp),
-        color = Color.White.copy(alpha = 0.96f),
-        tonalElevation = 4.dp,
-        shadowElevation = 14.dp
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            .testTag("login_primary_button")
+    )
+
+    Text(
+        text = state.statusText,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    if (state.isLoggedIn) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
         ) {
-            LoginMethodToggle(
-                selected = state.loginMethod,
-                onSelected = onLoginMethodSelected
-            )
-
-            if (state.loginMethod == LoginMethod.PHONE) {
-                LoginInputField(
-                    value = state.phone,
-                    onValueChange = onPhoneChanged,
-                    label = "手机号",
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Rounded.PhoneAndroid,
-                            contentDescription = null
-                        )
-                    },
-                    enabled = !state.isBusy
-                )
-            } else {
-                LoginInputField(
-                    value = state.email,
-                    onValueChange = onEmailChanged,
-                    label = "邮箱",
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Rounded.AlternateEmail,
-                            contentDescription = null
-                        )
-                    },
-                    enabled = !state.isBusy,
-                    keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Email)
-                )
-            }
-
-            LoginInputField(
-                value = state.password,
-                onValueChange = onPasswordChanged,
-                label = "密码",
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Rounded.Lock,
-                        contentDescription = null
-                    )
-                },
-                enabled = !state.isBusy,
-                visualTransformation = PasswordVisualTransformation()
-            )
-
-            Button(
-                onClick = onSubmitLogin,
-                enabled = !state.isBusy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
-                shape = RoundedCornerShape(22.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFEF8E4B),
-                    contentColor = Color.White
-                )
+            TextButton(
+                onClick = onLogout,
+                enabled = !state.isBusy
             ) {
                 Text(
-                    text = if (state.isBusy) "登录中..." else "登录",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    text = "退出登录",
+                    color = AccountVisualStyle.accentColor
                 )
-            }
-
-            Text(
-                text = state.statusText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            if (state.isLoggedIn) {
-                TextButton(
-                    onClick = onLogout,
-                    enabled = !state.isBusy,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                ) {
-                    Text("退出登录")
-                }
             }
         }
     }
@@ -346,12 +373,12 @@ private fun LoginMethodToggle(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
-        color = Color(0xFFF7EFE6)
+        color = AccountVisualStyle.accentSoftColor
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(4.dp),
+                .padding(5.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             LoginMethodOption(
@@ -383,21 +410,21 @@ private fun LoginMethodOption(
         ),
         onClick = onClick,
         shape = RoundedCornerShape(18.dp),
-        color = if (selected) Color.White else Color.Transparent,
+        color = if (selected) AccountVisualStyle.accentColor else Color.Transparent,
         tonalElevation = if (selected) 2.dp else 0.dp,
         shadowElevation = if (selected) 4.dp else 0.dp
     ) {
         Box(
-            modifier = Modifier.padding(vertical = 12.dp),
+            modifier = Modifier.padding(vertical = 13.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,
                 color = if (selected) {
-                    MaterialTheme.colorScheme.onSurface
+                    Color.White
                 } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                    AccountVisualStyle.accentTextColor
                 },
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
             )
@@ -425,6 +452,15 @@ private fun LoginInputField(
         singleLine = true,
         shape = RoundedCornerShape(20.dp),
         keyboardOptions = keyboardOptions,
-        visualTransformation = visualTransformation
+        visualTransformation = visualTransformation,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = AccountVisualStyle.accentColor,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+            focusedLabelColor = AccountVisualStyle.accentColor,
+            focusedLeadingIconColor = AccountVisualStyle.accentColor,
+            unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            focusedContainerColor = Color.White,
+            unfocusedContainerColor = Color.White
+        )
     )
 }

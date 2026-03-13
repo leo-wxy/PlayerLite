@@ -73,6 +73,7 @@ class HomeOverviewScreenUiTest {
                     ),
                     onSearchClick = {},
                     onRetry = {},
+                    onItemClick = {},
                     onOpenPlayer = {}
                 )
             }

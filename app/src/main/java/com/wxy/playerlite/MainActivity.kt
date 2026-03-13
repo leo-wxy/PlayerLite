@@ -2,6 +2,7 @@ package com.wxy.playerlite
 
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.viewModels
@@ -29,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wxy.playerlite.feature.player.PlayerViewModel
 import com.wxy.playerlite.feature.main.HomeContent
+import com.wxy.playerlite.feature.main.ContentEntryAction
 import com.wxy.playerlite.feature.main.HomeSurfaceMode
 import com.wxy.playerlite.feature.main.HomeOverviewScreen
 import com.wxy.playerlite.feature.main.HomeViewModel
@@ -37,8 +39,11 @@ import com.wxy.playerlite.feature.main.MainShellLayoutSpec
 import com.wxy.playerlite.feature.main.MainShellState
 import com.wxy.playerlite.feature.main.MainTab
 import com.wxy.playerlite.feature.main.PlayerExpandedScreen
+import com.wxy.playerlite.feature.main.UserCenterViewModel
+import com.wxy.playerlite.feature.main.resolveContentEntryLaunch
 import com.wxy.playerlite.feature.search.SearchActivity
 import com.wxy.playerlite.feature.main.UserCenterScreen
+import com.wxy.playerlite.feature.player.ui.PlayerSongWikiButton
 import com.wxy.playerlite.feature.player.ui.PlayerScreen
 import com.wxy.playerlite.feature.user.InitialLoginLaunchGate
 import com.wxy.playerlite.feature.user.LoginActivity
@@ -47,6 +52,7 @@ import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 class MainActivity : ComponentActivity() {
     private val viewModel: PlayerViewModel by viewModels()
     private val homeViewModel: HomeViewModel by viewModels()
+    private val userCenterViewModel: UserCenterViewModel by viewModels()
 
     private val pickAudioLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -68,6 +74,7 @@ class MainActivity : ComponentActivity() {
             val state = viewModel.uiStateFlow.collectAsStateWithLifecycle().value
             val userState = viewModel.userSessionUiStateFlow.collectAsStateWithLifecycle().value
             val homeState = homeViewModel.uiStateFlow.collectAsStateWithLifecycle().value
+            val userCenterState = userCenterViewModel.uiStateFlow.collectAsStateWithLifecycle().value
             val isSessionReady = !userState.isBusy
             var initialLoginGateHandled by rememberSaveable { mutableStateOf(false) }
             var shellState by rememberSaveable { mutableStateOf(MainShellState()) }
@@ -143,6 +150,7 @@ class MainActivity : ComponentActivity() {
                                                 )
                                             },
                                             onRetry = homeViewModel::refresh,
+                                            onItemClick = ::handleContentEntryAction,
                                             onOpenPlayer = {
                                                 shellState = shellState.openPlayer()
                                             },
@@ -164,17 +172,24 @@ class MainActivity : ComponentActivity() {
                                                     mode = HomeSurfaceMode.PLAYER_EXPANDED,
                                                     topInset = topInset
                                                 )
-                                            )
+                                            ),
+                                            topEndContent = {
+                                                if (state.currentSongId != null) {
+                                                    PlayerSongWikiButton(
+                                                        onClick = viewModel::onShowSongWiki
+                                                    )
+                                                }
+                                            }
                                         ) {
                                             PlayerScreen(
                                                 fileName = state.selectedFileName,
                                                 status = state.statusText,
-                                                audioMeta = state.audioMeta,
-                                                playbackOutputInfo = state.playbackOutputInfo,
                                                 hasSelection = state.hasSelection,
                                                 playlistItems = state.playlistItems,
                                                 activePlaylistIndex = state.activePlaylistIndex,
                                                 showPlaylistSheet = state.showPlaylistSheet,
+                                                showSongWikiSheet = state.showSongWikiSheet,
+                                                songWikiUiState = state.songWikiUiState,
                                                 isPreparing = state.isPreparing,
                                                 playbackState = state.playbackState,
                                                 isSeekSupported = state.isSeekSupported,
@@ -185,20 +200,17 @@ class MainActivity : ComponentActivity() {
                                                 currentDurationText = viewModel.formatDuration(state.displayedSeekMs),
                                                 durationMs = state.durationMs,
                                                 totalDurationText = viewModel.formatDuration(state.durationMs),
-                                                isLoggedIn = userState.isLoggedIn,
-                                                avatarUrl = userState.avatarUrl,
+                                                showSongWikiInlineButton = false,
                                                 enableEnterMotion = false,
                                                 modifier = Modifier.fillMaxSize(),
                                                 onPickAudio = {
                                                     pickAudioLauncher.launch(arrayOf("audio/*"))
                                                 },
-                                                onRunUiTestEntry = viewModel::runUiTestEntry,
-                                                onClearCache = viewModel::clearCache,
-                                                onOpenLogin = {
-                                                    shellState = shellState.selectTab(MainTab.USER_CENTER)
-                                                },
                                                 onTogglePlaylistSheet = viewModel::onTogglePlaylistSheet,
                                                 onDismissPlaylistSheet = viewModel::onDismissPlaylistSheet,
+                                                onShowSongWiki = viewModel::onShowSongWiki,
+                                                onDismissSongWiki = viewModel::onDismissSongWiki,
+                                                onRetrySongWiki = viewModel::onRetrySongWiki,
                                                 onSelectPlaylistItem = { index ->
                                                     viewModel.selectPlaylistItem(index)
                                                 },
@@ -224,6 +236,10 @@ class MainActivity : ComponentActivity() {
                             MainTab.USER_CENTER -> {
                                 UserCenterScreen(
                                     userState = userState,
+                                    contentState = userCenterState,
+                                    onTabSelected = userCenterViewModel::onTabSelected,
+                                    onRetryCurrentTab = userCenterViewModel::retryCurrentTab,
+                                    onContentClick = ::handleContentEntryAction,
                                     onLoginClick = {
                                         startActivity(LoginActivity.createIntent(this))
                                     },
@@ -241,5 +257,31 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         viewModel.onHostStop()
         super.onStop()
+    }
+
+    private fun handleContentEntryAction(action: ContentEntryAction) {
+        val launch = resolveContentEntryLaunch(
+            context = this,
+            action = action
+        )
+        val intent = launch.intent
+        if (intent == null) {
+            launch.failureMessage?.let(::showContentEntryMessage)
+            return
+        }
+        val canLaunch = intent.component != null || intent.resolveActivity(packageManager) != null
+        if (!canLaunch) {
+            showContentEntryMessage(launch.failureMessage ?: "当前内容暂时无法打开")
+            return
+        }
+        runCatching {
+            startActivity(intent)
+        }.onFailure {
+            showContentEntryMessage(launch.failureMessage ?: "当前内容暂时无法打开")
+        }
+    }
+
+    private fun showContentEntryMessage(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }

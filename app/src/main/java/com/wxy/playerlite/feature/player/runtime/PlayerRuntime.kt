@@ -66,6 +66,23 @@ internal class PlayerRuntime(
         uiState = uiState.copy(showPlaylistSheet = false)
     }
 
+    fun onShowSongWiki() {
+        if (uiState.currentSongId.isNullOrBlank()) {
+            return
+        }
+        uiState = uiState.copy(
+            showSongWikiSheet = true
+        )
+    }
+
+    fun onDismissSongWiki() {
+        uiState = uiState.copy(showSongWikiSheet = false)
+    }
+
+    fun updateSongWikiUiState(songWikiUiState: com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState) {
+        uiState = uiState.copy(songWikiUiState = songWikiUiState)
+    }
+
     fun updateLocalPlaybackMode(playbackMode: PlaybackMode) {
         pendingPlaybackMode = playbackMode
         playlistSession.setPlaybackMode(playbackMode)
@@ -140,7 +157,8 @@ internal class PlayerRuntime(
             resetPlaybackProjection()
             uiState = uiState.copy(
                 statusText = "播放列表已清空",
-                showPlaylistSheet = false
+                showPlaylistSheet = false,
+                showSongWikiSheet = false
             )
             return
         }
@@ -149,14 +167,16 @@ internal class PlayerRuntime(
             resetPlaybackProjection()
             uiState = uiState.copy(
                 statusText = "已移除当前项",
-                showPlaylistSheet = false
+                showPlaylistSheet = false,
+                showSongWikiSheet = false
             )
             return
         }
 
         uiState = uiState.copy(
             statusText = "已移除: ${target.displayName}",
-            showPlaylistSheet = false
+            showPlaylistSheet = false,
+            showSongWikiSheet = false
         )
     }
 
@@ -289,6 +309,7 @@ internal class PlayerRuntime(
             seekDragPositionMs = 0L,
             isSeekDragging = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            showSongWikiSheet = false,
             statusText = if (updateStatus) "Stopped" else uiState.statusText
         )
     }
@@ -346,18 +367,34 @@ internal class PlayerRuntime(
             seekPositionMs = 0L,
             seekDragPositionMs = 0L,
             isSeekDragging = false,
-            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            showSongWikiSheet = false
         )
     }
 
     private fun syncSelectionFromPlaylist() {
         val activeItem = playlistSession.activeItem
+        val previousActiveId = uiState.playlistItems
+            .getOrNull(uiState.activePlaylistIndex)
+            ?.id
+        val activeChanged = previousActiveId != activeItem?.id
+        val canShowSongWiki = !activeItem?.songId.isNullOrBlank()
         uiState = uiState.copy(
             selectedFileName = activeItem?.displayName ?: "No audio selected",
             hasSelection = playlistSession.items.isNotEmpty(),
             playlistItems = playlistSession.items,
             activePlaylistIndex = playlistSession.activeIndex,
             showPlaylistSheet = if (playlistSession.items.isEmpty()) false else uiState.showPlaylistSheet,
+            showSongWikiSheet = if (activeChanged) {
+                false
+            } else {
+                uiState.showSongWikiSheet && canShowSongWiki
+            },
+            songWikiUiState = if (activeChanged || !canShowSongWiki) {
+                com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Placeholder
+            } else {
+                uiState.songWikiUiState
+            },
             playbackMode = playlistSession.state.playbackMode,
             showOriginalOrderInShuffle = playlistSession.state.showOriginalOrderInShuffle,
             canReorderPlaylist = playlistSession.canReorderCurrentView
