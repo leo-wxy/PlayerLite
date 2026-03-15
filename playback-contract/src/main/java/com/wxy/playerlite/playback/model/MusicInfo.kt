@@ -1,90 +1,71 @@
 package com.wxy.playerlite.playback.model
 
-import android.os.Bundle
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 data class MusicInfo(
-    val id: String,
-    val title: String,
-    val playbackUri: String,
-    val requestHeaders: Map<String, String> = emptyMap(),
-    val requiresAuthorization: Boolean = false
-) {
-    fun toMediaItem(statusText: String? = null): MediaItem {
-        val normalizedTitle = title.ifBlank { "Unknown audio" }
-        val metadataBuilder = MediaMetadata.Builder()
-            .setTitle(normalizedTitle)
-            .setExtras(
-                Bundle().apply {
-                    putString(EXTRA_PLAYBACK_URI, playbackUri)
-                    putString(EXTRA_REQUEST_HEADERS_JSON, encodeHeaders(requestHeaders))
-                    putBoolean(EXTRA_REQUIRES_AUTHORIZATION, requiresAuthorization)
-                }
-            )
-        if (!statusText.isNullOrBlank()) {
-            metadataBuilder.setSubtitle(statusText)
-        }
+    override val id: String,
+    override val songId: String? = null,
+    override val title: String,
+    val artistNames: List<String> = emptyList(),
+    val artistIds: List<String> = emptyList(),
+    override val albumTitle: String? = null,
+    override val coverUrl: String? = null,
+    override val durationMs: Long = 0L,
+    override val playbackUri: String,
+    override val playbackContext: PlaybackContext? = null,
+    override val previewClip: PlaybackPreviewClip? = null,
+    override val requestHeaders: Map<String, String> = emptyMap(),
+    override val requiresAuthorization: Boolean = false
+) : PlayableItem {
+    override val artistText: String?
+        get() = artistNames
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .joinToString(separator = " / ")
+            .takeIf { it.isNotBlank() }
 
-        return MediaItem.Builder()
-            .setMediaId(id.ifBlank { playbackUri })
-            .setUri(playbackUri)
-            .setMediaMetadata(metadataBuilder.build())
-            .build()
+    override fun toPlayableItem(): PlayableItemSnapshot {
+        return PlayableItemSnapshot(
+            id = id,
+            songId = songId,
+            title = title,
+            artistText = artistText,
+            albumTitle = albumTitle,
+            coverUrl = coverUrl,
+            durationMs = durationMs,
+            playbackUri = playbackUri,
+            playbackContext = playbackContext,
+            previewClip = previewClip,
+            requestHeaders = requestHeaders,
+            requiresAuthorization = requiresAuthorization
+        )
+    }
+
+    override fun toMediaItem(statusText: String?): MediaItem {
+        return toPlayableItem().toMediaItem(statusText = statusText)
     }
 
     companion object {
-        private const val EXTRA_PLAYBACK_URI = "playback_uri"
-        private const val EXTRA_REQUEST_HEADERS_JSON = "request_headers_json"
-        private const val EXTRA_REQUIRES_AUTHORIZATION = "requires_authorization"
-        private val json = Json { ignoreUnknownKeys = true }
-
         fun fromMediaItem(mediaItem: MediaItem): MusicInfo? {
-            val uri = mediaItem.mediaMetadata.extras?.getString(EXTRA_PLAYBACK_URI)
-                ?: mediaItem.localConfiguration?.uri?.toString()
-                ?: return null
-
-            val id = mediaItem.mediaId.takeIf { it.isNotBlank() } ?: uri
-            val title = mediaItem.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() } ?: "Unknown audio"
+            val playable = PlayableItemSnapshot.fromMediaItem(mediaItem) ?: return null
             return MusicInfo(
-                id = id,
-                title = title,
-                playbackUri = uri,
-                requestHeaders = decodeHeaders(
-                    mediaItem.mediaMetadata.extras?.getString(EXTRA_REQUEST_HEADERS_JSON)
-                ),
-                requiresAuthorization = mediaItem.mediaMetadata.extras
-                    ?.getBoolean(EXTRA_REQUIRES_AUTHORIZATION, false)
-                    ?: false
+                id = playable.id,
+                songId = playable.songId,
+                title = playable.title,
+                artistNames = playable.artistText
+                    ?.split("/")
+                    ?.map(String::trim)
+                    ?.filter(String::isNotEmpty)
+                    .orEmpty(),
+                albumTitle = playable.albumTitle,
+                coverUrl = playable.coverUrl,
+                durationMs = playable.durationMs,
+                playbackUri = playable.playbackUri,
+                playbackContext = playable.playbackContext,
+                previewClip = playable.previewClip,
+                requestHeaders = playable.requestHeaders,
+                requiresAuthorization = playable.requiresAuthorization
             )
-        }
-
-        private fun encodeHeaders(headers: Map<String, String>): String {
-            return buildJsonObject {
-                headers.forEach { (key, value) ->
-                    put(key, JsonPrimitive(value))
-                }
-            }.toString()
-        }
-
-        private fun decodeHeaders(raw: String?): Map<String, String> {
-            if (raw.isNullOrBlank()) {
-                return emptyMap()
-            }
-            return runCatching {
-                val parsedJson: JsonObject = json.parseToJsonElement(raw).jsonObject
-                buildMap {
-                    parsedJson.entries.forEach { entry ->
-                        put(entry.key, entry.value.jsonPrimitive.content)
-                    }
-                }
-            }.getOrDefault(emptyMap())
         }
     }
 }

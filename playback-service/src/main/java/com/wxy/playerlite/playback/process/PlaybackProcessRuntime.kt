@@ -7,12 +7,14 @@ import android.util.Log
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.config.CacheCoreConfig
+import com.wxy.playerlite.network.core.JsonHttpClient
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.NativePlayer
 import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.player.PlaybackOutputInfo
 import com.wxy.playerlite.player.source.IPlaysource
 import java.io.File
+import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -44,6 +46,13 @@ internal class PlaybackProcessRuntime(
     private val serviceScope: CoroutineScope
 ) {
     private val cacheRootDirPath = File(appContext.cacheDir, "cache_core").absolutePath
+    private val onlinePlaybackPlanner = OnlinePlaybackPreparationPlanner(
+        resolver = OnlinePlaybackUrlResolver(
+            remoteDataSource = NeteaseOnlinePlaybackRemoteDataSource(
+                httpClient = JsonHttpClient(baseUrl = API_BASE_URL)
+            )
+        )
+    )
     private val mediaSourceRepository = MediaSourceRepository(appContext)
     private val playbackCoordinator = PlaybackCoordinator(
         player = NativePlayer(),
@@ -51,9 +60,14 @@ internal class PlaybackProcessRuntime(
     )
     private val trackPreparationCoordinator = TrackPreparationCoordinator(
         sourceRepository = mediaSourceRepository,
-        playbackCoordinator = playbackCoordinator
+        playbackCoordinator = playbackCoordinator,
+        onlinePreparationPlanner = onlinePlaybackPlanner
     )
     private val sourceSession = PreparedSourceSession()
+    @Volatile
+    private var pendingSeekPositionMs: Long? = null
+    @Volatile
+    private var activePlaybackTrackId: String? = null
 
     private val _state = MutableStateFlow(PlaybackProcessState())
     val state: StateFlow<PlaybackProcessState> = _state.asStateFlow()
@@ -72,11 +86,44 @@ internal class PlaybackProcessRuntime(
             } else {
                 progressMs.coerceAtLeast(0L)
             }
+            val pendingSeek = pendingSeekPositionMs
+            if (base.isPreparing && pendingSeek != null) {
+                if (!shouldAcceptPendingSeekProgress(targetMs = pendingSeek, reportedMs = bounded)) {
+                    return@setProgressListener
+                }
+                pendingSeekPositionMs = null
+                _state.value = base.copy(
+                    positionMs = bounded,
+                    playbackState = if (base.playWhenReady) {
+                        PLAYBACK_STATE_PLAYING
+                    } else {
+                        PLAYBACK_STATE_PAUSED
+                    },
+                    isPreparing = false,
+                    statusText = if (base.playWhenReady) "Playing" else "Paused"
+                )
+                return@setProgressListener
+            }
+            if (base.isPreparing) {
+                return@setProgressListener
+            }
             _state.value = base.copy(positionMs = bounded)
         }
 
         playbackCoordinator.startPlaybackStateObserver(intervalMs = 200L) { playState ->
-            _state.value = _state.value.copy(playbackState = playState)
+            val base = _state.value
+            if (base.isPreparing) {
+                if (!base.playWhenReady && playState == PLAYBACK_STATE_PAUSED) {
+                    pendingSeekPositionMs = null
+                    _state.value = base.copy(
+                        playbackState = PLAYBACK_STATE_PAUSED,
+                        isPreparing = false,
+                        statusText = "Paused"
+                    )
+                }
+                return@startPlaybackStateObserver
+            }
+            _state.value = base.copy(playbackState = playState)
         }
     }
 
@@ -209,11 +256,12 @@ internal class PlaybackProcessRuntime(
 
     suspend fun playCurrent() {
         val item = _state.value.currentTrack ?: return
+        val requestedTrackId = item.id
         val currentState = _state.value
         if (currentState.playWhenReady &&
             currentState.currentTrack?.id == item.id &&
-            (currentState.playbackState == PLAYBACK_STATE_PLAYING ||
-                currentState.isPreparing)
+            currentState.playbackState == PLAYBACK_STATE_PLAYING &&
+            activePlaybackTrackId == item.id
         ) {
             safeLogI("playCurrent skip: already active id=${item.id}, state=${currentState.playbackState}")
             return
@@ -253,6 +301,8 @@ internal class PlaybackProcessRuntime(
             source = source,
             onStarted = {
                 safeLogI("playCurrent onStarted: id=${item.id}")
+                activePlaybackTrackId = requestedTrackId
+                pendingSeekPositionMs = null
                 _state.value = _state.value.copy(
                     playWhenReady = true,
                     playbackState = PLAYBACK_STATE_PLAYING,
@@ -261,7 +311,13 @@ internal class PlaybackProcessRuntime(
                 )
             },
             onCompleted = { playCode ->
+                if (shouldIgnorePlaybackCallback(requestedTrackId, _state.value.currentTrack?.id)) {
+                    safeLogI("playCurrent ignore stale completion: callback=$requestedTrackId, current=${_state.value.currentTrack?.id}, code=$playCode")
+                    return@launchPlay
+                }
                 safeLogI("playCurrent onCompleted: id=${item.id}, code=$playCode, error=${playbackCoordinator.lastError()}")
+                activePlaybackTrackId = null
+                pendingSeekPositionMs = null
                 completionAction = PlaybackCompletionAction.resolve(
                     playCode = playCode,
                     activeIndex = _state.value.activeIndex,
@@ -295,6 +351,10 @@ internal class PlaybackProcessRuntime(
                 }
             },
             onFinally = {
+                if (shouldIgnorePlaybackCallback(requestedTrackId, _state.value.currentTrack?.id)) {
+                    safeLogI("playCurrent ignore stale finally: callback=$requestedTrackId, current=${_state.value.currentTrack?.id}")
+                    return@launchPlay
+                }
                 when (completionAction) {
                     PlaybackCompletionAction.AUTO_NEXT -> {
                         val moved = moveToNext()
@@ -367,13 +427,27 @@ internal class PlaybackProcessRuntime(
         val bounded = if (durationMs > 0L) positionMs.coerceIn(0L, durationMs) else positionMs.coerceAtLeast(0L)
         val code = playbackCoordinator.seek(bounded)
         if (code == 0) {
-            _state.value = _state.value.copy(positionMs = bounded)
+            val current = _state.value
+            val shouldBuffer = current.playWhenReady || current.playbackState == PLAYBACK_STATE_PLAYING
+            pendingSeekPositionMs = if (shouldBuffer) bounded else null
+            _state.value = current.copy(
+                positionMs = bounded,
+                isPreparing = shouldBuffer,
+                playbackState = if (shouldBuffer) {
+                    PLAYBACK_STATE_STOPPED
+                } else {
+                    current.playbackState
+                },
+                statusText = if (shouldBuffer) "Buffering" else current.statusText
+            )
         } else {
             _state.value = _state.value.copy(statusText = "Seek failed($code): ${playbackCoordinator.lastError()}")
         }
     }
 
     fun stop() {
+        activePlaybackTrackId = null
+        pendingSeekPositionMs = null
         sourceSession.stopCurrent()
         playbackCoordinator.stopPlayback()
         _state.value = _state.value.copy(
@@ -424,6 +498,7 @@ internal class PlaybackProcessRuntime(
         return try {
             when (val preparation = trackPreparationCoordinator.prepare(item)) {
                 is PreparationResult.Invalid -> {
+                    pendingSeekPositionMs = null
                     _state.value = _state.value.copy(
                         playWhenReady = false,
                         isPreparing = false,
@@ -457,6 +532,7 @@ internal class PlaybackProcessRuntime(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
+            pendingSeekPositionMs = null
             _state.value = _state.value.copy(
                 playWhenReady = false,
                 isPreparing = false,
@@ -490,6 +566,9 @@ internal class PlaybackProcessRuntime(
         val changedTrack = previousTrackId != nextTrackId
 
         if (changedTrack) {
+            activePlaybackTrackId = null
+            pendingSeekPositionMs = null
+            playbackCoordinator.stopPlayback()
             sourceSession.release()
         }
 
@@ -521,6 +600,7 @@ internal class PlaybackProcessRuntime(
 
     private companion object {
         private const val TAG = "PlaybackProcessRuntime"
+        private const val API_BASE_URL = "http://139.9.223.233:3000"
     }
 
     private fun safeLogI(message: String) {
@@ -529,5 +609,17 @@ internal class PlaybackProcessRuntime(
 
     private fun safeLogE(message: String) {
         runCatching { Log.e(TAG, message) }
+    }
+
+    private fun shouldAcceptPendingSeekProgress(
+        targetMs: Long,
+        reportedMs: Long
+    ): Boolean {
+        val backwardToleranceMs = 5_000L
+        val forwardToleranceMs = 10_000L
+        return when {
+            reportedMs < targetMs -> targetMs - reportedMs <= backwardToleranceMs
+            else -> abs(reportedMs - targetMs) <= forwardToleranceMs
+        }
     }
 }

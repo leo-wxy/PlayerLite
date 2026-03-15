@@ -24,7 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -206,6 +208,39 @@ internal fun DetailMetaPill(
                 text = value,
                 style = MaterialTheme.typography.titleSmall,
                 color = Color.White,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+internal fun DetailSectionPlayAllButton(
+    onClick: () -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.testTag(testTag),
+        shape = RoundedCornerShape(999.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary
+        )
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.PlayArrow,
+                contentDescription = null
+            )
+            Text(
+                text = "播放全部",
+                style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold
             )
         }

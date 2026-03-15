@@ -75,7 +75,8 @@ class PlaylistDetailRepositoryTest {
                       ]
                     }
                     """
-                )
+                ),
+                dynamicPayload = jsonObject("""{"code":200,"commentCount":9527,"subscribed":true,"playCount":22334455}""")
             )
         )
 
@@ -95,6 +96,25 @@ class PlaylistDetailRepositoryTest {
     }
 
     @Test
+    fun fetchPlaylistDynamic_shouldMapCommentCountSubscribedAndPlayCount() = runBlocking {
+        val repository = DefaultPlaylistDetailRepository(
+            remoteDataSource = FakePlaylistDetailRemoteDataSource(
+                detailPayload = jsonObject("""{"code":200,"playlist":{"id":3778678,"name":"热歌榜"}}"""),
+                tracksPayload = jsonObject("""{"code":200,"songs":[]}"""),
+                dynamicPayload = jsonObject(
+                    """{"code":200,"commentCount":9527,"subscribed":true,"playCount":22334455}"""
+                )
+            )
+        )
+
+        val dynamic = repository.fetchPlaylistDynamic("3778678")
+
+        assertEquals(9527, dynamic.commentCount)
+        assertTrue(dynamic.isSubscribed)
+        assertEquals(22334455L, dynamic.playCount)
+    }
+
+    @Test
     fun fetchPlaylistRequests_shouldUseProtectedEndpointsAndForwardAuthHeaders() = runBlocking {
         val server = MultiResponseHttpServer(
             responses = mapOf(
@@ -111,6 +131,19 @@ class PlaylistDetailRepositoryTest {
                     {
                       "code": 200,
                       "songs": []
+                    }
+                """.trimIndent(),
+                "/playlist/detail/dynamic" to """
+                    {
+                      "code": 200,
+                      "commentCount": 9527,
+                      "subscribed": true,
+                      "playCount": 22334455
+                    }
+                """.trimIndent(),
+                "/playlist/update/playcount" to """
+                    {
+                      "code": 200
                     }
                 """.trimIndent()
             )
@@ -134,16 +167,23 @@ class PlaylistDetailRepositoryTest {
                 offset = 30,
                 limit = 30
             )
+            remoteDataSource.fetchPlaylistDynamic("3778678")
+            remoteDataSource.updatePlaylistPlayCount("3778678")
 
             assertEquals(
                 listOf(
                     "/playlist/detail?id=3778678",
-                    "/playlist/track/all?id=3778678&offset=30&limit=30"
+                    "/playlist/track/all?id=3778678&offset=30&limit=30",
+                    "/playlist/detail/dynamic?id=3778678",
+                    "/playlist/update/playcount?id=3778678"
                 ),
                 server.requestPaths
             )
             assertTrue(server.cookieHeaders.all { it.contains("MUSIC_U=token") })
-            assertEquals(listOf("csrf-token", "csrf-token"), server.csrfHeaders)
+            assertEquals(
+                listOf("csrf-token", "csrf-token", "csrf-token", "csrf-token"),
+                server.csrfHeaders
+            )
         } finally {
             server.close()
         }
@@ -152,7 +192,8 @@ class PlaylistDetailRepositoryTest {
 
 private class FakePlaylistDetailRemoteDataSource(
     private val detailPayload: JsonObject,
-    private val tracksPayload: JsonObject
+    private val tracksPayload: JsonObject,
+    private val dynamicPayload: JsonObject = jsonObject("""{"code":200,"commentCount":0,"subscribed":false,"playCount":0}""")
 ) : PlaylistDetailRemoteDataSource {
     override suspend fun fetchPlaylistDetail(playlistId: String): JsonObject = detailPayload
 
@@ -161,6 +202,10 @@ private class FakePlaylistDetailRemoteDataSource(
         offset: Int,
         limit: Int
     ): JsonObject = tracksPayload
+
+    override suspend fun fetchPlaylistDynamic(playlistId: String): JsonObject = dynamicPayload
+
+    override suspend fun updatePlaylistPlayCount(playlistId: String) = Unit
 }
 
 private class MultiResponseHttpServer(

@@ -1,5 +1,9 @@
 package com.wxy.playerlite.feature.artist
 
+import com.wxy.playerlite.core.playlist.PlaylistItem
+import com.wxy.playerlite.core.playlist.PlaylistItemType
+import com.wxy.playerlite.feature.player.runtime.DetailPlaybackGateway
+import com.wxy.playerlite.feature.player.runtime.DetailPlaybackRequest
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -57,7 +61,8 @@ internal sealed interface ArtistHotSongsUiState {
 
 internal class ArtistDetailViewModel(
     private val artistId: String,
-    private val repository: ArtistDetailRepository
+    private val repository: ArtistDetailRepository,
+    private val playbackGateway: DetailPlaybackGateway
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ArtistDetailUiState())
     val uiStateFlow: StateFlow<ArtistDetailUiState> = _uiState.asStateFlow()
@@ -74,6 +79,22 @@ internal class ArtistDetailViewModel(
         }
         loadEncyclopedia()
         loadHotSongs()
+    }
+
+    fun playAll(): Boolean {
+        return playTrack(0)
+    }
+
+    fun playTrack(index: Int): Boolean {
+        val header = (_uiState.value.headerState as? ArtistDetailHeaderUiState.Content)?.content
+            ?: return false
+        val hotSongs = (_uiState.value.hotSongsState as? ArtistHotSongsUiState.Content)?.items.orEmpty()
+        val request = buildArtistPlaybackRequest(
+            header = header,
+            hotSongs = hotSongs,
+            requestedActiveIndex = index
+        ) ?: return false
+        return playbackGateway.play(request)
     }
 
     private fun loadHeader() {
@@ -156,7 +177,8 @@ internal class ArtistDetailViewModel(
     companion object {
         fun factory(
             artistId: String,
-            repository: ArtistDetailRepository
+            repository: ArtistDetailRepository,
+            playbackGateway: DetailPlaybackGateway
         ): ViewModelProvider.Factory {
             return object : ViewModelProvider.Factory {
                 override fun <T : ViewModel> create(
@@ -167,10 +189,54 @@ internal class ArtistDetailViewModel(
                     @Suppress("UNCHECKED_CAST")
                     return ArtistDetailViewModel(
                         artistId = artistId,
-                        repository = repository
+                        repository = repository,
+                        playbackGateway = playbackGateway
                     ) as T
                 }
             }
         }
     }
+
+    override fun onCleared() {
+        playbackGateway.close()
+        super.onCleared()
+    }
+}
+
+private fun buildArtistPlaybackRequest(
+    header: ArtistDetailContent,
+    hotSongs: List<ArtistHotSongRow>,
+    requestedActiveIndex: Int
+): DetailPlaybackRequest? {
+    if (hotSongs.isEmpty()) {
+        return null
+    }
+    val indexedItems = hotSongs.mapIndexedNotNull { index, track ->
+        track.trackId.takeIf { it.isNotBlank() }?.let { trackId ->
+            index to PlaylistItem(
+                id = "artist:${header.artistId}:$index:$trackId",
+                displayName = track.title,
+                songId = trackId,
+                title = track.title,
+                artistText = track.artistText,
+                albumTitle = track.albumTitle,
+                coverUrl = track.coverUrl,
+                durationMs = track.durationMs,
+                itemType = PlaylistItemType.ONLINE,
+                contextType = "artist",
+                contextId = header.artistId,
+                contextTitle = header.name
+            )
+        }
+    }
+    if (indexedItems.isEmpty()) {
+        return null
+    }
+    val normalizedActiveIndex = indexedItems.indexOfFirst { it.first == requestedActiveIndex }
+        .takeIf { it >= 0 }
+        ?: 0
+    return DetailPlaybackRequest(
+        items = indexedItems.map { it.second },
+        activeIndex = normalizedActiveIndex
+    )
 }

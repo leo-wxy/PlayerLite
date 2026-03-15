@@ -146,6 +146,47 @@ std::vector<uint8_t> CacheRuntime::ReadAt(int64_t session_id, int64_t offset, in
     return ReadAtInternal(session, offset, size);
 }
 
+int64_t CacheRuntime::RefreshContentLengthFromProvider(
+        const std::shared_ptr<SessionState>& session,
+        bool allow_growth_only) {
+    if (session == nullptr) {
+        return -1;
+    }
+
+    int64_t current = -1;
+    int64_t provider_handle = -1;
+    {
+        std::lock_guard<std::mutex> lock(session->mutex);
+        current = session->storage.content_length;
+        provider_handle = session->provider_handle;
+    }
+
+    if (provider_bridge_ == nullptr || provider_handle <= 0) {
+        return current;
+    }
+
+    const int64_t resolved = provider_bridge_->QueryContentLength(provider_handle);
+    if (resolved <= 0) {
+        return current;
+    }
+
+    std::lock_guard<std::mutex> lock(session->mutex);
+    if (session->closed.load()) {
+        return session->storage.content_length;
+    }
+    const int64_t stored = session->storage.content_length;
+    const bool should_update =
+            stored < 0 ||
+            (!allow_growth_only && resolved != stored) ||
+            (allow_growth_only && resolved > stored);
+    if (should_update) {
+        session->storage.content_length = resolved;
+        session->storage.last_access_epoch_ms = NowEpochMs();
+        PersistConfigLocked(*session);
+    }
+    return session->storage.content_length;
+}
+
 int64_t CacheRuntime::Seek(int64_t session_id, int64_t offset, int32_t whence) {
     auto session = GetSession(session_id);
     if (session == nullptr || session->closed.load()) {
@@ -161,19 +202,7 @@ int64_t CacheRuntime::Seek(int64_t session_id, int64_t offset, int32_t whence) {
 
     int64_t base = 0;
     if (whence == 2) {
-        int64_t length = -1;
-        {
-            std::lock_guard<std::mutex> lock(session->mutex);
-            length = session->storage.content_length;
-        }
-        if (length < 0 && provider_bridge_ != nullptr && session->provider_handle > 0) {
-            length = provider_bridge_->QueryContentLength(session->provider_handle);
-            if (length >= 0) {
-                std::lock_guard<std::mutex> lock(session->mutex);
-                session->storage.content_length = length;
-                PersistConfigLocked(*session);
-            }
-        }
+        const int64_t length = RefreshContentLengthFromProvider(session);
         base = std::max<int64_t>(0, length);
     }
 
@@ -200,6 +229,9 @@ int64_t CacheRuntime::Seek(int64_t session_id, int64_t offset, int32_t whence) {
         target_offset = std::max<int64_t>(0, base + offset);
         session->cursor.offset = target_offset;
         session->prefetch_cursor_offset = target_offset;
+        session->prefetch_failed = false;
+        session->prefetch_failure_generation = 0;
+        session->prefetch_failure_offset = -1;
         // Reset the in-memory window so a backward seek can immediately warm
         // around the new target instead of staying biased to the previous tail.
         session->memory_cache.Clear();
@@ -224,6 +256,12 @@ void CacheRuntime::CancelPendingRead(int64_t session_id) {
     }
 
     session->read_generation.fetch_add(1);
+    {
+        std::lock_guard<std::mutex> lock(session->mutex);
+        session->prefetch_failed = false;
+        session->prefetch_failure_generation = 0;
+        session->prefetch_failure_offset = -1;
+    }
     session->data_cv.notify_all();
     if (provider_bridge_ != nullptr && session->provider_handle > 0) {
         provider_bridge_->CancelInFlightRead(session->provider_handle);

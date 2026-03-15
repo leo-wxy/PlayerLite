@@ -308,7 +308,13 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
             contentLength = storage.contentLength,
             durationMs = storage.durationMs,
             cachedBlocks = storage.blockIndexes,
-            lastAccessEpochMs = storage.lastAccessEpochMs
+            lastAccessEpochMs = storage.lastAccessEpochMs,
+            completedRanges = storage.completedRanges.map { range ->
+                CacheCompletedRange(
+                    start = range.first,
+                    endExclusive = range.last + 1
+                )
+            }
         )
     }
 
@@ -573,6 +579,9 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
                     var written = 0
 
                     while (remaining > 0) {
+                        if (storage.contentLength < 0L || current >= storage.contentLength) {
+                            refreshContentLengthFromProviderLocked()
+                        }
                         if (storage.contentLength > 0L && current >= storage.contentLength) {
                             break
                         }
@@ -617,10 +626,7 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
                     val base = when (whence) {
                         0 -> 0L
                         1 -> currentOffset
-                        2 -> {
-                            val known = storage.contentLength
-                            if (known >= 0L) known else (provider.queryContentLength() ?: 0L)
-                        }
+                        2 -> refreshContentLengthFromProviderLocked().coerceAtLeast(0L)
                         else -> throw IllegalArgumentException("unsupported whence: $whence")
                     }
                     currentOffset = (base + offset).coerceAtLeast(0L)
@@ -688,11 +694,18 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
             storage.completedRanges.clear()
             storage.completedRanges += buildRangesFromBlocks(storage.cachedBlocks, storage.blockSizeBytes)
             memoryBlocks[blockIndex] = fetched
-            if (storage.contentLength < 0L) {
-                storage.contentLength = provider.queryContentLength() ?: -1L
-            }
+            refreshContentLengthFromProviderLocked()
             persistConfigLocked()
             return fetched
+        }
+
+        private fun refreshContentLengthFromProviderLocked(): Long {
+            val resolved = provider.queryContentLength() ?: -1L
+            if (resolved > 0L && (storage.contentLength < 0L || resolved > storage.contentLength)) {
+                storage.contentLength = resolved
+                persistConfigLocked()
+            }
+            return storage.contentLength
         }
 
         private fun readBlockFromDisk(blockIndex: Long): ByteArray {

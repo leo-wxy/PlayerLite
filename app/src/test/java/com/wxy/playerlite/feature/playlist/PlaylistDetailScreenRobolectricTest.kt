@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -49,20 +50,34 @@ class PlaylistDetailScreenRobolectricTest {
                                     durationMs = 295940L
                                 )
                             )
+                        ),
+                        dynamicState = PlaylistDynamicUiState.Content(
+                            PlaylistDynamicInfo(
+                                commentCount = 9527,
+                                isSubscribed = true,
+                                playCount = 22334455L
+                            )
                         )
                     ),
                     onBack = {},
                     onRetry = {},
-                    onLoadMore = {}
+                    onLoadMore = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
 
         composeRule.onNodeWithTag("playlist_detail_hero_panel").assertIsDisplayed()
         composeRule.onNodeWithTag("playlist_detail_cover").assertIsDisplayed()
-        composeRule.onNodeWithTag("playlist_tracks_section").assertIsDisplayed()
+        composeRule.onNodeWithTag("playlist_dynamic_meta_section").assertIsDisplayed()
+        composeRule.onNodeWithTag("playlist_play_all_button").assertIsDisplayed()
+        composeRule.onNodeWithText("播放全部").assertIsDisplayed()
         composeRule.onNodeWithTag("playlist_creator_meta").assertIsDisplayed()
         composeRule.onNodeWithTag("playlist_track_count_meta").assertIsDisplayed()
+        composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("playlist_tracks_section"))
+        composeRule.onNodeWithTag("playlist_tracks_section").assertIsDisplayed()
         composeRule.onNodeWithTag("detail_scaffold_list")
             .performScrollToNode(hasTestTag("playlist_track_1973665667"))
         composeRule.onNodeWithTag("playlist_track_1973665667").assertIsDisplayed()
@@ -92,7 +107,9 @@ class PlaylistDetailScreenRobolectricTest {
                     ),
                     onBack = {},
                     onRetry = {},
-                    onLoadMore = {}
+                    onLoadMore = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
@@ -127,12 +144,16 @@ class PlaylistDetailScreenRobolectricTest {
                     ),
                     onBack = {},
                     onRetry = {},
-                    onLoadMore = {}
+                    onLoadMore = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
 
         composeRule.onNodeWithTag("playlist_detail_hero_panel").assertIsDisplayed()
+        composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("playlist_tracks_error"))
         composeRule.onNodeWithTag("playlist_tracks_error").assertIsDisplayed()
         composeRule.onNodeWithText("重试").assertIsDisplayed()
     }
@@ -171,7 +192,9 @@ class PlaylistDetailScreenRobolectricTest {
                     ),
                     onBack = {},
                     onRetry = {},
-                    onLoadMore = {}
+                    onLoadMore = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
@@ -215,7 +238,9 @@ class PlaylistDetailScreenRobolectricTest {
                     ),
                     onBack = {},
                     onRetry = {},
-                    onLoadMore = {}
+                    onLoadMore = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
@@ -223,5 +248,64 @@ class PlaylistDetailScreenRobolectricTest {
         composeRule.onNodeWithTag("detail_scaffold_list")
             .performScrollToNode(hasTestTag("playlist_tracks_load_more_error"))
         composeRule.onNodeWithTag("playlist_tracks_load_more_error").assertIsDisplayed()
+    }
+
+    @Test
+    fun playAllAndTrackClick_shouldInvokeCallbacks() {
+        var playAllClicks = 0
+        var clickedTrackIndex = -1
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlaylistDetailScreen(
+                    state = PlaylistDetailUiState(
+                        headerState = PlaylistHeaderUiState.Content(
+                            PlaylistHeaderContent(
+                                playlistId = "3778678",
+                                title = "热歌榜",
+                                creatorName = "网易云音乐",
+                                description = "云音乐热歌榜",
+                                coverUrl = null,
+                                trackCount = 200,
+                                playCount = 13755319296L,
+                                subscribedCount = 12882840L
+                            )
+                        ),
+                        dynamicState = PlaylistDynamicUiState.Content(
+                            PlaylistDynamicInfo(
+                                commentCount = 9527,
+                                isSubscribed = true,
+                                playCount = 22334455L
+                            )
+                        ),
+                        tracksState = PlaylistTracksUiState.Content(
+                            listOf(
+                                PlaylistTrackRow(
+                                    trackId = "1973665667",
+                                    title = "海屿你",
+                                    artistText = "马也_Crabbit",
+                                    albumTitle = "海屿你",
+                                    coverUrl = null,
+                                    durationMs = 295940L
+                                )
+                            )
+                        )
+                    ),
+                    onBack = {},
+                    onRetry = {},
+                    onLoadMore = {},
+                    onPlayAll = { playAllClicks++ },
+                    onTrackClick = { clickedTrackIndex = it }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("playlist_play_all_button").performClick()
+        composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("playlist_track_1973665667"))
+        composeRule.onNodeWithTag("playlist_track_1973665667").performClick()
+
+        assertEquals(1, playAllClicks)
+        assertEquals(0, clickedTrackIndex)
     }
 }

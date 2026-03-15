@@ -30,6 +30,14 @@ internal object PlayerSessionMapping {
         return nativePlaybackState == PLAYBACK_STATE_PLAYING
     }
 
+    fun shouldContinuePlaybackOnManualSkip(
+        nativePlaybackState: Int,
+        playWhenReady: Boolean,
+        isPreparing: Boolean
+    ): Boolean {
+        return playWhenReady || isPreparing || nativePlaybackState == PLAYBACK_STATE_PLAYING
+    }
+
     fun playbackParameters(playbackSpeed: Float): PlaybackParameters {
         return PlaybackParameters(PlaybackSpeed.normalizeValue(playbackSpeed))
     }

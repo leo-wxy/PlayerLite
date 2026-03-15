@@ -178,7 +178,16 @@ int FfmpegPlayer::Play(
         return -3;
     }
 
-    const int result = decoder_.DecodeAndConsume(format_context, consumer, error_message);
+    int result = decoder_.DecodeAndConsume(format_context, consumer, error_message);
+    if (result == 0 && consumer != nullptr) {
+        std::string finalize_error;
+        if (!consumer->FinalizePlayback(&finalize_error)) {
+            result = -2007;
+            if (error_message != nullptr) {
+                *error_message = finalize_error.empty() ? "playback finalize failed" : finalize_error;
+            }
+        }
+    }
     CloseInputContext(&format_context, &avio_context);
     return result;
 #endif

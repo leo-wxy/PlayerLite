@@ -23,6 +23,11 @@
 namespace cachecore {
 
 struct CacheLookupSnapshot {
+    struct RangeSnapshot {
+        int64_t start = 0;
+        int64_t end = 0;
+    };
+
     std::string resource_key;
     std::string data_file_path;
     std::string config_file_path;
@@ -32,6 +37,7 @@ struct CacheLookupSnapshot {
     int64_t content_length = -1;
     int64_t duration_ms = -1;
     std::vector<int64_t> cached_blocks;
+    std::vector<RangeSnapshot> completed_ranges;
     int64_t last_access_epoch_ms = -1;
 };
 
@@ -126,6 +132,9 @@ private:
         int64_t prefetch_cursor_offset = 0;  // last requested read offset
         bool prefetch_running = false;
         uint64_t prefetch_generation = 0;
+        bool prefetch_failed = false;
+        uint64_t prefetch_failure_generation = 0;
+        int64_t prefetch_failure_offset = -1;
     };
 
     struct StorageSnapshot {
@@ -152,6 +161,9 @@ private:
             int64_t fallback_content_length,
             int64_t fallback_duration_ms);
     bool PersistConfigLocked(const SessionState& session);
+    int64_t RefreshContentLengthFromProvider(
+            const std::shared_ptr<SessionState>& session,
+            bool allow_growth_only = true);
 
     std::vector<uint8_t> ReadAtInternal(
             const std::shared_ptr<SessionState>& session,

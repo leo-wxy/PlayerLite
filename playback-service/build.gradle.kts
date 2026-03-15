@@ -24,8 +24,10 @@ android {
 
 dependencies {
     implementation(project(":cache-core"))
+    implementation(project(":network-core"))
     implementation(project(":playback-contract"))
     implementation(project(":player"))
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.media3.session)

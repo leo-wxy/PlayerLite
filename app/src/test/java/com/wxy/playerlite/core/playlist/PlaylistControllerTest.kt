@@ -81,6 +81,28 @@ class PlaylistControllerTest {
     }
 
     @Test
+    fun replaceAll_shouldUseRequestedActiveIndexAndPreservePlaybackMode() {
+        val controller = createController(orderShuffler = { ids -> ids.reversed() })
+        controller.addItem(item("old-a", "uri://old-a"), makeActive = true)
+        controller.addItem(item("old-b", "uri://old-b"), makeActive = false)
+        controller.setPlaybackMode(PlaybackMode.SHUFFLE)
+
+        controller.replaceAll(
+            items = listOf(
+                item("new-a", "uri://new-a"),
+                item("new-b", "uri://new-b"),
+                item("new-c", "uri://new-c")
+            ),
+            activeIndex = 2
+        )
+
+        assertEquals(PlaybackMode.SHUFFLE, controller.state.playbackMode)
+        assertEquals(listOf("new-a", "new-b", "new-c"), controller.state.originalItems.map { it.id })
+        assertEquals("new-c", controller.state.activeItemId)
+        assertEquals(listOf("new-c", "new-b", "new-a"), controller.state.shuffledOrderIds)
+    }
+
+    @Test
     fun flushAndRestore_shouldPersistState() {
         val controller = createController()
         controller.addItem(item("a", "uri://a"), makeActive = true)
@@ -112,6 +134,44 @@ class PlaylistControllerTest {
         val restored = createController().restore { true }
 
         assertEquals("1973665667", restored.items.single().songId)
+    }
+
+    @Test
+    fun flushAndRestore_shouldPreserveOnlineMetadataWithoutDirectPlaybackUri() {
+        val controller = createController()
+        controller.addItem(
+            PlaylistItem(
+                id = "queue-online-1",
+                uri = "",
+                displayName = "夜曲",
+                songId = "1973665667",
+                title = "夜曲",
+                artistText = "周杰伦 / 杨瑞代",
+                albumTitle = "十一月的萧邦",
+                coverUrl = "https://example.com/night.jpg",
+                durationMs = 213_000L,
+                itemType = PlaylistItemType.ONLINE,
+                contextType = "playlist",
+                contextId = "24381616",
+                contextTitle = "深夜单曲循环"
+            ),
+            makeActive = true
+        )
+        controller.flush()
+
+        val restored = createController().restore { true }
+        val item = restored.items.single()
+
+        assertEquals(PlaylistItemType.ONLINE, item.itemType)
+        assertEquals("1973665667", item.songId)
+        assertEquals("夜曲", item.title)
+        assertEquals("周杰伦 / 杨瑞代", item.artistText)
+        assertEquals("十一月的萧邦", item.albumTitle)
+        assertEquals("https://example.com/night.jpg", item.coverUrl)
+        assertEquals(213_000L, item.durationMs)
+        assertEquals("playlist", item.contextType)
+        assertEquals("24381616", item.contextId)
+        assertEquals("深夜单曲循环", item.contextTitle)
     }
 
     @Test
@@ -192,6 +252,38 @@ class PlaylistControllerTest {
         assertEquals("b", restored.activeItemId)
         assertEquals(PlaybackMode.LIST_LOOP, restored.playbackMode)
         assertFalse(restored.showOriginalOrderInShuffle)
+    }
+
+    @Test
+    fun restore_shouldMigrateV2HttpSongEntriesIntoOnlineItems() {
+        storage.write(
+            PlaylistController.STORAGE_KEY,
+            """
+            {
+              "version":2,
+              "activeItemId":"song-1",
+              "originalItems":[
+                {
+                  "id":"song-1",
+                  "uri":"https://example.com/night.mp3",
+                  "displayName":"夜曲",
+                  "songId":"1973665667"
+                }
+              ],
+              "shuffledOrderIds":["song-1"],
+              "playbackMode":"list_loop",
+              "showOriginalOrderInShuffle":false
+            }
+            """.trimIndent()
+        )
+
+        val restored = createController().restore { true }
+        val item = restored.items.single()
+
+        assertEquals(PlaylistItemType.ONLINE, item.itemType)
+        assertEquals("1973665667", item.songId)
+        assertEquals("https://example.com/night.mp3", item.uri)
+        assertEquals("夜曲", item.title)
     }
 
     @Test

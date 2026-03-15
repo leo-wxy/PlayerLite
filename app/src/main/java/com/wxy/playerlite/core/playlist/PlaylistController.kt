@@ -60,6 +60,36 @@ class PlaylistController(
         )
     }
 
+    fun replaceAll(
+        items: List<PlaylistItem>,
+        activeIndex: Int = 0
+    ): PlaylistState {
+        if (items.isEmpty()) {
+            return updateState(
+                PlaylistState.empty().copy(
+                    playbackMode = state.playbackMode,
+                    showOriginalOrderInShuffle = state.showOriginalOrderInShuffle
+                )
+            )
+        }
+        val normalizedActiveIndex = activeIndex.coerceIn(0, items.lastIndex)
+        val activeItemId = items[normalizedActiveIndex].id
+        val shuffledOrderIds = when (state.playbackMode) {
+            PlaybackMode.SHUFFLE -> buildShuffleOrder(items.map { it.id }, activeItemId)
+            else -> items.map { it.id }
+        }
+        return updateState(
+            PlaylistState(
+                version = PlaylistState.VERSION,
+                originalItems = items,
+                shuffledOrderIds = shuffledOrderIds,
+                activeItemId = activeItemId,
+                playbackMode = state.playbackMode,
+                showOriginalOrderInShuffle = state.showOriginalOrderInShuffle
+            ).normalized()
+        )
+    }
+
     fun addItem(item: PlaylistItem, makeActive: Boolean = true): PlaylistState {
         val nextItems = state.originalItems + item
         val nextActiveItemId = when {
@@ -145,6 +175,23 @@ class PlaylistController(
             return state
         }
         return updateState(state.copy(activeItemId = itemId).normalized())
+    }
+
+    fun updateItemsById(
+        updatesById: Map<String, PlaylistItem>
+    ): PlaylistState {
+        if (updatesById.isEmpty()) {
+            return state
+        }
+        val nextItems = state.originalItems.map { item ->
+            updatesById[item.id] ?: item
+        }
+        if (nextItems == state.originalItems) {
+            return state
+        }
+        return updateState(
+            state.copy(originalItems = nextItems).normalized()
+        )
     }
 
     fun setPlaybackMode(playbackMode: PlaybackMode): PlaylistState {
@@ -254,7 +301,21 @@ internal object PlaylistStateCodec {
             itemJson.put("id", item.id)
             itemJson.put("uri", item.uri)
             itemJson.put("displayName", item.displayName)
+            itemJson.put("itemType", item.itemType.wireValue)
             item.songId?.takeIf { it.isNotBlank() }?.let { itemJson.put("songId", it) }
+            item.title.takeIf { it.isNotBlank() && it != item.displayName }?.let {
+                itemJson.put("title", it)
+            }
+            item.artistText?.takeIf { it.isNotBlank() }?.let { itemJson.put("artistText", it) }
+            item.primaryArtistId?.takeIf { it.isNotBlank() }?.let { itemJson.put("primaryArtistId", it) }
+            item.albumTitle?.takeIf { it.isNotBlank() }?.let { itemJson.put("albumTitle", it) }
+            item.coverUrl?.takeIf { it.isNotBlank() }?.let { itemJson.put("coverUrl", it) }
+            if (item.durationMs > 0L) {
+                itemJson.put("durationMs", item.durationMs)
+            }
+            item.contextType?.takeIf { it.isNotBlank() }?.let { itemJson.put("contextType", it) }
+            item.contextId?.takeIf { it.isNotBlank() }?.let { itemJson.put("contextId", it) }
+            item.contextTitle?.takeIf { it.isNotBlank() }?.let { itemJson.put("contextTitle", it) }
             originalItems.put(itemJson)
         }
         root.put("originalItems", originalItems)
@@ -268,7 +329,8 @@ internal object PlaylistStateCodec {
             val root = JSONObject(raw)
             when (val version = root.optInt("version", -1)) {
                 1 -> decodeLegacyV1(root)
-                PlaylistState.VERSION -> decodeV2(root)
+                2 -> decodeV2(root)
+                PlaylistState.VERSION -> decodeV3(root)
                 else -> null
             }
         } catch (_: JSONException) {
@@ -290,6 +352,14 @@ internal object PlaylistStateCodec {
     }
 
     private fun decodeV2(root: JSONObject): PlaylistState {
+        return decodeCurrentShape(root)
+    }
+
+    private fun decodeV3(root: JSONObject): PlaylistState {
+        return decodeCurrentShape(root)
+    }
+
+    private fun decodeCurrentShape(root: JSONObject): PlaylistState {
         val originalItems = readItems(root.optJSONArray("originalItems") ?: JSONArray())
         val shuffledOrderIds = buildList {
             val idsJson = root.optJSONArray("shuffledOrderIds") ?: JSONArray()
@@ -316,18 +386,56 @@ internal object PlaylistStateCodec {
                 val id = itemJson.optString("id", "").trim()
                 val uri = itemJson.optString("uri", "").trim()
                 val displayName = itemJson.optString("displayName", "").trim()
-                if (id.isEmpty() || uri.isEmpty()) {
+                val songId = itemJson.optString("songId", "").trim().ifEmpty { null }
+                val itemType = PlaylistItemType.fromWireValue(itemJson.optString("itemType", ""))
+                    ?: inferLegacyItemType(uri = uri, songId = songId)
+                if (id.isEmpty()) {
                     continue
                 }
+                if (itemType == PlaylistItemType.LOCAL && uri.isEmpty()) {
+                    continue
+                }
+                if (itemType == PlaylistItemType.ONLINE && songId.isNullOrBlank()) {
+                    continue
+                }
+                val resolvedDisplayName = if (displayName.isNotEmpty()) displayName else "Unknown audio"
                 add(
                     PlaylistItem(
                         id = id,
                         uri = uri,
-                        displayName = if (displayName.isNotEmpty()) displayName else "Unknown audio",
-                        songId = itemJson.optString("songId", "").trim().ifEmpty { null }
+                        displayName = resolvedDisplayName,
+                        songId = songId,
+                        title = itemJson.optString("title", "").trim().ifEmpty { resolvedDisplayName },
+                        artistText = itemJson.optString("artistText", "").trim().ifEmpty { null },
+                        primaryArtistId = itemJson.optString("primaryArtistId", "").trim().ifEmpty { null },
+                        albumTitle = itemJson.optString("albumTitle", "").trim().ifEmpty { null },
+                        coverUrl = itemJson.optString("coverUrl", "").trim().ifEmpty { null },
+                        durationMs = itemJson.optLong("durationMs", 0L).coerceAtLeast(0L),
+                        itemType = itemType,
+                        contextType = itemJson.optString("contextType", "").trim().ifEmpty { null },
+                        contextId = itemJson.optString("contextId", "").trim().ifEmpty { null },
+                        contextTitle = itemJson.optString("contextTitle", "").trim().ifEmpty { null }
                     )
                 )
             }
         }
+    }
+
+    private fun inferLegacyItemType(
+        uri: String,
+        songId: String?
+    ): PlaylistItemType {
+        return if (!songId.isNullOrBlank() && isLikelyRemoteUri(uri)) {
+            PlaylistItemType.ONLINE
+        } else if (!songId.isNullOrBlank() && uri.isBlank()) {
+            PlaylistItemType.ONLINE
+        } else {
+            PlaylistItemType.LOCAL
+        }
+    }
+
+    private fun isLikelyRemoteUri(uri: String): Boolean {
+        val normalized = uri.trim().lowercase()
+        return normalized.startsWith("http://") || normalized.startsWith("https://")
     }
 }

@@ -1,6 +1,8 @@
 package com.wxy.playerlite.feature.player.ui
 
+import android.graphics.drawable.BitmapDrawable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.rounded.AccountCircle
@@ -30,7 +33,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,12 +50,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
@@ -264,9 +279,106 @@ internal fun ClearCacheButton(
 }
 
 @Composable
+internal fun PlayerCoverCard(
+    isPlaying: Boolean,
+    isPaused: Boolean,
+    coverUrl: String? = null,
+    onBackdropColorExtracted: (Color) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val active = isPlaying && !isPaused
+    val context = LocalContext.current
+    val transition = rememberInfiniteTransition(label = "player_cover_motion")
+    val pulse by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 4200, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "player_cover_pulse"
+    )
+    val coverScale = if (active) 1f + pulse * 0.01f else 1f
+    val coverTranslationY = if (active) -2.5f * pulse else 0f
+    val painter = rememberAsyncImagePainter(
+        model = ImageRequest.Builder(context)
+            .data(coverUrl)
+            .allowHardware(false)
+            .build()
+    )
+
+    LaunchedEffect(painter.state, coverUrl) {
+        val successState = painter.state as? AsyncImagePainter.State.Success ?: return@LaunchedEffect
+        val bitmap = (successState.result.drawable as? BitmapDrawable)?.bitmap ?: return@LaunchedEffect
+        val color = withContext(Dispatchers.Default) {
+            extractBackdropColorSafely(bitmap)
+        }
+        color?.let(onBackdropColorExtracted)
+    }
+
+    Box(
+        modifier = modifier
+            .testTag("player_screen_cover_card")
+            .graphicsLayer {
+                scaleX = coverScale
+                scaleY = coverScale
+                translationY = coverTranslationY
+            }
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White.copy(alpha = 0.03f)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!coverUrl.isNullOrBlank()) {
+            Image(
+                painter = painter,
+                contentDescription = "当前歌曲封面",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("player_screen_cover_art"),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color(0x18000000),
+                                Color(0x52000000)
+                            )
+                        )
+                    )
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF5E6677),
+                                Color(0xFF353842),
+                                Color(0xFF1A1C23)
+                            )
+                        )
+                    )
+            )
+            Text(
+                text = "AUDIO",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White.copy(alpha = 0.78f)
+            )
+        }
+    }
+}
+
+@Composable
 internal fun DeckDisc(
     isPlaying: Boolean,
     isPaused: Boolean,
+    coverUrl: String? = null,
     modifier: Modifier = Modifier
 ) {
     val active = isPlaying && !isPaused
@@ -280,48 +392,118 @@ internal fun DeckDisc(
         ),
         label = "deck_spin"
     )
-
-    val discScale by animateFloatAsState(
-        targetValue = if (active) 1f else 0.94f,
-        animationSpec = tween(durationMillis = 300),
-        label = "deck_scale"
-    )
+    val pausedAngle = remember { mutableFloatStateOf(14f) }
+    val rotationOffset = remember { mutableFloatStateOf(14f) }
+    LaunchedEffect(active) {
+        if (active) {
+            rotationOffset.floatValue = pausedAngle.floatValue - spinAngle
+        }
+    }
+    val displayedRotation = if (active) {
+        normalizeDeckDiscRotation(rotationOffset.floatValue + spinAngle)
+    } else {
+        pausedAngle.floatValue
+    }
+    LaunchedEffect(active, displayedRotation) {
+        if (active) {
+            pausedAngle.floatValue = displayedRotation
+        }
+    }
 
     Box(
-        modifier = modifier.graphicsLayer {
-            rotationZ = if (active) spinAngle else 14f
-            scaleX = discScale
-            scaleY = discScale
-        },
+        modifier = modifier
+            .testTag("player_screen_disc_surface")
+            .semantics {
+                deckDiscRotationDegrees = displayedRotation
+            }
+            .graphicsLayer {
+                rotationZ = displayedRotation
+            },
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val radius = size.minDimension / 2f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF29414A),
-                        Color(0xFF17242A),
-                        Color(0xFF0F161B)
-                    )
-                ),
-                radius = radius
-            )
-            drawCircle(
-                color = Color(0x66FFFFFF),
-                radius = radius * 0.72f
-            )
-            drawCircle(
-                color = Color(0x99FFFFFF),
-                radius = radius * 0.15f
+        if (!coverUrl.isNullOrBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .testTag("player_screen_cover_art")
+            ) {
+                AsyncImage(
+                    model = coverUrl,
+                    contentDescription = "当前歌曲封面",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color(0x330F161B),
+                                    Color(0x800F161B)
+                                )
+                            )
+                        )
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xCC0F161B))
+                        .border(
+                            width = 2.dp,
+                            color = Color.White.copy(alpha = 0.22f),
+                            shape = CircleShape
+                        )
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(11.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFDF6EA))
+                )
+            }
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val radius = size.minDimension / 2f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF29414A),
+                            Color(0xFF17242A),
+                            Color(0xFF0F161B)
+                        )
+                    ),
+                    radius = radius
+                )
+                drawCircle(
+                    color = Color(0x66FFFFFF),
+                    radius = radius * 0.72f
+                )
+                drawCircle(
+                    color = Color(0x99FFFFFF),
+                    radius = radius * 0.15f
+                )
+            }
+            Text(
+                text = "AUDIO",
+                style = MaterialTheme.typography.labelMedium,
+                color = Color(0xFFFDF6EA)
             )
         }
-        Text(
-            text = "AUDIO",
-            style = MaterialTheme.typography.labelMedium,
-            color = Color(0xFFFDF6EA)
-        )
     }
+}
+
+internal val DeckDiscRotationDegreesKey = SemanticsPropertyKey<Float>("DeckDiscRotationDegrees")
+
+internal var SemanticsPropertyReceiver.deckDiscRotationDegrees by DeckDiscRotationDegreesKey
+
+internal fun normalizeDeckDiscRotation(value: Float): Float {
+    return ((value % 360f) + 360f) % 360f
 }
 
 @Composable

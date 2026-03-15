@@ -50,16 +50,16 @@ internal fun PlaybackMode.modeContentDescription(): String {
 internal fun PlaybackMode.modePalette(): SideControlPalette {
     return when (this) {
         PlaybackMode.LIST_LOOP -> SideControlPalette(
-            containerColor = Color(0x1544B3A2),
-            contentColor = Color(0xFF0F766E)
+            containerColor = Color(0x1A9EAFCB),
+            contentColor = Color.White.copy(alpha = 0.84f)
         )
         PlaybackMode.SINGLE_LOOP -> SideControlPalette(
-            containerColor = Color(0x15F59E0B),
-            contentColor = Color(0xFFB45309)
+            containerColor = Color(0x20F5C96E),
+            contentColor = Color(0xFFFFE2A8)
         )
         PlaybackMode.SHUFFLE -> SideControlPalette(
-            containerColor = Color(0x156366F1),
-            contentColor = Color(0xFF4F46E5)
+            containerColor = Color(0x2095C5AF),
+            contentColor = Color(0xFFC7F1DF)
         )
     }
 }
@@ -73,18 +73,18 @@ internal fun PlaybackMode.modeMotionSpec(): SideControlMotionSpec {
             repeat = false,
             durationMs = 720,
             minScale = 1f,
-            maxScale = 1.08f,
-            minIconRotationDeg = -10f,
-            maxIconRotationDeg = 10f,
-            minHaloAlpha = 0.06f,
-            maxHaloAlpha = 0.18f
+            maxScale = 1.04f,
+            minIconRotationDeg = -8f,
+            maxIconRotationDeg = 8f,
+            minHaloAlpha = 0.04f,
+            maxHaloAlpha = 0.10f
         )
     }
 }
 
 internal fun defaultSideControlPalette(): SideControlPalette {
     return SideControlPalette(
-        containerColor = Color(0x1544B3A2),
-        contentColor = Color(0xFF0F766E)
+        containerColor = Color.White.copy(alpha = 0.08f),
+        contentColor = Color.White.copy(alpha = 0.84f)
     )
 }

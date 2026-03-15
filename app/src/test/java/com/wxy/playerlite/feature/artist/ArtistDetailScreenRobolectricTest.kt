@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -51,7 +52,9 @@ class ArtistDetailScreenRobolectricTest {
                         )
                     ),
                     onBack = {},
-                    onRetry = {}
+                    onRetry = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
@@ -59,6 +62,8 @@ class ArtistDetailScreenRobolectricTest {
         composeRule.onNodeWithTag("artist_detail_hero_panel").assertIsDisplayed()
         composeRule.onNodeWithTag("artist_detail_avatar").assertIsDisplayed()
         composeRule.onNodeWithTag("artist_hot_songs_section").assertIsDisplayed()
+        composeRule.onNodeWithTag("artist_play_all_button").assertIsDisplayed()
+        composeRule.onNodeWithText("播放全部").assertIsDisplayed()
         composeRule.onNodeWithTag("artist_hot_song_210049").assertIsDisplayed()
     }
 
@@ -86,7 +91,9 @@ class ArtistDetailScreenRobolectricTest {
                         hotSongsState = ArtistHotSongsUiState.Empty
                     ),
                     onBack = {},
-                    onRetry = {}
+                    onRetry = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
@@ -121,7 +128,9 @@ class ArtistDetailScreenRobolectricTest {
                         hotSongsState = ArtistHotSongsUiState.Empty
                     ),
                     onBack = {},
-                    onRetry = {}
+                    onRetry = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
@@ -154,7 +163,9 @@ class ArtistDetailScreenRobolectricTest {
                         hotSongsState = ArtistHotSongsUiState.Error("热门歌曲加载失败")
                     ),
                     onBack = {},
-                    onRetry = {}
+                    onRetry = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
@@ -162,5 +173,55 @@ class ArtistDetailScreenRobolectricTest {
         composeRule.onNodeWithTag("artist_detail_hero_panel").assertIsDisplayed()
         composeRule.onNodeWithTag("artist_hot_songs_error").assertIsDisplayed()
         composeRule.onNodeWithText("重试").assertIsDisplayed()
+    }
+
+    @Test
+    fun playAllAndTrackClick_shouldInvokeCallbacks() {
+        var playAllClicks = 0
+        var clickedTrackIndex = -1
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                ArtistDetailScreen(
+                    state = ArtistDetailUiState(
+                        headerState = ArtistDetailHeaderUiState.Content(
+                            ArtistDetailContent(
+                                artistId = "6452",
+                                name = "周杰伦",
+                                aliases = listOf("Jay Chou"),
+                                identities = listOf("作曲"),
+                                avatarUrl = null,
+                                coverUrl = "http://example.com/cover.jpg",
+                                briefDesc = "简介",
+                                musicCount = 568,
+                                albumCount = 44
+                            )
+                        ),
+                        hotSongsState = ArtistHotSongsUiState.Content(
+                            listOf(
+                                ArtistHotSongRow(
+                                    trackId = "210049",
+                                    title = "布拉格广场",
+                                    artistText = "蔡依林 / 周杰伦",
+                                    albumTitle = "看我72变",
+                                    coverUrl = null,
+                                    durationMs = 294600L
+                                )
+                            )
+                        )
+                    ),
+                    onBack = {},
+                    onRetry = {},
+                    onPlayAll = { playAllClicks++ },
+                    onTrackClick = { clickedTrackIndex = it }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("artist_play_all_button").performClick()
+        composeRule.onNodeWithTag("artist_hot_song_210049").performClick()
+
+        assertEquals(1, playAllClicks)
+        assertEquals(0, clickedTrackIndex)
     }
 }

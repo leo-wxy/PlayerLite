@@ -110,15 +110,35 @@ internal class PlayerSessionPlayer(
         startPositionMs: Long
     ): ListenableFuture<*> {
         return runSerializedCommand {
-            val previousMediaId = runtime.currentMediaId()
+            val previousState = runtime.state.value
+            val previousMediaId = previousState.currentTrack?.id
+            val shouldContinuePlayback = PlayerSessionMapping.shouldContinuePlaybackOnManualSkip(
+                nativePlaybackState = previousState.playbackState,
+                playWhenReady = previousState.playWhenReady,
+                isPreparing = previousState.isPreparing
+            )
             runtime.setQueue(mediaItems = mediaItems, startIndex = startIndex)
             val nextMediaId = runtime.currentMediaId()
-            if (mediaItems.isNotEmpty() && QueueSyncPolicy.shouldRestorePosition(
-                    previousMediaId = previousMediaId,
-                    nextMediaId = nextMediaId,
-                    requestedStartPositionMs = startPositionMs
-                )
-            ) {
+            if (mediaItems.isEmpty()) {
+                return@runSerializedCommand
+            }
+
+            val shouldRestorePosition = QueueSyncPolicy.shouldRestorePosition(
+                previousMediaId = previousMediaId,
+                nextMediaId = nextMediaId,
+                requestedStartPositionMs = startPositionMs
+            )
+
+            if (shouldContinuePlayback) {
+                runtime.setPlayWhenReady(true)
+                runtime.playCurrent()
+                if (shouldRestorePosition) {
+                    runtime.seekTo(startPositionMs)
+                }
+                return@runSerializedCommand
+            }
+
+            if (shouldRestorePosition) {
                 runtime.prepareCurrent()
                 runtime.seekTo(startPositionMs)
             }
@@ -171,7 +191,12 @@ internal class PlayerSessionPlayer(
         seekCommand: Int
     ): ListenableFuture<*> {
         return runSerializedCommand {
-            val shouldPlay = runtime.state.value.playWhenReady
+            val currentState = runtime.state.value
+            val shouldPlay = PlayerSessionMapping.shouldContinuePlaybackOnManualSkip(
+                nativePlaybackState = currentState.playbackState,
+                playWhenReady = currentState.playWhenReady,
+                isPreparing = currentState.isPreparing
+            )
 
             when (seekCommand) {
                 Player.COMMAND_SEEK_TO_NEXT,

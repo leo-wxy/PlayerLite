@@ -32,6 +32,10 @@ public:
     virtual int64_t TakeSeekPositionMs() = 0;
     // 返回当前生效的播放倍速（以 0.1X 为单位的整数，例如 1.0X -> 10）。
     virtual int CurrentPlaybackSpeedTenths() const = 0;
+    // 在解码成功结束后，让消费端有机会把已经写入但尚未播出的数据真正 drain 完。
+    virtual bool FinalizePlayback(std::string* error_message) {
+        return true;
+    }
 };
 
 struct AudioMetadata {

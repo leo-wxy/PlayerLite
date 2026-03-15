@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,11 +14,15 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.MarqueeSpacing
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,15 +49,17 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,6 +72,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +81,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -78,8 +89,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import coil.compose.AsyncImage
 import com.wxy.playerlite.feature.player.model.PlayerUiState
+import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
+import com.wxy.playerlite.feature.player.ui.PlayerTrackText
+import com.wxy.playerlite.feature.player.ui.resolvePlayerTrackText
 import com.wxy.playerlite.feature.user.AccountCardSurface
 import com.wxy.playerlite.feature.user.AccountPageBackground
 import com.wxy.playerlite.feature.user.AccountPrimaryButton
@@ -88,8 +104,13 @@ import com.wxy.playerlite.feature.user.AccountVisualStyle
 import com.wxy.playerlite.feature.user.accountHeroBrush
 import com.wxy.playerlite.feature.user.model.UserSessionUiState
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.max
 
 private val UserCenterCompactHorizontalPadding = 12.dp
+private const val HomeMiniPlayerSwipeThresholdFraction = 0.3f
+private const val HomeMiniPlayerSwipeVisualLimitFraction = 0.42f
 
 @Composable
 internal fun MainBottomBar(
@@ -124,6 +145,10 @@ internal fun HomeOverviewScreen(
     onRetry: () -> Unit,
     onItemClick: (ContentEntryAction) -> Unit,
     onOpenPlayer: () -> Unit,
+    onTogglePlayback: () -> Unit = {},
+    onOpenPlaylist: () -> Unit = {},
+    onSkipPrevious: () -> Unit = {},
+    onSkipNext: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -218,6 +243,10 @@ internal fun HomeOverviewScreen(
         HomePlayEntryCard(
             playerState = playerState,
             onOpenPlayer = onOpenPlayer,
+            onTogglePlayback = onTogglePlayback,
+            onOpenPlaylist = onOpenPlaylist,
+            onSkipPrevious = onSkipPrevious,
+            onSkipNext = onSkipNext,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = 20.dp, vertical = 20.dp)
@@ -654,17 +683,28 @@ private fun CompactSectionCard(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HomePlayEntryCard(
     playerState: PlayerUiState,
     onOpenPlayer: () -> Unit,
+    onTogglePlayback: () -> Unit,
+    onOpenPlaylist: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    onSkipNext: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val miniPlayerState = resolveHomeMiniPlayerState(playerState)
+    val swipeOffsetPx = remember { androidx.compose.animation.core.Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
+    val canSkipPrevious = playerState.activePlaylistIndex > 0
+    val canSkipNext = playerState.activePlaylistIndex >= 0 &&
+        playerState.activePlaylistIndex < playerState.playlistItems.lastIndex
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .testTag("home_play_entry_card"),
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(999.dp),
         color = HOME_PANEL_COLOR.copy(alpha = 0.96f),
         tonalElevation = 0.dp,
         shadowElevation = 10.dp,
@@ -673,57 +713,310 @@ private fun HomePlayEntryCard(
             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
         )
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("home_mini_player_bar")
+                .padding(start = 10.dp, top = 10.dp, end = 12.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Surface(
-                shape = RoundedCornerShape(999.dp),
-                color = HOME_ACCENT_RED.copy(alpha = 0.12f)
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable(onClick = onOpenPlayer)
+                    .padding(vertical = 4.dp)
+                    .testTag("home_mini_player_body"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "当前播放",
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = HOME_ACCENT_RED
-                )
+                Surface(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .testTag("home_mini_player_artwork"),
+                    shape = RoundedCornerShape(16.dp),
+                    color = HOME_ACCENT_RED.copy(alpha = 0.12f)
+                ) {
+                    if (!miniPlayerState.artworkUrl.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("home_mini_player_artwork_image")
+                        )
+                        {
+                            AsyncImage(
+                                model = miniPlayerState.artworkUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color.Transparent,
+                                                Color.Black.copy(alpha = 0.12f)
+                                            )
+                                        )
+                                    )
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("home_mini_player_artwork_placeholder"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Album,
+                                contentDescription = null,
+                                tint = HOME_ACCENT_RED,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("home_mini_player_song_area")
+                        .graphicsLayer {
+                            translationX = swipeOffsetPx.value
+                        }
+                        .pointerInput(canSkipPrevious, canSkipNext, onSkipPrevious, onSkipNext) {
+                            val visualLimitPx = max(
+                                size.width * HomeMiniPlayerSwipeVisualLimitFraction,
+                                72.dp.toPx()
+                            )
+                            val swipeThresholdPx = max(
+                                size.width * HomeMiniPlayerSwipeThresholdFraction,
+                                56.dp.toPx()
+                            )
+                            detectHorizontalDragGestures(
+                                onDragStart = {
+                                    coroutineScope.launch {
+                                        swipeOffsetPx.stop()
+                                    }
+                                },
+                                onHorizontalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    val nextOffset = (
+                                        swipeOffsetPx.value + dragAmount
+                                        ).coerceIn(-visualLimitPx, visualLimitPx)
+                                    coroutineScope.launch {
+                                        swipeOffsetPx.snapTo(nextOffset)
+                                    }
+                                },
+                                onDragCancel = {
+                                    coroutineScope.launch {
+                                        swipeOffsetPx.animateTo(
+                                            targetValue = 0f,
+                                            animationSpec = spring(
+                                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                stiffness = Spring.StiffnessMediumLow
+                                            )
+                                        )
+                                    }
+                                },
+                                onDragEnd = {
+                                    val finalOffset = swipeOffsetPx.value
+                                    val triggerOffset = when {
+                                        finalOffset <= -swipeThresholdPx && canSkipNext -> {
+                                            onSkipNext()
+                                            -visualLimitPx * 0.75f
+                                        }
+
+                                        finalOffset >= swipeThresholdPx && canSkipPrevious -> {
+                                            onSkipPrevious()
+                                            visualLimitPx * 0.75f
+                                        }
+
+                                        else -> null
+                                    }
+                                    coroutineScope.launch {
+                                        if (triggerOffset != null &&
+                                            abs(finalOffset - triggerOffset) > 1f
+                                        ) {
+                                            swipeOffsetPx.animateTo(
+                                                targetValue = triggerOffset,
+                                                animationSpec = tween(durationMillis = 90)
+                                            )
+                                        }
+                                        swipeOffsetPx.animateTo(
+                                            targetValue = 0f,
+                                            animationSpec = spring(
+                                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                stiffness = Spring.StiffnessMediumLow
+                                            )
+                                        )
+                                    }
+                                }
+                            )
+                        },
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = miniPlayerState.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                repeatDelayMillis = 1_000,
+                                spacing = MarqueeSpacing(24.dp)
+                            )
+                            .testTag("home_mini_player_title")
+                    )
+                    Text(
+                        text = miniPlayerState.artist,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("home_mini_player_artist")
+                    )
+                }
             }
-            Text(
-                text = playerState.selectedFileName,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HomeMiniPlayerProgressButton(
+                    isPlaying = miniPlayerState.isPlaying,
+                    progress = miniPlayerState.progress,
+                    onClick = onTogglePlayback
+                )
+                Surface(
+                    shape = CircleShape,
+                    color = HOME_ACCENT_RED.copy(alpha = 0.10f)
+                ) {
+                    IconButton(
+                        onClick = onOpenPlaylist,
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        modifier = Modifier.testTag("home_mini_player_playlist_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
+                            contentDescription = "播放列表"
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class HomeMiniPlayerState(
+    val title: String,
+    val artist: String,
+    val progress: Float,
+    val isPlaying: Boolean,
+    val artworkUrl: String?
+)
+
+private fun resolveHomeMiniPlayerState(playerState: PlayerUiState): HomeMiniPlayerState {
+    val fallbackTrackText = if (
+        playerState.selectedFileName.isNotBlank() &&
+        playerState.selectedFileName != "No audio selected"
+    ) {
+        resolvePlayerTrackText(playerState.selectedFileName)
+    } else {
+        null
+    }
+    val runtimeTitle = playerState.currentTrackTitle
+        .takeIf { it.isNotBlank() && it != "No audio selected" }
+    val runtimeArtist = playerState.currentTrackArtist
+        ?.takeIf { it.isNotBlank() }
+        ?: playerState.playlistItems
+            .getOrNull(playerState.activePlaylistIndex)
+            ?.artistText
+            ?.takeIf { it.isNotBlank() }
+    val trackText = when {
+        runtimeTitle != null -> PlayerTrackText(
+            title = runtimeTitle,
+            artist = runtimeArtist ?: fallbackTrackText?.artist ?: "点击进入播放页"
+        )
+
+        else -> fallbackTrackText
+    }
+    val progress = if (playerState.durationMs > 0L) {
+        (playerState.displayedSeekMs.toFloat() / playerState.durationMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+
+    return HomeMiniPlayerState(
+        title = trackText?.title ?: "未选择音频",
+        artist = trackText?.artist ?: "点击进入播放页",
+        progress = progress,
+        isPlaying = playerState.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING,
+        artworkUrl = playerState.currentCoverUrl
+            ?.takeIf { it.isNotBlank() }
+            ?: playerState.playlistItems
+                .getOrNull(playerState.activePlaylistIndex)
+                ?.coverUrl
+                ?.takeIf { it.isNotBlank() }
+    )
+}
+
+@Composable
+private fun HomeMiniPlayerProgressButton(
+    isPlaying: Boolean,
+    progress: Float,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier.size(42.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(42.dp)) {
+            val strokeWidth = 3.dp.toPx()
+            drawArc(
+                color = HOME_ACCENT_RED.copy(alpha = 0.14f),
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                style = Stroke(width = strokeWidth)
             )
-            Text(
-                text = playerState.statusText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+            drawArc(
+                color = HOME_ACCENT_RED,
+                startAngle = -90f,
+                sweepAngle = 360f * progress.coerceIn(0f, 1f),
+                useCenter = false,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )
-            Button(
-                onClick = onOpenPlayer,
-                shape = RoundedCornerShape(22.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = HOME_ACCENT_RED,
-                    contentColor = Color.White
+        }
+
+        Surface(
+            shape = CircleShape,
+            color = HOME_ACCENT_RED.copy(alpha = 0.10f)
+        ) {
+            IconButton(
+                onClick = onClick,
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = Color.Transparent,
+                    contentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("home_overview_play_entry")
+                    .size(34.dp)
+                    .testTag("home_mini_player_play_pause_button")
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Album,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "进入播放页",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (isPlaying) "暂停" else "播放"
                 )
             }
         }
@@ -754,6 +1047,7 @@ private fun HomeSectionTitle(title: String) {
 internal fun PlayerExpandedScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    showTopChrome: Boolean = true,
     topEndContent: @Composable () -> Unit = {},
     content: @Composable () -> Unit
 ) {
@@ -764,56 +1058,74 @@ internal fun PlayerExpandedScreen(
             content()
         }
 
-        AnimatedVisibility(
-            visible = true,
-            enter = fadeIn(
-                animationSpec = tween(
-                    durationMillis = 220,
-                    delayMillis = 90,
-                    easing = LinearOutSlowInEasing
-                )
-            ) + scaleIn(
-                initialScale = 0.92f,
-                animationSpec = tween(durationMillis = 220, delayMillis = 90)
-            ),
-            exit = fadeOut(animationSpec = tween(durationMillis = 120))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
+        if (showTopChrome) {
+            AnimatedVisibility(
+                visible = true,
+                enter = fadeIn(
+                    animationSpec = tween(
+                        durationMillis = 220,
+                        delayMillis = 90,
+                        easing = LinearOutSlowInEasing
+                    )
+                ) + scaleIn(
+                    initialScale = 0.92f,
+                    animationSpec = tween(durationMillis = 220, delayMillis = 90)
+                ),
+                exit = fadeOut(animationSpec = tween(durationMillis = 120))
             ) {
-                Surface(
-                    modifier = Modifier
-                        .padding(start = 12.dp)
-                        .testTag("player_expanded_back_button"),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-                    tonalElevation = 4.dp,
-                    shadowElevation = 10.dp
-                ) {
-                    IconButton(
-                        onClick = onBack,
-                        colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = Color.Transparent,
-                            contentColor = MaterialTheme.colorScheme.onSurface
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "返回首页"
-                        )
-                    }
-                }
-
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(end = 12.dp)
+                        .fillMaxSize()
+                        .statusBarsPadding()
                 ) {
-                    topEndContent()
+                    PlayerExpandedTopActionButton(
+                        modifier = Modifier
+                            .padding(start = 12.dp)
+                            .testTag("player_expanded_back_button"),
+                        icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "返回首页",
+                        onClick = onBack
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(end = 12.dp)
+                    ) {
+                        topEndContent()
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+internal fun PlayerExpandedTopActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = Color.White.copy(alpha = 0.07f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        IconButton(
+            onClick = onClick,
+            colors = IconButtonDefaults.iconButtonColors(
+                containerColor = Color.Transparent,
+                contentColor = Color.White.copy(alpha = 0.92f)
+            )
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription
+            )
         }
     }
 }
@@ -826,6 +1138,7 @@ internal fun UserCenterScreen(
     onTabSelected: (UserCenterTab) -> Unit,
     onRetryCurrentTab: () -> Unit,
     onContentClick: (ContentEntryAction) -> Unit,
+    onOpenLocalSongs: () -> Unit = {},
     onLoginClick: () -> Unit,
     onLogoutClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -847,6 +1160,7 @@ internal fun UserCenterScreen(
             item {
                 UserCenterProfileHeader(
                     userState = userState,
+                    onOpenLocalSongs = onOpenLocalSongs,
                     modifier = Modifier.padding(bottom = if (userState.isLoggedIn) 12.dp else 18.dp)
                 )
             }
@@ -862,6 +1176,60 @@ internal fun UserCenterScreen(
             } else {
                 userCenterLoggedOutItems(
                     onLoginClick = onLoginClick
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserCenterLocalSongsEntry(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("user_center_local_songs_entry"),
+        shape = RoundedCornerShape(20.dp),
+        color = AccountVisualStyle.accentSoftColor.copy(alpha = 0.9f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                modifier = Modifier.size(36.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = Color.White.copy(alpha = 0.72f)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.LibraryMusic,
+                        contentDescription = null,
+                        tint = AccountVisualStyle.accentColor
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "本地歌曲",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "进入独立页面扫描、缓存并测试本地播放列表。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AccountVisualStyle.accentTextColor.copy(alpha = 0.88f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -1287,6 +1655,7 @@ private fun UserCenterCollectionCard(
 @Composable
 private fun UserCenterProfileHeader(
     userState: UserSessionUiState,
+    onOpenLocalSongs: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val headerShape = RoundedCornerShape(AccountVisualStyle.heroCorner)
@@ -1357,6 +1726,11 @@ private fun UserCenterProfileHeader(
                 color = Color.White.copy(alpha = 0.9f),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.testTag("user_center_summary")
+            )
+
+            UserCenterLocalSongsEntry(
+                onClick = onOpenLocalSongs,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }

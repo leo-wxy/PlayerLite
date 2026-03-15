@@ -207,6 +207,7 @@ internal class NativeCacheCoreEngine : CacheCoreEngine {
             val durationMs = parseLongField(raw, "durationMs") ?: -1L
             val lastAccessEpochMs = parseLongField(raw, "lastAccessEpochMs") ?: -1L
             val cachedBlocks = parseLongArrayField(raw, "cachedBlocks").toSet()
+            val completedRanges = parseRangeArrayField(raw, "completedRanges")
             return CacheLookupSnapshot(
                 resourceKey = resourceKey,
                 dataFilePath = dataFilePath,
@@ -217,7 +218,8 @@ internal class NativeCacheCoreEngine : CacheCoreEngine {
                 contentLength = contentLength,
                 durationMs = durationMs,
                 cachedBlocks = cachedBlocks,
-                lastAccessEpochMs = lastAccessEpochMs
+                lastAccessEpochMs = lastAccessEpochMs,
+                completedRanges = completedRanges
             )
         }
 
@@ -244,6 +246,25 @@ internal class NativeCacheCoreEngine : CacheCoreEngine {
                 return emptyList()
             }
             return body.split(",").mapNotNull { it.trim().toLongOrNull() }
+        }
+
+        private fun parseRangeArrayField(json: String, field: String): List<CacheCompletedRange> {
+            val regex = Regex("\"$field\"\\s*:\\s*\\[(.*?)]", RegexOption.DOT_MATCHES_ALL)
+            val body = regex.find(json)?.groupValues?.get(1) ?: return emptyList()
+            if (body.isBlank()) {
+                return emptyList()
+            }
+            val objectRegex = Regex("\\{[^}]*}")
+            return objectRegex.findAll(body)
+                .mapNotNull { match ->
+                    val start = parseLongField(match.value, "start") ?: return@mapNotNull null
+                    val end = parseLongField(match.value, "end") ?: return@mapNotNull null
+                    if (end <= start) {
+                        return@mapNotNull null
+                    }
+                    CacheCompletedRange(start = start, endExclusive = end)
+                }
+                .toList()
         }
     }
 }

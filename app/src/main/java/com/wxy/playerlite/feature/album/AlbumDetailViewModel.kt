@@ -4,6 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
+import com.wxy.playerlite.core.playlist.PlaylistItem
+import com.wxy.playerlite.core.playlist.PlaylistItemType
+import com.wxy.playerlite.feature.player.runtime.DetailPlaybackGateway
+import com.wxy.playerlite.feature.player.runtime.DetailPlaybackRequest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,6 +50,7 @@ internal sealed interface AlbumDynamicUiState {
 internal class AlbumDetailViewModel(
     private val albumId: String,
     private val repository: AlbumDetailRepository,
+    private val playbackGateway: DetailPlaybackGateway,
     private val pageSize: Int = DEFAULT_ALBUM_TRACK_PAGE_SIZE
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(AlbumDetailUiState())
@@ -72,6 +77,20 @@ internal class AlbumDetailViewModel(
 
     fun loadMoreTracks() {
         loadContent(loadMore = true)
+    }
+
+    fun playAll(): Boolean {
+        return playTrack(0)
+    }
+
+    fun playTrack(index: Int): Boolean {
+        val content = (_uiState.value.contentState as? AlbumContentUiState.Content)?.content
+            ?: return false
+        val request = buildAlbumPlaybackRequest(
+            content = content,
+            requestedActiveIndex = index
+        ) ?: return false
+        return playbackGateway.play(request)
     }
 
     private fun loadContent(loadMore: Boolean = false) {
@@ -180,7 +199,8 @@ internal class AlbumDetailViewModel(
     companion object {
         fun factory(
             albumId: String,
-            repository: AlbumDetailRepository
+            repository: AlbumDetailRepository,
+            playbackGateway: DetailPlaybackGateway
         ): ViewModelProvider.Factory {
             return object : ViewModelProvider.Factory {
                 override fun <T : ViewModel> create(
@@ -191,12 +211,55 @@ internal class AlbumDetailViewModel(
                     @Suppress("UNCHECKED_CAST")
                     return AlbumDetailViewModel(
                         albumId = albumId,
-                        repository = repository
+                        repository = repository,
+                        playbackGateway = playbackGateway
                     ) as T
                 }
             }
         }
     }
+
+    override fun onCleared() {
+        playbackGateway.close()
+        super.onCleared()
+    }
+}
+
+private fun buildAlbumPlaybackRequest(
+    content: AlbumDetailContent,
+    requestedActiveIndex: Int
+): DetailPlaybackRequest? {
+    if (content.tracks.isEmpty()) {
+        return null
+    }
+    val indexedItems = content.tracks.mapIndexedNotNull { index, track ->
+        track.trackId.takeIf { it.isNotBlank() }?.let { trackId ->
+            index to PlaylistItem(
+                id = "album:${content.albumId}:$index:$trackId",
+                displayName = track.title,
+                songId = trackId,
+                title = track.title,
+                artistText = track.artistText,
+                albumTitle = track.albumTitle,
+                coverUrl = track.coverUrl ?: content.coverUrl,
+                durationMs = track.durationMs,
+                itemType = PlaylistItemType.ONLINE,
+                contextType = "album",
+                contextId = content.albumId,
+                contextTitle = content.title
+            )
+        }
+    }
+    if (indexedItems.isEmpty()) {
+        return null
+    }
+    val normalizedActiveIndex = indexedItems.indexOfFirst { it.first == requestedActiveIndex }
+        .takeIf { it >= 0 }
+        ?: 0
+    return DetailPlaybackRequest(
+        items = indexedItems.map { it.second },
+        activeIndex = normalizedActiveIndex
+    )
 }
 
 private fun shouldMarkAlbumEndReached(

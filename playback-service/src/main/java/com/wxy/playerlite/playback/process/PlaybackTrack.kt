@@ -1,34 +1,45 @@
 package com.wxy.playerlite.playback.process
 
 import androidx.media3.common.MediaItem
-import com.wxy.playerlite.playback.model.MusicInfo
+import com.wxy.playerlite.playback.model.PlayableItem
+import com.wxy.playerlite.playback.model.PlaybackPreviewClip
+import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 
 internal data class PlaybackTrack(
-    val music: MusicInfo
+    val playable: PlayableItem
 ) {
     val id: String
-        get() = music.id
+        get() = playable.id
 
     val uri: String
-        get() = music.playbackUri
+        get() = playable.playbackUri
 
     val requestHeaders: Map<String, String>
-        get() = music.requestHeaders
+        get() = playable.requestHeaders
+
+    val songId: String?
+        get() = playable.songId
+
+    val durationHintMs: Long
+        get() = playable.durationMs
+
+    val previewClip: PlaybackPreviewClip?
+        get() = playable.previewClip
 
     val requiresAuthorization: Boolean
-        get() = music.requiresAuthorization
+        get() = playable.requiresAuthorization
 
     val displayName: String
-        get() = music.title
+        get() = playable.title
 
     fun toMediaItem(statusText: String? = null): MediaItem {
-        return music.toMediaItem(statusText = statusText)
+        return playable.toMediaItem(statusText = statusText)
     }
 
     companion object {
         fun fromMediaItem(mediaItem: MediaItem): PlaybackTrack? {
-            val music = MusicInfo.fromMediaItem(mediaItem) ?: return null
-            return PlaybackTrack(music = music)
+            val playable = PlayableItemSnapshot.fromMediaItem(mediaItem) ?: return null
+            return PlaybackTrack(playable = playable)
         }
     }
 }

@@ -25,6 +25,11 @@ internal sealed interface PlayerSongWikiUiState {
 
 internal data class PlayerUiState(
     val selectedFileName: String = "No audio selected",
+    val currentTrackTitle: String = "No audio selected",
+    val currentTrackArtist: String? = null,
+    val currentArtistId: String? = null,
+    val currentCoverUrl: String? = null,
+    val currentSongIdOverride: String? = null,
     val statusText: String = "Pick a local audio file, then tap Play",
     val audioMeta: AudioMetaDisplay = emptyAudioMeta(),
     val playbackOutputInfo: PlaybackOutputInfo? = null,
@@ -50,10 +55,11 @@ internal data class PlayerUiState(
         get() = if (isSeekDragging) seekDragPositionMs else seekPositionMs
 
     val currentSongId: String?
-        get() = playlistItems
-            .getOrNull(activePlaylistIndex)
-            ?.songId
-            ?.takeIf { it.isNotBlank() }
+        get() = currentSongIdOverride?.takeIf { it.isNotBlank() }
+            ?: playlistItems
+                .getOrNull(activePlaylistIndex)
+                ?.songId
+                ?.takeIf { it.isNotBlank() }
 }
 
 internal fun emptyAudioMeta(): AudioMetaDisplay {

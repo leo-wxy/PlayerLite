@@ -1,10 +1,12 @@
 package com.wxy.playerlite.playback.client
 
 import android.os.Bundle
+import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioMetaDisplay
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -42,6 +44,16 @@ class RemotePlaybackSnapshotMapperTest {
             currentMetadataExtras = currentMetadataExtras,
             sessionExtras = sessionExtras,
             rootMetadataExtras = Bundle(),
+            currentPlayable = PlayableItemSnapshot(
+                id = "track-1",
+                songId = "347230",
+                title = "晴天",
+                artistText = "周杰伦",
+                albumTitle = "叶惠美",
+                coverUrl = "https://example.com/qingtian.jpg",
+                durationMs = 321_000L,
+                playbackUri = "https://example.com/qingtian.mp3"
+            ),
             currentMediaId = "track-1",
             statusText = "Playing"
         )
@@ -51,5 +63,8 @@ class RemotePlaybackSnapshotMapperTest {
         assertEquals("track-1", snapshot.currentMediaId)
         assertEquals("FLAC", snapshot.audioMeta?.codec)
         assertEquals(321_000L, snapshot.audioMeta?.durationMs)
+        assertNotNull(snapshot.currentPlayable)
+        assertEquals("347230", snapshot.currentPlayable?.songId)
+        assertEquals("https://example.com/qingtian.jpg", snapshot.currentPlayable?.coverUrl)
     }
 }

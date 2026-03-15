@@ -32,6 +32,9 @@ internal class MediaSourceRepository(
     }
 
     fun isPlaylistItemReadable(item: PlaylistItem): Boolean {
+        if (item.isOnline) {
+            return !item.songId.isNullOrBlank()
+        }
         val uri = try {
             Uri.parse(item.uri)
         } catch (_: IllegalArgumentException) {

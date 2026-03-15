@@ -1,6 +1,9 @@
 package com.wxy.playerlite.core
 
 import android.content.Context
+import com.wxy.playerlite.core.playback.DefaultSongDetailRepository
+import com.wxy.playerlite.core.playback.NeteaseSongDetailRemoteDataSource
+import com.wxy.playerlite.core.playback.SongDetailRepository
 import com.wxy.playerlite.feature.album.AlbumDetailRepository
 import com.wxy.playerlite.feature.album.DefaultAlbumDetailRepository
 import com.wxy.playerlite.feature.album.NeteaseAlbumDetailRemoteDataSource
@@ -69,6 +72,10 @@ internal object AppContainer {
         return getServices(context).songWikiRepository
     }
 
+    fun songDetailRepository(context: Context): SongDetailRepository {
+        return getServices(context).songDetailRepository
+    }
+
     private fun getServices(context: Context): Services {
         val existing = services
         if (existing != null) {
@@ -119,6 +126,9 @@ internal object AppContainer {
             albumDetailRepository = DefaultAlbumDetailRepository(
                 remoteDataSource = NeteaseAlbumDetailRemoteDataSource(httpClient)
             ),
+            songDetailRepository = DefaultSongDetailRepository(
+                remoteDataSource = NeteaseSongDetailRemoteDataSource(httpClient)
+            ),
             songWikiRepository = DefaultSongWikiRepository(
                 remoteDataSource = NeteaseSongWikiRemoteDataSource(httpClient)
             )
@@ -133,6 +143,7 @@ internal object AppContainer {
         val artistDetailRepository: ArtistDetailRepository,
         val playlistDetailRepository: PlaylistDetailRepository,
         val albumDetailRepository: AlbumDetailRepository,
+        val songDetailRepository: SongDetailRepository,
         val songWikiRepository: SongWikiRepository
     )
 }

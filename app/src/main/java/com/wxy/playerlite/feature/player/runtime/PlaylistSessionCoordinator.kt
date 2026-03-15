@@ -25,6 +25,9 @@ internal class PlaylistSessionCoordinator(
     val playbackActiveIndex: Int
         get() = state.playbackActiveIndex
 
+    val originalItems: List<PlaylistItem>
+        get() = state.originalItems
+
     val canReorderCurrentView: Boolean
         get() = state.canReorderDisplayItems
 
@@ -43,6 +46,14 @@ internal class PlaylistSessionCoordinator(
 
     fun addItem(item: PlaylistItem, makeActive: Boolean = true): PlaylistState {
         state = controller.addItem(item, makeActive)
+        return state
+    }
+
+    fun replaceAll(
+        items: List<PlaylistItem>,
+        activeIndex: Int
+    ): PlaylistState {
+        state = controller.replaceAll(items, activeIndex)
         return state
     }
 
@@ -73,6 +84,11 @@ internal class PlaylistSessionCoordinator(
 
     fun setActiveItemId(itemId: String): PlaylistState {
         state = controller.setActiveItemId(itemId)
+        return state
+    }
+
+    fun updateItemsById(updatesById: Map<String, PlaylistItem>): PlaylistState {
+        state = controller.updateItemsById(updatesById)
         return state
     }
 

@@ -78,6 +78,31 @@ class PlayerSessionMappingTest {
     }
 
     @Test
+    fun shouldContinuePlaybackOnManualSkip_treatsPlayingAndPreparingAsAutoplaySignals() {
+        assertTrue(
+            PlayerSessionMapping.shouldContinuePlaybackOnManualSkip(
+                nativePlaybackState = PLAYBACK_STATE_PLAYING,
+                playWhenReady = false,
+                isPreparing = false
+            )
+        )
+        assertTrue(
+            PlayerSessionMapping.shouldContinuePlaybackOnManualSkip(
+                nativePlaybackState = PLAYBACK_STATE_STOPPED,
+                playWhenReady = false,
+                isPreparing = true
+            )
+        )
+        assertFalse(
+            PlayerSessionMapping.shouldContinuePlaybackOnManualSkip(
+                nativePlaybackState = PLAYBACK_STATE_PAUSED,
+                playWhenReady = false,
+                isPreparing = false
+            )
+        )
+    }
+
+    @Test
     fun playbackParameters_reflectRequestedSpeed() {
         assertEquals(
             PlaybackParameters(2.0f),

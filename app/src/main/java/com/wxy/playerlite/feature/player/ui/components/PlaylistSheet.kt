@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DragIndicator
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,12 +46,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import coil.compose.AsyncImage
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.playback.model.PlaybackMode
 
@@ -256,6 +260,33 @@ internal fun PlaylistBottomSheet(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        Surface(
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .testTag("playlist_sheet_artwork_${item.id}"),
+                                            shape = RoundedCornerShape(14.dp),
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                                        ) {
+                                            if (!item.coverUrl.isNullOrBlank()) {
+                                                AsyncImage(
+                                                    model = item.coverUrl,
+                                                    contentDescription = null,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.LibraryMusic,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
+                                        }
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
                                                 text = item.displayName,

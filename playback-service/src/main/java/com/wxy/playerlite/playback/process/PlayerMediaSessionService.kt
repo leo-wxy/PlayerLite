@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
@@ -14,6 +15,7 @@ import androidx.media3.session.SessionResult
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.wxy.playerlite.playback.model.PlaybackLaunchRequest
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
@@ -33,6 +35,7 @@ class PlayerMediaSessionService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var notificationJob: Job? = null
     private var runningInForeground = false
+    private var foregroundPromotionPending = false
 
     override fun onCreate() {
         super.onCreate()
@@ -60,6 +63,11 @@ class PlayerMediaSessionService : MediaSessionService() {
         }
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        foregroundPromotionPending = true
+        return super.onStartCommand(intent, flags, startId)
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
     }
@@ -84,30 +92,27 @@ class PlayerMediaSessionService : MediaSessionService() {
     private fun updateForegroundNotification(state: PlaybackProcessState) {
         val shouldForeground = state.playbackState == PLAYBACK_STATE_PLAYING
         val hasPlayableContext = state.currentTrack != null
-
-        if (!hasPlayableContext && !shouldForeground) {
-            notificationManager().cancel(NOTIFICATION_ID)
-            if (runningInForeground) {
-                stopForegroundCompat()
-                runningInForeground = false
-            }
-            return
-        }
-
         val notification = buildNotification(state, isPlaying = shouldForeground)
-        if (shouldForeground) {
-            if (!runningInForeground) {
-                startForeground(NOTIFICATION_ID, notification)
-                runningInForeground = true
-            } else {
-                notificationManager().notify(NOTIFICATION_ID, notification)
+        val controller = ForegroundNotificationController(
+            startForeground = { startForeground(NOTIFICATION_ID, notification) },
+            stopForeground = { stopForegroundCompat() },
+            notify = { notificationManager().notify(NOTIFICATION_ID, notification) },
+            cancel = { notificationManager().cancel(NOTIFICATION_ID) },
+            onForegroundStartRejected = { message ->
+                Log.w(TAG, "Foreground promotion rejected: $message")
             }
-        } else {
-            if (runningInForeground) {
-                stopForegroundCompat()
-                runningInForeground = false
-            }
-            notificationManager().notify(NOTIFICATION_ID, notification)
+        )
+        val result = controller.update(
+            runningInForeground = runningInForeground,
+            shouldForeground = shouldForeground,
+            hasPlayableContext = hasPlayableContext,
+            allowForegroundPromotion = foregroundPromotionPending || runningInForeground
+        )
+        runningInForeground = result.runningInForeground
+        if (result.foregroundPromotionRejected || !shouldForeground || !hasPlayableContext) {
+            foregroundPromotionPending = false
+        } else if (runningInForeground) {
+            foregroundPromotionPending = false
         }
     }
 
@@ -130,7 +135,7 @@ class PlayerMediaSessionService : MediaSessionService() {
 
     private fun buildNotification(state: PlaybackProcessState, isPlaying: Boolean) =
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(resolveNotificationSmallIcon(applicationInfo.icon))
             .setContentTitle(
                 state.currentTrack?.displayName?.ifBlank { packageName }
                     ?: packageName
@@ -143,8 +148,12 @@ class PlayerMediaSessionService : MediaSessionService() {
             .build()
 
     private fun buildContentIntent(): PendingIntent? {
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName) ?: return null
-        launchIntent.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        val launchIntent = PlaybackLaunchRequest.createMainActivityIntent(
+            context = this,
+            openPlayer = true
+        ).apply {
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
         return PendingIntent.getActivity(
             this,
             1001,
@@ -181,6 +190,7 @@ class PlayerMediaSessionService : MediaSessionService() {
     }
 
     private companion object {
+        private const val TAG = "PlayerMediaSessionSvc"
         private const val SESSION_ID = "player-lite-main-session"
         private const val CHANNEL_ID = "player_lite_playback"
         private const val NOTIFICATION_ID = 1001
@@ -249,4 +259,8 @@ class PlayerMediaSessionService : MediaSessionService() {
             }
         }
     }
+}
+
+internal fun resolveNotificationSmallIcon(appIconResId: Int): Int {
+    return appIconResId.takeIf { it != 0 } ?: android.R.drawable.ic_media_play
 }

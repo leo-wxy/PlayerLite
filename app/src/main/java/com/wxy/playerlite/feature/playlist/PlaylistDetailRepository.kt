@@ -15,6 +15,10 @@ internal interface PlaylistDetailRepository {
         offset: Int = 0,
         limit: Int = DEFAULT_DETAIL_TRACK_PAGE_SIZE
     ): List<PlaylistTrackRow>
+
+    suspend fun fetchPlaylistDynamic(playlistId: String): PlaylistDynamicInfo
+
+    suspend fun updatePlaylistPlayCount(playlistId: String)
 }
 
 internal data class PlaylistHeaderContent(
@@ -35,6 +39,12 @@ internal data class PlaylistTrackRow(
     val albumTitle: String,
     val coverUrl: String?,
     val durationMs: Long
+)
+
+internal data class PlaylistDynamicInfo(
+    val commentCount: Int,
+    val isSubscribed: Boolean,
+    val playCount: Long
 )
 
 internal class DefaultPlaylistDetailRepository(
@@ -59,6 +69,16 @@ internal class DefaultPlaylistDetailRepository(
             )
         )
     }
+
+    override suspend fun fetchPlaylistDynamic(playlistId: String): PlaylistDynamicInfo {
+        return PlaylistDetailJsonMapper.parseDynamic(
+            payload = remoteDataSource.fetchPlaylistDynamic(playlistId)
+        )
+    }
+
+    override suspend fun updatePlaylistPlayCount(playlistId: String) {
+        remoteDataSource.updatePlaylistPlayCount(playlistId)
+    }
 }
 
 internal interface PlaylistDetailRemoteDataSource {
@@ -69,6 +89,10 @@ internal interface PlaylistDetailRemoteDataSource {
         offset: Int,
         limit: Int
     ): JsonObject
+
+    suspend fun fetchPlaylistDynamic(playlistId: String): JsonObject
+
+    suspend fun updatePlaylistPlayCount(playlistId: String)
 }
 
 internal class NeteasePlaylistDetailRemoteDataSource(
@@ -94,6 +118,22 @@ internal class NeteasePlaylistDetailRemoteDataSource(
                 "offset" to offset.toString(),
                 "limit" to limit.toString()
             ),
+            requiresAuth = true
+        )
+    }
+
+    override suspend fun fetchPlaylistDynamic(playlistId: String): JsonObject {
+        return httpClient.get(
+            path = "/playlist/detail/dynamic",
+            queryParams = mapOf("id" to playlistId),
+            requiresAuth = true
+        )
+    }
+
+    override suspend fun updatePlaylistPlayCount(playlistId: String) {
+        httpClient.get(
+            path = "/playlist/update/playcount",
+            queryParams = mapOf("id" to playlistId),
             requiresAuth = true
         )
     }
@@ -131,6 +171,14 @@ internal object PlaylistDetailJsonMapper {
             )
         }
     }
+
+    fun parseDynamic(payload: JsonObject): PlaylistDynamicInfo {
+        return PlaylistDynamicInfo(
+            commentCount = payload.intValue("commentCount"),
+            isSubscribed = payload.booleanValue("subscribed"),
+            playCount = payload.longValue("playCount")
+        )
+    }
 }
 
 private fun JsonObject.objectValue(key: String): JsonObject {
@@ -151,6 +199,10 @@ private fun JsonObject.intValue(key: String): Int {
 
 private fun JsonObject.longValue(key: String): Long {
     return stringValue(key)?.toLongOrNull() ?: 0L
+}
+
+private fun JsonObject.booleanValue(key: String): Boolean {
+    return this[key]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
 }
 
 private val emptyJsonObject = JsonObject(emptyMap())

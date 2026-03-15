@@ -28,6 +28,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,11 +51,14 @@ import com.wxy.playerlite.core.AppContainer
 import com.wxy.playerlite.feature.detail.DetailErrorCard
 import com.wxy.playerlite.feature.detail.DetailHeroSummaryPreview
 import com.wxy.playerlite.feature.detail.DetailLoadingCard
+import com.wxy.playerlite.feature.detail.DetailSectionPlayAllButton
 import com.wxy.playerlite.feature.detail.DetailTextDialog
+import com.wxy.playerlite.feature.detail.createOpenPlayerAfterQueueReplacementIntent
 import com.wxy.playerlite.feature.detail.MusicDetailScaffold
 import com.wxy.playerlite.feature.detail.formatTrackDuration
 import com.wxy.playerlite.feature.detail.previewSummaryText
 import com.wxy.playerlite.feature.detail.rememberDynamicHeroBrush
+import com.wxy.playerlite.feature.player.runtime.RuntimeDetailPlaybackGateway
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 internal const val EXTRA_ARTIST_ID = "artist_id"
@@ -63,7 +67,8 @@ class ArtistDetailActivity : ComponentActivity() {
     private val viewModel: ArtistDetailViewModel by viewModels {
         ArtistDetailViewModel.factory(
             artistId = artistIdFrom(intent),
-            repository = AppContainer.artistDetailRepository(this)
+            repository = AppContainer.artistDetailRepository(this),
+            playbackGateway = RuntimeDetailPlaybackGateway(this)
         )
     }
 
@@ -77,7 +82,17 @@ class ArtistDetailActivity : ComponentActivity() {
                 ArtistDetailScreen(
                     state = state,
                     onBack = ::finish,
-                    onRetry = viewModel::retry
+                    onRetry = viewModel::retry,
+                    onPlayAll = {
+                        if (viewModel.playAll()) {
+                            startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
+                        }
+                    },
+                    onTrackClick = { index ->
+                        if (viewModel.playTrack(index)) {
+                            startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
+                        }
+                    }
                 )
             }
         }
@@ -104,7 +119,9 @@ class ArtistDetailActivity : ComponentActivity() {
 internal fun ArtistDetailScreen(
     state: ArtistDetailUiState,
     onBack: () -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onPlayAll: () -> Unit,
+    onTrackClick: (Int) -> Unit
 ) {
     val isDescriptionVisibleState = rememberSaveable { mutableStateOf(false) }
     val isAvatarPreviewVisibleState = rememberSaveable { mutableStateOf(false) }
@@ -155,14 +172,24 @@ internal fun ArtistDetailScreen(
                 }
             ) {
                 item {
-                    Text(
-                        text = "热门歌曲",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
+                    Row(
                         modifier = Modifier
-                            .padding(horizontal = 20.dp, vertical = 12.dp)
-                            .testTag("artist_hot_songs_section")
-                    )
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "热门歌曲",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.testTag("artist_hot_songs_section")
+                        )
+                        Spacer(modifier = Modifier.width(14.dp))
+                        DetailSectionPlayAllButton(
+                            onClick = onPlayAll,
+                            testTag = "artist_play_all_button"
+                        )
+                    }
                 }
                 when (val hotSongsState = state.hotSongsState) {
                     ArtistHotSongsUiState.Loading -> {
@@ -188,10 +215,15 @@ internal fun ArtistDetailScreen(
 
                     is ArtistHotSongsUiState.Content -> {
                         items(
-                            items = hotSongsState.items,
-                            key = { item -> item.trackId }
-                        ) { item ->
-                            ArtistHotSongCard(item = item)
+                            count = hotSongsState.items.size,
+                            key = { index -> hotSongsState.items[index].trackId }
+                        ) { index ->
+                            ArtistHotSongCard(
+                                item = hotSongsState.items[index],
+                                onClick = {
+                                    onTrackClick(index)
+                                }
+                            )
                         }
                     }
                 }
@@ -409,12 +441,14 @@ private fun ArtistAvatarPreviewDialog(
 
 @Composable
 private fun ArtistHotSongCard(
-    item: ArtistHotSongRow
+    item: ArtistHotSongRow,
+    onClick: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 6.dp)
+            .clickable(onClick = onClick)
             .testTag("artist_hot_song_${item.trackId}"),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(

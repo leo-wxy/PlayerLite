@@ -96,6 +96,35 @@ class SeekCancelTest {
         }
     }
 
+    @Test
+    fun readAtShouldReturnQuicklyWhenProviderKeepsFailingInsideKnownLength() {
+        val root = createRoot()
+        assertTrue(CacheCore.init(CacheCoreConfig(cacheRootDirPath = root.absolutePath)).isSuccess)
+
+        val provider = AlwaysFailingKnownLengthProvider()
+        val session = CacheCore.openSession(
+            OpenSessionParams(
+                resourceKey = "song_seek_failure_should_not_hang",
+                provider = provider,
+                config = SessionCacheConfig(blockSizeBytes = 8)
+            )
+        ).getOrThrow()
+
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val future = executor.submit<ByteArray> {
+                session.readAt(offset = 128L, size = 16).getOrThrow()
+            }
+
+            val read = future.get(1, TimeUnit.SECONDS)
+            assertTrue(read.isEmpty())
+            assertTrue(provider.callCount.get() >= 1)
+        } finally {
+            session.close()
+            executor.shutdownNow()
+        }
+    }
+
     private fun createRoot(): File {
         val root = Files.createTempDirectory("cache-core-seek-cancel-test-").toFile()
         createdRoots += root
@@ -159,5 +188,22 @@ class SeekCancelTest {
         }
 
         override fun queryContentLength(): Long? = payload.size.toLong()
+    }
+
+    private class AlwaysFailingKnownLengthProvider : RangeDataProvider {
+        val callCount = AtomicInteger(0)
+        val cancelCount = AtomicInteger(0)
+
+        override fun readAt(offset: Long, size: Int, callback: RangeDataProvider.ReadCallback) {
+            callCount.incrementAndGet()
+            callback.onDataBegin(offset, size)
+            callback.onDataEnd(false)
+        }
+
+        override fun cancelInFlightRead() {
+            cancelCount.incrementAndGet()
+        }
+
+        override fun queryContentLength(): Long? = 4096L
     }
 }

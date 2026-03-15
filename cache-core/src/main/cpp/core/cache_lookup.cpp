@@ -81,6 +81,12 @@ std::optional<CacheLookupSnapshot> CacheRuntime::LookupLocked(const std::string&
         snapshot.last_access_epoch_ms = parsed.last_access_epoch_ms;
         snapshot.cached_blocks.assign(parsed.block_indexes.begin(), parsed.block_indexes.end());
         std::sort(snapshot.cached_blocks.begin(), snapshot.cached_blocks.end());
+        snapshot.completed_ranges.reserve(parsed.completed_ranges.size());
+        for (const auto& range : parsed.completed_ranges) {
+            snapshot.completed_ranges.push_back(CacheLookupSnapshot::RangeSnapshot{
+                    .start = range.start,
+                    .end = range.end});
+        }
     }
 
     return snapshot;

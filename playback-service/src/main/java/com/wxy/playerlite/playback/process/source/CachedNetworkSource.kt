@@ -6,6 +6,8 @@ import com.wxy.playerlite.cache.core.session.CacheSession
 import com.wxy.playerlite.cache.core.session.OpenSessionParams
 import com.wxy.playerlite.cache.core.session.SessionCacheConfig
 import android.util.Log
+import com.wxy.playerlite.cache.core.CacheLookupSnapshot
+import com.wxy.playerlite.playback.process.OnlineCacheMetadata
 import com.wxy.playerlite.player.source.IDirectReadableSource
 import com.wxy.playerlite.player.source.IPlaysource
 import java.nio.ByteBuffer
@@ -13,14 +15,17 @@ import java.nio.ByteBuffer
 internal class CachedNetworkSource(
     private val resourceKey: String,
     private val provider: RangeDataProvider,
-    private val sessionConfig: SessionCacheConfig
+    private val sessionConfig: SessionCacheConfig,
+    private val contentLengthHint: Long? = null,
+    private val durationMsHint: Long? = null,
+    private val extraMetadata: Map<String, String> = emptyMap()
 ) : IPlaysource, IDirectReadableSource {
     private var sourceMode: IPlaysource.SourceMode = IPlaysource.SourceMode.NORMAL
     private var opened = false
     private var aborted = false
     private var position = 0L
     private var seekSerial = 0L
-    private var contentLength: Long = -1L
+    private var contentLength: Long = contentLengthHint?.takeIf { it > 0L } ?: -1L
     private var session: CacheSession? = null
 
     override val sourceId: String
@@ -44,7 +49,8 @@ internal class CachedNetworkSource(
                     resourceKey = resourceKey,
                     provider = provider,
                     config = sessionConfig,
-                    contentLengthHint = cachedLengthHint
+                    contentLengthHint = cachedLengthHint,
+                    durationMsHint = durationMsHint?.takeIf { it > 0L }
                 )
             )
             if (openResult.isFailure) {
@@ -53,6 +59,13 @@ internal class CachedNetworkSource(
             }
             session = openResult.getOrNull()
             opened = true
+            if (extraMetadata.isNotEmpty()) {
+                CacheCore.lookup(resourceKey)
+                    .getOrNull()
+                    ?.let { snapshot: CacheLookupSnapshot ->
+                        OnlineCacheMetadata.persist(snapshot.extraFilePath, extraMetadata)
+                    }
+            }
             safeLogI("open success: key=$resourceKey, cachedLengthHint=$cachedLengthHint")
             return IPlaysource.AudioSourceCode.ASC_SUCCESS
         }
@@ -79,15 +92,7 @@ internal class CachedNetworkSource(
     }
 
     override fun size(): Long {
-        if (contentLength > 0L) {
-            return contentLength
-        }
-        val resolved = provider.queryContentLength()
-        if (resolved != null && resolved > 0L) {
-            contentLength = resolved
-            return resolved
-        }
-        return 0L
+        return refreshContentLength().coerceAtLeast(0L)
     }
 
     override fun cacheSize(): Long = 0L
@@ -114,6 +119,9 @@ internal class CachedNetworkSource(
                 currentSession = session ?: return -1
                 readOffset = position
                 readSeekSerial = seekSerial
+                if (contentLength > 0L && readOffset >= contentLength) {
+                    refreshContentLength()
+                }
             }
             safeLogI("read begin: key=$resourceKey, offset=$readOffset, request=$maxRead")
 
@@ -140,17 +148,19 @@ internal class CachedNetworkSource(
                 if (retry) {
                     continue
                 }
+                val resolvedLength = refreshContentLength()
+                val beforeKnownEof = resolvedLength <= 0L || readOffset < resolvedLength
+                if (beforeKnownEof) {
+                    safeLogE(
+                        "read empty before eof: key=$resourceKey, offset=$readOffset, request=$maxRead, contentLength=$resolvedLength"
+                    )
+                    return -1
+                }
                 safeLogI("read empty: key=$resourceKey, offset=$readOffset, request=$maxRead")
                 return 0
             }
 
-            if (contentLength <= 0L) {
-                provider.queryContentLength()?.let { length ->
-                    if (length > 0L) {
-                        contentLength = length
-                    }
-                }
-            }
+            refreshContentLength()
 
             var nextOffset = readOffset
             val accepted = synchronized(this) {
@@ -231,5 +241,13 @@ internal class CachedNetworkSource(
 
     private fun safeLogE(message: String) {
         runCatching { Log.e(TAG, message) }
+    }
+
+    private fun refreshContentLength(): Long {
+        val resolved = provider.queryContentLength()
+        if (resolved != null && resolved > 0L && (contentLength <= 0L || resolved > contentLength)) {
+            contentLength = resolved
+        }
+        return contentLength
     }
 }

@@ -1,5 +1,7 @@
 package com.wxy.playerlite
 
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -27,8 +29,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wxy.playerlite.feature.player.PlayerViewModel
+import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
+import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.main.HomeContent
 import com.wxy.playerlite.feature.main.ContentEntryAction
 import com.wxy.playerlite.feature.main.HomeSurfaceMode
@@ -39,20 +46,27 @@ import com.wxy.playerlite.feature.main.MainShellLayoutSpec
 import com.wxy.playerlite.feature.main.MainShellState
 import com.wxy.playerlite.feature.main.MainTab
 import com.wxy.playerlite.feature.main.PlayerExpandedScreen
+import com.wxy.playerlite.feature.main.PlayerExpandedTopActionButton
 import com.wxy.playerlite.feature.main.UserCenterViewModel
 import com.wxy.playerlite.feature.main.resolveContentEntryLaunch
+import com.wxy.playerlite.feature.local.LocalSongsActivity
 import com.wxy.playerlite.feature.search.SearchActivity
+import com.wxy.playerlite.feature.artist.ArtistDetailActivity
 import com.wxy.playerlite.feature.main.UserCenterScreen
 import com.wxy.playerlite.feature.player.ui.PlayerSongWikiButton
 import com.wxy.playerlite.feature.player.ui.PlayerScreen
+import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
 import com.wxy.playerlite.feature.user.InitialLoginLaunchGate
 import com.wxy.playerlite.feature.user.LoginActivity
+import com.wxy.playerlite.playback.model.PlaybackLaunchRequest
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 class MainActivity : ComponentActivity() {
     private val viewModel: PlayerViewModel by viewModels()
     private val homeViewModel: HomeViewModel by viewModels()
     private val userCenterViewModel: UserCenterViewModel by viewModels()
+    private var shouldOpenPlayerFromLocalSongs by mutableStateOf(false)
+    private var pendingOpenPlayerLaunchRequests by mutableStateOf(0)
 
     private val pickAudioLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -66,8 +80,20 @@ class MainActivity : ComponentActivity() {
         Unit
     }
 
+    private val localSongsLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        shouldOpenPlayerFromLocalSongs = LocalSongsActivity.shouldOpenPlayerFromResult(
+            resultCode = result.resultCode,
+            data = result.data
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (shouldOpenPlayerFromIntent(intent)) {
+            pendingOpenPlayerLaunchRequests += 1
+        }
         enableEdgeToEdge()
 
         setContent {
@@ -88,6 +114,13 @@ class MainActivity : ComponentActivity() {
                 ) {
                     initialLoginGateHandled = true
                     loginLauncher.launch(LoginActivity.createIntent(this@MainActivity))
+                }
+            }
+            LaunchedEffect(shouldOpenPlayerFromLocalSongs, pendingOpenPlayerLaunchRequests) {
+                if (shouldOpenPlayerFromLocalSongs || pendingOpenPlayerLaunchRequests > 0) {
+                    shellState = shellState.openPlayer()
+                    shouldOpenPlayerFromLocalSongs = false
+                    pendingOpenPlayerLaunchRequests = 0
                 }
             }
             BackHandler(
@@ -138,99 +171,139 @@ class MainActivity : ComponentActivity() {
                         val topInset = innerPadding.calculateTopPadding()
                         when (shellState.selectedTab) {
                             MainTab.HOME -> {
-                                HomeContent(
-                                    homeSurfaceMode = shellState.homeSurfaceMode,
-                                    overviewContent = {
-                                        HomeOverviewScreen(
-                                            playerState = state,
-                                            overviewState = homeState,
-                                            onSearchClick = {
-                                                startActivity(
-                                                    SearchActivity.createIntent(this@MainActivity)
-                                                )
-                                            },
-                                            onRetry = homeViewModel::refresh,
-                                            onItemClick = ::handleContentEntryAction,
-                                            onOpenPlayer = {
-                                                shellState = shellState.openPlayer()
-                                            },
-                                            modifier = Modifier.padding(
-                                                MainShellLayoutSpec.homeContentPadding(
-                                                    mode = HomeSurfaceMode.OVERVIEW,
-                                                    topInset = topInset
-                                                )
-                                            )
-                                        )
-                                    },
-                                    expandedContent = {
-                                        PlayerExpandedScreen(
-                                            onBack = {
-                                                shellState = shellState.collapsePlayer()
-                                            },
-                                            modifier = Modifier.padding(
-                                                MainShellLayoutSpec.homeContentPadding(
-                                                    mode = HomeSurfaceMode.PLAYER_EXPANDED,
-                                                    topInset = topInset
-                                                )
-                                            ),
-                                            topEndContent = {
-                                                if (state.currentSongId != null) {
-                                                    PlayerSongWikiButton(
-                                                        onClick = viewModel::onShowSongWiki
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    HomeContent(
+                                        homeSurfaceMode = shellState.homeSurfaceMode,
+                                        overviewContent = {
+                                            HomeOverviewScreen(
+                                                playerState = state,
+                                                overviewState = homeState,
+                                                onSearchClick = {
+                                                    startActivity(
+                                                        SearchActivity.createIntent(this@MainActivity)
                                                     )
-                                                }
-                                            }
-                                        ) {
-                                            PlayerScreen(
-                                                fileName = state.selectedFileName,
-                                                status = state.statusText,
-                                                hasSelection = state.hasSelection,
-                                                playlistItems = state.playlistItems,
-                                                activePlaylistIndex = state.activePlaylistIndex,
-                                                showPlaylistSheet = state.showPlaylistSheet,
-                                                showSongWikiSheet = state.showSongWikiSheet,
-                                                songWikiUiState = state.songWikiUiState,
-                                                isPreparing = state.isPreparing,
-                                                playbackState = state.playbackState,
-                                                isSeekSupported = state.isSeekSupported,
-                                                playbackMode = state.playbackMode,
-                                                showOriginalOrderInShuffle = state.showOriginalOrderInShuffle,
-                                                canReorderPlaylist = state.canReorderPlaylist,
-                                                seekValueMs = state.displayedSeekMs,
-                                                currentDurationText = viewModel.formatDuration(state.displayedSeekMs),
-                                                durationMs = state.durationMs,
-                                                totalDurationText = viewModel.formatDuration(state.durationMs),
-                                                showSongWikiInlineButton = false,
-                                                enableEnterMotion = false,
-                                                modifier = Modifier.fillMaxSize(),
-                                                onPickAudio = {
-                                                    pickAudioLauncher.launch(arrayOf("audio/*"))
                                                 },
-                                                onTogglePlaylistSheet = viewModel::onTogglePlaylistSheet,
-                                                onDismissPlaylistSheet = viewModel::onDismissPlaylistSheet,
-                                                onShowSongWiki = viewModel::onShowSongWiki,
-                                                onDismissSongWiki = viewModel::onDismissSongWiki,
-                                                onRetrySongWiki = viewModel::onRetrySongWiki,
-                                                onSelectPlaylistItem = { index ->
-                                                    viewModel.selectPlaylistItem(index)
+                                                onRetry = homeViewModel::refresh,
+                                                onItemClick = ::handleContentEntryAction,
+                                                onOpenPlayer = {
+                                                    shellState = shellState.openPlayer()
                                                 },
-                                                onRemovePlaylistItem = { index ->
-                                                    viewModel.removePlaylistItem(index)
+                                                onTogglePlayback = {
+                                                    if (state.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING) {
+                                                        viewModel.pausePlayback()
+                                                    } else if (state.playbackState == AUDIO_TRACK_PLAYSTATE_PAUSED) {
+                                                        viewModel.resumePlayback()
+                                                    } else {
+                                                        viewModel.playSelectedAudio()
+                                                    }
                                                 },
-                                                onMovePlaylistItem = viewModel::movePlaylistItem,
-                                                onPlay = viewModel::playSelectedAudio,
-                                                onPrevious = viewModel::skipToPreviousTrack,
-                                                onNext = viewModel::skipToNextTrack,
-                                                onPause = viewModel::pausePlayback,
-                                                onResume = viewModel::resumePlayback,
-                                                onCyclePlaybackMode = viewModel::cyclePlaybackMode,
-                                                onShowOriginalOrderInShuffleChange = viewModel::setShowOriginalOrderInShuffle,
-                                                onSeekValueChange = viewModel::onSeekValueChange,
-                                                onSeekFinished = viewModel::onSeekFinished
+                                                onOpenPlaylist = viewModel::onTogglePlaylistSheet,
+                                                onSkipPrevious = viewModel::skipToPreviousTrack,
+                                                onSkipNext = viewModel::skipToNextTrack,
+                                                modifier = Modifier.padding(
+                                                    MainShellLayoutSpec.homeContentPadding(
+                                                        mode = HomeSurfaceMode.OVERVIEW,
+                                                        topInset = topInset
+                                                    )
+                                                )
                                             )
+                                        },
+                                        expandedContent = {
+                                            PlayerExpandedScreen(
+                                                onBack = {
+                                                    shellState = shellState.collapsePlayer()
+                                                },
+                                                modifier = Modifier.fillMaxSize(),
+                                                showTopChrome = false
+                                            ) {
+                                                PlayerScreen(
+                                                    fileName = state.currentTrackTitle,
+                                                    artistText = state.currentTrackArtist,
+                                                    status = state.statusText,
+                                                    hasSelection = state.hasSelection,
+                                                    playlistItems = state.playlistItems,
+                                                    activePlaylistIndex = state.activePlaylistIndex,
+                                                    showPlaylistSheet = false,
+                                                    showSongWikiSheet = state.showSongWikiSheet,
+                                                    songWikiUiState = state.songWikiUiState,
+                                                    isPreparing = state.isPreparing,
+                                                    playbackState = state.playbackState,
+                                                    isSeekSupported = state.isSeekSupported,
+                                                    playbackMode = state.playbackMode,
+                                                    showOriginalOrderInShuffle = state.showOriginalOrderInShuffle,
+                                                    canReorderPlaylist = state.canReorderPlaylist,
+                                                    seekValueMs = state.displayedSeekMs,
+                                                    currentDurationText = viewModel.formatDuration(state.displayedSeekMs),
+                                                    durationMs = state.durationMs,
+                                                    totalDurationText = viewModel.formatDuration(state.durationMs),
+                                                    currentSongId = state.currentSongId,
+                                                    currentArtistId = state.currentArtistId,
+                                                    currentCoverUrl = state.currentCoverUrl,
+                                                    showSongWikiInlineButton = true,
+                                                    enableEnterMotion = false,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    onPickAudio = {
+                                                        pickAudioLauncher.launch(arrayOf("audio/*"))
+                                                    },
+                                                    onTogglePlaylistSheet = viewModel::onTogglePlaylistSheet,
+                                                    onDismissPlaylistSheet = viewModel::onDismissPlaylistSheet,
+                                                    onShowSongWiki = viewModel::onShowSongWiki,
+                                                    onDismissSongWiki = viewModel::onDismissSongWiki,
+                                                    onRetrySongWiki = viewModel::onRetrySongWiki,
+                                                    onSelectPlaylistItem = { index ->
+                                                        viewModel.selectPlaylistItem(index)
+                                                    },
+                                                    onRemovePlaylistItem = { index ->
+                                                        viewModel.removePlaylistItem(index)
+                                                    },
+                                                    onMovePlaylistItem = viewModel::movePlaylistItem,
+                                                    onPlay = viewModel::playSelectedAudio,
+                                                    onPrevious = viewModel::skipToPreviousTrack,
+                                                    onNext = viewModel::skipToNextTrack,
+                                                    onPause = viewModel::pausePlayback,
+                                                    onResume = viewModel::resumePlayback,
+                                                    onCyclePlaybackMode = viewModel::cyclePlaybackMode,
+                                                    onShowOriginalOrderInShuffleChange = viewModel::setShowOriginalOrderInShuffle,
+                                                    onSeekValueChange = viewModel::onSeekValueChange,
+                                                    onSeekFinished = viewModel::onSeekFinished,
+                                                    onBackClick = {
+                                                        shellState = shellState.collapsePlayer()
+                                                    },
+                                                    onShareClick = viewModel::onShareCurrentTrack,
+                                                    onArtistClick = {
+                                                        state.currentArtistId
+                                                            ?.takeIf { it.isNotBlank() }
+                                                            ?.let { artistId ->
+                                                                startActivity(
+                                                                    ArtistDetailActivity.createIntent(
+                                                                        context = this@MainActivity,
+                                                                        artistId = artistId
+                                                                    )
+                                                                )
+                                                            }
+                                                    },
+                                                    onFavoriteClick = viewModel::onFavoriteCurrentTrack,
+                                                    onMoreClick = viewModel::onShowPlayerMoreActions
+                                                )
+                                            }
                                         }
-                                    }
-                                )
+                                    )
+
+                                    PlaylistBottomSheet(
+                                        visible = state.showPlaylistSheet,
+                                        items = state.playlistItems,
+                                        activeIndex = state.activePlaylistIndex,
+                                        playbackMode = state.playbackMode,
+                                        showOriginalOrderInShuffle = state.showOriginalOrderInShuffle,
+                                        canReorder = state.canReorderPlaylist,
+                                        onDismiss = viewModel::onDismissPlaylistSheet,
+                                        onShowOriginalOrderInShuffleChange = viewModel::setShowOriginalOrderInShuffle,
+                                        onSelect = { index -> viewModel.selectPlaylistItem(index) },
+                                        onRemove = { index -> viewModel.removePlaylistItem(index) },
+                                        onMove = viewModel::movePlaylistItem,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                             }
 
                             MainTab.USER_CENTER -> {
@@ -240,6 +313,11 @@ class MainActivity : ComponentActivity() {
                                     onTabSelected = userCenterViewModel::onTabSelected,
                                     onRetryCurrentTab = userCenterViewModel::retryCurrentTab,
                                     onContentClick = ::handleContentEntryAction,
+                                    onOpenLocalSongs = {
+                                        localSongsLauncher.launch(
+                                            LocalSongsActivity.createIntent(this)
+                                        )
+                                    },
                                     onLoginClick = {
                                         startActivity(LoginActivity.createIntent(this))
                                     },
@@ -251,6 +329,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (shouldOpenPlayerFromIntent(intent)) {
+            pendingOpenPlayerLaunchRequests += 1
         }
     }
 
@@ -283,5 +369,21 @@ class MainActivity : ComponentActivity() {
 
     private fun showContentEntryMessage(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    companion object {
+        fun createIntent(
+            context: Context,
+            openPlayer: Boolean = false
+        ): Intent {
+            return PlaybackLaunchRequest.createMainActivityIntent(
+                context = context,
+                openPlayer = openPlayer
+            )
+        }
+
+        fun shouldOpenPlayerFromIntent(intent: Intent?): Boolean {
+            return PlaybackLaunchRequest.shouldOpenPlayer(intent)
+        }
     }
 }

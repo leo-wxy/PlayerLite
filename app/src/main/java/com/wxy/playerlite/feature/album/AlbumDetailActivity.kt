@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,11 +48,14 @@ import com.wxy.playerlite.feature.detail.DetailHeroSummaryPreview
 import com.wxy.playerlite.feature.detail.DetailLoadingCard
 import com.wxy.playerlite.feature.detail.DetailMetaPill
 import com.wxy.playerlite.feature.detail.DetailPagingFooter
+import com.wxy.playerlite.feature.detail.DetailSectionPlayAllButton
 import com.wxy.playerlite.feature.detail.DetailTextDialog
+import com.wxy.playerlite.feature.detail.createOpenPlayerAfterQueueReplacementIntent
 import com.wxy.playerlite.feature.detail.MusicDetailScaffold
 import com.wxy.playerlite.feature.detail.formatTrackDuration
 import com.wxy.playerlite.feature.detail.previewSummaryText
 import com.wxy.playerlite.feature.detail.rememberDynamicHeroBrush
+import com.wxy.playerlite.feature.player.runtime.RuntimeDetailPlaybackGateway
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 internal const val EXTRA_ALBUM_ID = "album_id"
@@ -60,7 +64,8 @@ class AlbumDetailActivity : ComponentActivity() {
     private val viewModel: AlbumDetailViewModel by viewModels {
         AlbumDetailViewModel.factory(
             albumId = albumIdFrom(intent),
-            repository = AppContainer.albumDetailRepository(this)
+            repository = AppContainer.albumDetailRepository(this),
+            playbackGateway = RuntimeDetailPlaybackGateway(this)
         )
     }
 
@@ -75,7 +80,17 @@ class AlbumDetailActivity : ComponentActivity() {
                     state = state,
                     onBack = ::finish,
                     onRetry = viewModel::retry,
-                    onLoadMore = viewModel::loadMoreTracks
+                    onLoadMore = viewModel::loadMoreTracks,
+                    onPlayAll = {
+                        if (viewModel.playAll()) {
+                            startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
+                        }
+                    },
+                    onTrackClick = { index ->
+                        if (viewModel.playTrack(index)) {
+                            startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
+                        }
+                    }
                 )
             }
         }
@@ -103,7 +118,9 @@ internal fun AlbumDetailScreen(
     state: AlbumDetailUiState,
     onBack: () -> Unit,
     onRetry: () -> Unit,
-    onLoadMore: () -> Unit
+    onLoadMore: () -> Unit,
+    onPlayAll: () -> Unit,
+    onTrackClick: (Int) -> Unit
 ) {
     var isDescriptionVisible by rememberSaveable { mutableStateOf(false) }
 
@@ -168,11 +185,17 @@ internal fun AlbumDetailScreen(
                         DetailLoadingCard(text = "暂时没有可展示的歌曲")
                     }
                 } else {
+                    item {
+                        AlbumTracksSectionHeader(onPlayAll = onPlayAll)
+                    }
                     items(
-                        items = contentState.content.tracks,
-                        key = { item -> item.trackId }
-                    ) { item ->
-                        AlbumTrackCard(item = item)
+                        count = contentState.content.tracks.size,
+                        key = { index -> contentState.content.tracks[index].trackId }
+                    ) { index ->
+                        AlbumTrackCard(
+                            item = contentState.content.tracks[index],
+                            onClick = { onTrackClick(index) }
+                        )
                     }
                     item {
                         DetailPagingFooter(
@@ -261,6 +284,30 @@ private fun AlbumDetailHero(
 }
 
 @Composable
+private fun AlbumTracksSectionHeader(
+    onPlayAll: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "歌曲列表",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.testTag("album_tracks_section")
+        )
+        Spacer(modifier = Modifier.width(14.dp))
+        DetailSectionPlayAllButton(
+            onClick = onPlayAll,
+            testTag = "album_play_all_button"
+        )
+    }
+}
+
+@Composable
 private fun AlbumCover(
     imageUrl: String?,
     title: String
@@ -341,12 +388,14 @@ private fun AlbumMetricText(
 
 @Composable
 private fun AlbumTrackCard(
-    item: AlbumTrackRow
+    item: AlbumTrackRow,
+    onClick: () -> Unit
 ) {
     androidx.compose.material3.Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 6.dp)
+            .clickable(onClick = onClick)
             .testTag("album_track_${item.trackId}"),
         shape = RoundedCornerShape(24.dp),
         colors = androidx.compose.material3.CardDefaults.cardColors(

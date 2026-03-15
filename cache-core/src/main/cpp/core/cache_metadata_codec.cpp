@@ -275,6 +275,16 @@ std::string CacheRuntime::BuildLookupJson(const CacheLookupSnapshot& snapshot) {
         blocks_builder << snapshot.cached_blocks[index];
     }
 
+    std::ostringstream ranges_builder;
+    for (std::size_t index = 0; index < snapshot.completed_ranges.size(); ++index) {
+        if (index > 0) {
+            ranges_builder << ",";
+        }
+        ranges_builder << "{\"start\":" << snapshot.completed_ranges[index].start
+                       << ",\"end\":" << snapshot.completed_ranges[index].end
+                       << "}";
+    }
+
     std::ostringstream json;
     json << "{";
     json << "\"resourceKey\":\"" << EscapeJson(snapshot.resource_key) << "\",";
@@ -286,6 +296,7 @@ std::string CacheRuntime::BuildLookupJson(const CacheLookupSnapshot& snapshot) {
     json << "\"contentLength\":" << snapshot.content_length << ",";
     json << "\"durationMs\":" << snapshot.duration_ms << ",";
     json << "\"cachedBlocks\":[" << blocks_builder.str() << "],";
+    json << "\"completedRanges\":[" << ranges_builder.str() << "],";
     json << "\"lastAccessEpochMs\":" << snapshot.last_access_epoch_ms;
     json << "}";
     return json.str();

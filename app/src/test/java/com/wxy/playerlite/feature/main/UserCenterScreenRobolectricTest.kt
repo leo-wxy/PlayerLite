@@ -7,10 +7,12 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import com.wxy.playerlite.feature.user.model.UserSessionUiState
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -89,6 +91,36 @@ class UserCenterScreenRobolectricTest {
         composeRule.onAllNodesWithTag("user_center_tabs").assertCountEquals(0)
         composeRule.onNodeWithTag("user_center_scroll_content").performTouchInput { swipeUp() }
         composeRule.onNodeWithTag("user_center_primary_action").assertIsDisplayed()
+    }
+
+    @Test
+    fun localSongsEntry_shouldBeVisibleAndDispatchCallback() {
+        var openLocalSongsCount = 0
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                UserCenterScreen(
+                    userState = UserSessionUiState(
+                        isLoggedIn = true,
+                        title = "Wucy",
+                        summary = "在线账户 · Lv.10"
+                    ),
+                    contentState = UserCenterUiState(),
+                    onTabSelected = {},
+                    onRetryCurrentTab = {},
+                    onContentClick = {},
+                    onOpenLocalSongs = { openLocalSongsCount += 1 },
+                    onLoginClick = {},
+                    onLogoutClick = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("user_center_local_songs_entry").assertIsDisplayed().assertHasClickAction()
+        composeRule.onNodeWithTag("user_center_local_songs_entry").performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, openLocalSongsCount)
+        }
     }
 
     @Test

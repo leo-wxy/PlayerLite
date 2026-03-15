@@ -2,12 +2,44 @@ package com.wxy.playerlite.core.playlist
 
 import com.wxy.playerlite.playback.model.PlaybackMode
 
+enum class PlaylistItemType(
+    val wireValue: String
+) {
+    LOCAL("local"),
+    ONLINE("online");
+
+    companion object {
+        fun fromWireValue(value: String?): PlaylistItemType? {
+            return entries.firstOrNull { it.wireValue == value?.trim()?.lowercase() }
+        }
+    }
+}
+
 data class PlaylistItem(
     val id: String,
-    val uri: String,
+    val uri: String = "",
     val displayName: String,
-    val songId: String? = null
-)
+    val songId: String? = null,
+    val title: String = displayName,
+    val artistText: String? = null,
+    val primaryArtistId: String? = null,
+    val albumTitle: String? = null,
+    val coverUrl: String? = null,
+    val durationMs: Long = 0L,
+    val itemType: PlaylistItemType = inferPlaylistItemType(
+        uri = uri,
+        songId = songId
+    ),
+    val contextType: String? = null,
+    val contextId: String? = null,
+    val contextTitle: String? = null
+) {
+    val effectiveTitle: String
+        get() = title.takeIf { it.isNotBlank() } ?: displayName
+
+    val isOnline: Boolean
+        get() = itemType == PlaylistItemType.ONLINE
+}
 
 data class PlaylistState(
     val version: Int = VERSION,
@@ -18,7 +50,7 @@ data class PlaylistState(
     val showOriginalOrderInShuffle: Boolean = false
 ) {
     companion object {
-        const val VERSION = 2
+        const val VERSION = 3
 
         fun empty(): PlaylistState = PlaylistState()
 
@@ -99,4 +131,17 @@ data class PlaylistState(
             activeItemId = normalizedActiveId
         )
     }
+}
+
+private fun inferPlaylistItemType(
+    uri: String,
+    songId: String?
+): PlaylistItemType {
+    if (!songId.isNullOrBlank()) {
+        val trimmedUri = uri.trim().lowercase()
+        if (trimmedUri.isBlank() || trimmedUri.startsWith("http://") || trimmedUri.startsWith("https://")) {
+            return PlaylistItemType.ONLINE
+        }
+    }
+    return PlaylistItemType.LOCAL
 }

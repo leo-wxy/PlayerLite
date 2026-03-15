@@ -13,7 +13,8 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
-import com.wxy.playerlite.playback.model.MusicInfo
+import com.wxy.playerlite.playback.model.PlayableItem
+import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
@@ -31,10 +32,20 @@ class PlayerServiceBridge(
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
     private val pendingActions = mutableListOf<(MediaController) -> Unit>()
+    private var pendingQueueSyncRequest: PendingQueueSyncRequest? = null
+    private var pendingPlaybackModeUpdate: PlaybackMode? = null
 
-    fun ensureServiceStarted() {
+    fun prewarmConnection() {
+        connectIfNeeded()
+    }
+
+    fun ensurePlaybackServiceStartedForPlayback() {
         val intent = Intent(appContext, serviceClass)
-        appContext.startService(intent)
+        runCatching {
+            ContextCompat.startForegroundService(appContext, intent)
+        }.onFailure {
+            onControllerError("Playback service start failed: ${it.message ?: "unknown"}")
+        }
     }
 
     fun connectIfNeeded() {
@@ -77,12 +88,18 @@ class PlayerServiceBridge(
                         runCatching { it.release() }
                         controller = null
                         safeLogW("Controller future completed but controller not connected; reconnecting")
-                        if (pendingActions.isNotEmpty()) {
+                        if (
+                            pendingActions.isNotEmpty() ||
+                            pendingQueueSyncRequest != null ||
+                            pendingPlaybackModeUpdate != null
+                        ) {
                             connectIfNeeded()
                         }
                     }
                 }.onFailure {
                     pendingActions.clear()
+                    pendingQueueSyncRequest = null
+                    pendingPlaybackModeUpdate = null
                     onControllerError("MediaController connect failed: ${it.message ?: "unknown"}")
                 }
             },
@@ -91,31 +108,86 @@ class PlayerServiceBridge(
     }
 
     fun syncQueue(
-        queue: List<MusicInfo>,
+        queue: List<PlayableItem>,
         activeIndex: Int,
         playWhenReady: Boolean,
         startPositionMs: Long = C.TIME_UNSET
     ): Boolean {
-        return withController { activeController ->
-            if (queue.isEmpty()) {
-                activeController.stop()
-                activeController.clearMediaItems()
-                return@withController
+        val request = PendingQueueSyncRequest(
+            queue = queue,
+            activeIndex = activeIndex,
+            playWhenReady = playWhenReady,
+            startPositionMs = startPositionMs
+        )
+        val activeController = controller
+        if (activeController == null || !isConnected(activeController)) {
+            if (released) {
+                return false
+            }
+            if (activeController != null) {
+                runCatching { activeController.release() }
+                controller = null
+            }
+            pendingQueueSyncRequest = request
+            connectIfNeeded()
+            safeLogD("Controller unavailable; queue sync deferred")
+            return true
+        }
+
+        return runCatching {
+            performQueueSync(activeController, request)
+        }.fold(
+            onSuccess = { true },
+            onFailure = {
+                onControllerError("MediaController command failed: ${it.message ?: "unknown"}")
+                false
+            }
+        )
+    }
+
+    private fun performQueueSync(
+        activeController: MediaController,
+        request: PendingQueueSyncRequest
+    ) {
+        if (request.queue.isEmpty()) {
+            activeController.stop()
+            activeController.clearMediaItems()
+            return
+        }
+
+        val mediaItems = request.queue.map { it.toMediaItem() }
+        val normalizedIndex = request.activeIndex.coerceIn(0, mediaItems.lastIndex)
+        val shouldReplaceQueue = QueueSyncPlanResolver.shouldReplaceQueue(
+            currentMediaIds = currentMediaIds(activeController),
+            currentIndex = activeController.currentMediaItemIndex,
+            currentMediaId = activeController.currentMediaItem?.mediaId?.takeIf { it.isNotBlank() },
+            requestedMediaIds = mediaItems.map { it.mediaId },
+            requestedIndex = normalizedIndex
+        )
+
+        if (shouldReplaceQueue) {
+            activeController.setMediaItems(
+                mediaItems,
+                normalizedIndex,
+                request.startPositionMs
+            )
+            activeController.prepare()
+        }
+
+        when {
+            request.playWhenReady -> {
+                if (shouldReplaceQueue || !activeController.isPlaying) {
+                    activeController.play()
+                }
             }
 
-            val mediaItems = queue.map { it.toMediaItem() }
-            val normalizedIndex = activeIndex.coerceIn(0, mediaItems.lastIndex)
-            activeController.setMediaItems(mediaItems, normalizedIndex, startPositionMs)
-            activeController.prepare()
-            if (playWhenReady) {
-                activeController.play()
-            } else {
+            shouldReplaceQueue -> {
                 activeController.pause()
             }
         }
     }
 
-    fun playQueue(queue: List<MusicInfo>, activeIndex: Int): Boolean {
+    fun playQueue(queue: List<PlayableItem>, activeIndex: Int): Boolean {
         return syncQueue(queue = queue, activeIndex = activeIndex, playWhenReady = true)
     }
 
@@ -204,8 +276,23 @@ class PlayerServiceBridge(
         val args = Bundle().apply {
             putString(PlaybackSessionCommands.EXTRA_PLAYBACK_MODE, playbackMode.wireValue)
         }
-        return withController { activeController ->
-            val future = activeController.sendCustomCommand(
+        val activeController = controller
+        if (activeController == null || !isConnected(activeController)) {
+            if (released) {
+                return false
+            }
+            if (activeController != null) {
+                runCatching { activeController.release() }
+                controller = null
+            }
+            pendingPlaybackModeUpdate = playbackMode
+            connectIfNeeded()
+            onResult?.invoke(true)
+            safeLogD("Controller unavailable; playback mode update deferred")
+            return true
+        }
+        return withController { resolvedController ->
+            val future = resolvedController.sendCustomCommand(
                 SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_MODE, Bundle.EMPTY),
                 args
             )
@@ -238,6 +325,7 @@ class PlayerServiceBridge(
         val currentMetadata = activeController.currentMediaItem?.mediaMetadata
         val currentMetadataExtras = currentMetadata?.extras
         val rootMetadataExtras = activeController.mediaMetadata.extras
+        val currentPlayable = activeController.currentMediaItem?.let(PlayableItemSnapshot::fromMediaItem)
         val seekSupported = PlaybackMetadataExtras.readSeekSupported(currentMetadataExtras)
             ?: PlaybackMetadataExtras.readSeekSupported(sessionExtras)
             ?: PlaybackMetadataExtras.readSeekSupported(rootMetadataExtras)
@@ -257,6 +345,7 @@ class PlayerServiceBridge(
             currentMetadataExtras = currentMetadataExtras,
             sessionExtras = sessionExtras,
             rootMetadataExtras = rootMetadataExtras,
+            currentPlayable = currentPlayable,
             currentMediaId = activeController.currentMediaItem?.mediaId?.takeIf { it.isNotBlank() },
             statusText = statusText
         )
@@ -299,10 +388,26 @@ class PlayerServiceBridge(
     }
 
     private fun flushPendingActions(activeController: MediaController) {
-        if (pendingActions.isEmpty()) {
+        if (!isConnected(activeController)) {
             return
         }
-        if (!isConnected(activeController)) {
+        pendingQueueSyncRequest?.let { request ->
+            pendingQueueSyncRequest = null
+            runCatching {
+                performQueueSync(activeController, request)
+            }.onFailure {
+                onControllerError("MediaController command failed: ${it.message ?: "unknown"}")
+            }
+        }
+        pendingPlaybackModeUpdate?.let { playbackMode ->
+            pendingPlaybackModeUpdate = null
+            runCatching {
+                setPlaybackMode(playbackMode)
+            }.onFailure {
+                onControllerError("MediaController command failed: ${it.message ?: "unknown"}")
+            }
+        }
+        if (pendingActions.isEmpty()) {
             return
         }
         val actions = pendingActions.toList()
@@ -320,9 +425,22 @@ class PlayerServiceBridge(
         return runCatching { activeController.isConnected }.getOrDefault(false)
     }
 
+    private fun currentMediaIds(activeController: MediaController): List<String> {
+        return List(activeController.mediaItemCount) { index ->
+            activeController.getMediaItemAt(index).mediaId
+        }
+    }
+
     private companion object {
         private const val TAG = "PlayerServiceBridge"
     }
+
+    private data class PendingQueueSyncRequest(
+        val queue: List<PlayableItem>,
+        val activeIndex: Int,
+        val playWhenReady: Boolean,
+        val startPositionMs: Long
+    )
 
     private fun safeLogD(message: String) {
         runCatching { Log.d(TAG, message) }

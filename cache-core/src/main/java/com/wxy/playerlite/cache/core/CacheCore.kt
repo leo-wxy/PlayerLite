@@ -14,7 +14,13 @@ data class CacheLookupSnapshot(
     val contentLength: Long,
     val durationMs: Long,
     val cachedBlocks: Set<Long>,
-    val lastAccessEpochMs: Long
+    val lastAccessEpochMs: Long,
+    val completedRanges: List<CacheCompletedRange> = emptyList()
+)
+
+data class CacheCompletedRange(
+    val start: Long,
+    val endExclusive: Long
 )
 
 object CacheCore {

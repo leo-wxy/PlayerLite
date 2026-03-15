@@ -1,6 +1,7 @@
 package com.wxy.playerlite.feature.player.runtime
 
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
+import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioMetaDisplay
 import org.junit.Assert.assertEquals
@@ -31,6 +32,16 @@ class PlayerRuntimeProjectionTest {
             playbackMode = PlaybackMode.LIST_LOOP,
             currentMediaId = "track-1",
             isProgressAdvancing = false,
+            currentPlayable = PlayableItemSnapshot(
+                id = "track-1",
+                songId = "347230",
+                title = "晴天",
+                artistText = "周杰伦",
+                albumTitle = "叶惠美",
+                coverUrl = "https://example.com/qingtian.jpg",
+                durationMs = 321_000L,
+                playbackUri = "https://example.com/qingtian.mp3"
+            ),
             playbackOutputInfo = null,
             audioMeta = audioMeta
         )
@@ -39,6 +50,10 @@ class PlayerRuntimeProjectionTest {
         assertEquals(2.0f, state.playbackSpeed, 0f)
         assertEquals(PlaybackMode.LIST_LOOP, state.playbackMode)
         assertEquals(audioMeta, state.audioMeta)
+        assertEquals("347230", state.currentSongId)
+        assertEquals("晴天", state.currentTrackTitle)
+        assertEquals("周杰伦", state.currentTrackArtist)
+        assertEquals("https://example.com/qingtian.jpg", state.currentCoverUrl)
     }
 
     @Test
@@ -54,6 +69,11 @@ class PlayerRuntimeProjectionTest {
             playbackMode = PlaybackMode.LIST_LOOP,
             currentMediaId = "track-1",
             isProgressAdvancing = false,
+            currentPlayable = PlayableItemSnapshot(
+                id = "track-1",
+                title = "本地文件",
+                playbackUri = "file:///storage/emulated/0/test.mp3"
+            ),
             playbackOutputInfo = null,
             audioMeta = AudioMetaDisplay(
                 codec = "AAC",
@@ -73,6 +93,7 @@ class PlayerRuntimeProjectionTest {
             playbackMode = PlaybackMode.LIST_LOOP,
             currentMediaId = null,
             isProgressAdvancing = false,
+            currentPlayable = null,
             playbackOutputInfo = null,
             audioMeta = null
         )
@@ -94,6 +115,7 @@ class PlayerRuntimeProjectionTest {
             playbackMode = PlaybackMode.LIST_LOOP,
             currentMediaId = null,
             isProgressAdvancing = false,
+            currentPlayable = null,
             playbackOutputInfo = null,
             audioMeta = null
         )

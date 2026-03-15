@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performClick
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -58,7 +59,9 @@ class AlbumDetailScreenRobolectricTest {
                     ),
                     onBack = {},
                     onRetry = {},
-                    onLoadMore = {}
+                    onLoadMore = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
@@ -66,6 +69,11 @@ class AlbumDetailScreenRobolectricTest {
         composeRule.onNodeWithTag("album_detail_hero_panel").assertIsDisplayed()
         composeRule.onNodeWithTag("album_detail_cover").assertIsDisplayed()
         composeRule.onNodeWithTag("album_dynamic_meta_section").assertIsDisplayed()
+        composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("album_tracks_section"))
+        composeRule.onNodeWithTag("album_tracks_section").assertIsDisplayed()
+        composeRule.onNodeWithTag("album_play_all_button").assertIsDisplayed()
+        composeRule.onNodeWithText("播放全部").assertIsDisplayed()
         composeRule.onNodeWithTag("detail_scaffold_list")
             .performScrollToNode(hasTestTag("album_track_326696"))
         composeRule.onNodeWithTag("album_track_326696").assertIsDisplayed()
@@ -96,7 +104,9 @@ class AlbumDetailScreenRobolectricTest {
                     ),
                     onBack = {},
                     onRetry = {},
-                    onLoadMore = {}
+                    onLoadMore = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
@@ -148,7 +158,9 @@ class AlbumDetailScreenRobolectricTest {
                     ),
                     onBack = {},
                     onRetry = {},
-                    onLoadMore = {}
+                    onLoadMore = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
@@ -197,7 +209,9 @@ class AlbumDetailScreenRobolectricTest {
                     ),
                     onBack = {},
                     onRetry = {},
-                    onLoadMore = {}
+                    onLoadMore = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
                 )
             }
         }
@@ -205,5 +219,64 @@ class AlbumDetailScreenRobolectricTest {
         composeRule.onNodeWithTag("detail_scaffold_list")
             .performScrollToNode(hasTestTag("album_tracks_load_more_error"))
         composeRule.onNodeWithTag("album_tracks_load_more_error").assertIsDisplayed()
+    }
+
+    @Test
+    fun playAllAndTrackClick_shouldInvokeCallbacks() {
+        var playAllClicks = 0
+        var clickedTrackIndex = -1
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                AlbumDetailScreen(
+                    state = AlbumDetailUiState(
+                        contentState = AlbumContentUiState.Content(
+                            AlbumDetailContent(
+                                albumId = "32311",
+                                title = "神的游戏",
+                                artistText = "张悬",
+                                description = "专辑简介",
+                                coverUrl = null,
+                                company = "索尼音乐",
+                                publishTimeText = "2012-08-10",
+                                trackCount = 9,
+                                tracks = listOf(
+                                    AlbumTrackRow(
+                                        trackId = "326696",
+                                        title = "疯狂的阳光",
+                                        artistText = "张悬",
+                                        albumTitle = "神的游戏",
+                                        coverUrl = null,
+                                        durationMs = 235146L
+                                    )
+                                )
+                            )
+                        ),
+                        dynamicState = AlbumDynamicUiState.Content(
+                            AlbumDynamicInfo(
+                                commentCount = 1990,
+                                shareCount = 8542,
+                                subscribedCount = 66888
+                            )
+                        )
+                    ),
+                    onBack = {},
+                    onRetry = {},
+                    onLoadMore = {},
+                    onPlayAll = { playAllClicks++ },
+                    onTrackClick = { clickedTrackIndex = it }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("album_play_all_button"))
+        composeRule.onNodeWithTag("album_play_all_button").performClick()
+        composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("album_track_326696"))
+        composeRule.onNodeWithTag("album_track_326696").performClick()
+
+        assertEquals(1, playAllClicks)
+        assertEquals(0, clickedTrackIndex)
     }
 }

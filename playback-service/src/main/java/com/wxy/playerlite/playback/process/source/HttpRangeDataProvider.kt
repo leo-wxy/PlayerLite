@@ -14,9 +14,11 @@ import java.util.concurrent.TimeoutException
 
 internal class HttpRangeDataProvider(
     url: String,
+    private val requestHeaders: Map<String, String> = emptyMap(),
     private val connectionFactory: (URL) -> HttpURLConnection = { target ->
         target.openConnection() as HttpURLConnection
     },
+    private val ipv4Resolver: (String) -> String? = DEFAULT_IPV4_RESOLVER,
     private val connectTimeoutMs: Int = 2_000,
     private val readTimeoutMs: Int = 8_000,
     private val maxReadBurstBytes: Int = 256 * 1024,
@@ -53,30 +55,47 @@ internal class HttpRangeDataProvider(
             callback.onDataEnd(false)
             return
         }
-        val read = obtainActiveRead(offset)
-        if (read == null) {
-            callback.onDataEnd(false)
-            return
-        }
+        repeat((UNEXPECTED_EMPTY_READ_RETRY_COUNT + 1).coerceAtLeast(1)) { attemptIndex ->
+            val read = obtainActiveRead(offset)
+            if (read == null) {
+                callback.onDataEnd(false)
+                return
+            }
 
-        val consumed = readFromStream(
-            input = read.stream,
-            size = size,
-            callback = callback
-        )
-        val success = consumed >= 0
-        val consumedBytes = consumed.coerceAtLeast(0).toLong()
+            val consumed = readFromStream(
+                input = read.stream,
+                size = size,
+                callback = callback
+            )
+            val consumedBytes = consumed.coerceAtLeast(0).toLong()
+            val success = consumed >= 0
+            val shouldRetryUnexpectedEmpty = shouldRetryUnexpectedEmptyRead(
+                offset = offset,
+                consumedBytes = consumedBytes,
+                attemptIndex = attemptIndex
+            )
 
-        synchronized(inFlightLock) {
-            val active = activeRead
-            if (active === read) {
-                active.nextOffset = active.nextOffset + consumedBytes
-                if (!success || consumedBytes <= 0L || closed) {
-                    closeActiveReadLocked()
+            synchronized(inFlightLock) {
+                val active = activeRead
+                if (active === read) {
+                    active.nextOffset = active.nextOffset + consumedBytes
+                    if (!success || consumedBytes <= 0L || closed || shouldRetryUnexpectedEmpty) {
+                        closeActiveReadLocked()
+                    }
                 }
             }
+
+            if (success && consumedBytes > 0L) {
+                callback.onDataEnd(!closed)
+                return
+            }
+
+            if (!shouldRetryUnexpectedEmpty) {
+                callback.onDataEnd(false)
+                return
+            }
         }
-        callback.onDataEnd(success && !closed)
+        callback.onDataEnd(false)
     }
 
     override fun cancelInFlightRead() {
@@ -105,7 +124,10 @@ internal class HttpRangeDataProvider(
             connectTimeout = connectTimeoutMs
             readTimeout = readTimeoutMs
             instanceFollowRedirects = true
+            useCaches = false
+            applyRequestHeaders()
             setRequestProperty("Accept-Encoding", "identity")
+            setRequestProperty("Connection", "close")
             setRequestProperty("Range", "bytes=0-0")
         }
         return try {
@@ -165,7 +187,10 @@ internal class HttpRangeDataProvider(
                 connectTimeout = connectTimeoutMs
                 readTimeout = readTimeoutMs
                 instanceFollowRedirects = true
+                useCaches = false
+                applyRequestHeaders()
                 setRequestProperty("Accept-Encoding", "identity")
+                setRequestProperty("Connection", "close")
                 setRequestProperty("Range", "bytes=$offset-")
                 if (preferredUrl.host != targetUrl.host) {
                     setRequestProperty("Host", targetUrl.host)
@@ -296,12 +321,24 @@ internal class HttpRangeDataProvider(
         val chunkBytes = streamChunkBytes.coerceIn(4 * 1024, 256 * 1024)
         val buffer = ByteArray(chunkBytes)
         var total = 0
+        var zeroByteReads = 0
         while (total < maxBytes && !closed) {
             val toRead = (maxBytes - total).coerceAtMost(buffer.size)
-            val read = runCatching { input.read(buffer, 0, toRead) }.getOrElse { return -1 }
-            if (read <= 0) {
+            val read = runCatching { input.read(buffer, 0, toRead) }.getOrElse {
+                return if (total > 0) total else -1
+            }
+            if (read < 0) {
                 break
             }
+            if (read == 0) {
+                zeroByteReads += 1
+                if (zeroByteReads > ZERO_BYTE_READ_RETRY_COUNT) {
+                    return if (total > 0) total else -1
+                }
+                Thread.yield()
+                continue
+            }
+            zeroByteReads = 0
             val accepted = runCatching { callback.onDataSend(buffer, read) }.getOrDefault(false)
             if (!accepted) {
                 return -1
@@ -309,6 +346,18 @@ internal class HttpRangeDataProvider(
             total += read
         }
         return total
+    }
+
+    private fun shouldRetryUnexpectedEmptyRead(
+        offset: Long,
+        consumedBytes: Long,
+        attemptIndex: Int
+    ): Boolean {
+        if (closed || consumedBytes > 0L || attemptIndex >= UNEXPECTED_EMPTY_READ_RETRY_COUNT) {
+            return false
+        }
+        val knownLength = cachedContentLength
+        return knownLength == null || knownLength <= 0L || offset < knownLength
     }
 
     private fun readFromStream(
@@ -338,6 +387,9 @@ internal class HttpRangeDataProvider(
     }
 
     private fun buildPreferredTargetUrl(): URL {
+        if (targetUrl.protocol.equals("https", ignoreCase = true)) {
+            return targetUrl
+        }
         val host = resolveIpv4Host(targetUrl.host) ?: return targetUrl
         return runCatching {
             if (targetUrl.port >= 0) {
@@ -360,11 +412,12 @@ internal class HttpRangeDataProvider(
         }
         ipv4ResolveAttempted = true
         val resolved = runCatching {
-            val future = dnsResolveExecutor.submit<List<InetAddress>> {
-                InetAddress.getAllByName(host).toList()
+            val future = dnsResolveExecutor.submit<String?> { ipv4Resolver(host) }
+            try {
+                future.get(1_500L, TimeUnit.MILLISECONDS)
+            } finally {
+                future.cancel(true)
             }
-            val addresses = future.get(1_500L, TimeUnit.MILLISECONDS)
-            addresses.firstOrNull { it is Inet4Address }?.hostAddress
         }.getOrNull()
         if (resolved.isNullOrBlank()) {
             safeLogD("resolveIpv4Host fallback to original host: $host")
@@ -387,8 +440,23 @@ internal class HttpRangeDataProvider(
         }
     }
 
+    private fun HttpURLConnection.applyRequestHeaders() {
+        requestHeaders.forEach { (key, value) ->
+            if (value.isNotBlank()) {
+                setRequestProperty(key, value)
+            }
+        }
+    }
+
     private companion object {
         private const val TAG = "HttpRangeDataProvider"
+        private const val UNEXPECTED_EMPTY_READ_RETRY_COUNT = 1
+        private const val ZERO_BYTE_READ_RETRY_COUNT = 4
+        private val DEFAULT_IPV4_RESOLVER: (String) -> String? = { host ->
+            InetAddress.getAllByName(host)
+                .firstOrNull { it is Inet4Address }
+                ?.hostAddress
+        }
     }
 
     private data class ActiveRead(

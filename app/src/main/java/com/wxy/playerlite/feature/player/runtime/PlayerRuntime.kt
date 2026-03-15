@@ -5,11 +5,13 @@ import android.net.Uri
 import android.os.SystemClock
 import com.wxy.playerlite.core.playlist.PlaylistController
 import com.wxy.playerlite.core.playlist.PlaylistItem
+import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.core.playlist.SharedPreferencesPlaylistStorage
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.emptyAudioMeta
 import com.wxy.playerlite.feature.player.model.withPlaybackSpeed
+import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.PlaybackOutputInfo
@@ -212,10 +214,12 @@ internal class PlayerRuntime(
         positionMs: Long,
         durationMs: Long,
         isSeekSupported: Boolean,
+        isPreparing: Boolean = false,
         playbackSpeed: Float,
         playbackMode: PlaybackMode,
         currentMediaId: String?,
         isProgressAdvancing: Boolean,
+        currentPlayable: PlayableItemSnapshot?,
         playbackOutputInfo: PlaybackOutputInfo?,
         audioMeta: AudioMetaDisplay?
     ) {
@@ -245,8 +249,21 @@ internal class PlayerRuntime(
         }
         remoteProgressShouldAdvance = isProgressAdvancing
         updateRemoteProgressAnchor(bounded)
+        val currentQueueItem = currentMediaId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { mediaId ->
+                playlistSession.originalItems.firstOrNull { it.id == mediaId }
+            }
         uiState = uiState.copy(
+            selectedFileName = currentPlayable?.title?.takeIf { it.isNotBlank() } ?: uiState.selectedFileName,
+            currentTrackTitle = currentPlayable?.title?.takeIf { it.isNotBlank() } ?: uiState.currentTrackTitle,
+            currentTrackArtist = currentPlayable?.artistText?.takeIf { it.isNotBlank() },
+            currentArtistId = currentQueueItem?.primaryArtistId?.takeIf { it.isNotBlank() },
+            currentCoverUrl = currentPlayable?.coverUrl?.takeIf { it.isNotBlank() }
+                ?: currentQueueItem?.coverUrl?.takeIf { it.isNotBlank() },
+            currentSongIdOverride = currentPlayable?.songId?.takeIf { it.isNotBlank() },
             playbackState = playbackState,
+            isPreparing = isPreparing,
             durationMs = nextDuration,
             isSeekSupported = isSeekSupported,
             seekPositionMs = if (uiState.isSeekDragging) uiState.seekPositionMs else bounded,
@@ -305,9 +322,14 @@ internal class PlayerRuntime(
             playbackOutputInfo = null,
             isSeekSupported = false,
             durationMs = 0L,
+            currentTrackArtist = null,
+            currentArtistId = null,
+            currentCoverUrl = null,
+            currentSongIdOverride = null,
             seekPositionMs = 0L,
             seekDragPositionMs = 0L,
             isSeekDragging = false,
+            isPreparing = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
             showSongWikiSheet = false,
             statusText = if (updateStatus) "Stopped" else uiState.statusText
@@ -324,6 +346,64 @@ internal class PlayerRuntime(
 
     fun playbackQueueActiveIndex(): Int {
         return playlistSession.playbackActiveIndex
+    }
+
+    fun playbackQueueItemsInOriginalOrder(): List<PlaylistItem> {
+        return playlistSession.originalItems
+    }
+
+    fun applyExternalQueueSelection(
+        items: List<PlaylistItem>,
+        activeIndex: Int
+    ): ExternalQueueSelectionResult {
+        if (items.isEmpty()) {
+            uiState = uiState.copy(statusText = "播放失败：当前详情页没有可播放条目")
+            return ExternalQueueSelectionResult(
+                replacedQueue = false,
+                activeItemId = null
+            )
+        }
+        val normalizedIndex = activeIndex.coerceIn(0, items.lastIndex)
+        val targetItemId = items[normalizedIndex].id
+        val previousActiveId = playlistSession.activeItem?.id
+        val replacedQueue = playlistSession.originalItems.map { it.id } != items.map { it.id }
+
+        if (replacedQueue) {
+            playlistSession.replaceAll(items, normalizedIndex)
+        } else {
+            playlistSession.setActiveItemId(targetItemId)
+        }
+        syncSelectionFromPlaylist()
+        if (previousActiveId != playlistSession.activeItem?.id) {
+            resetPlaybackProjection()
+        }
+        uiState = uiState.copy(
+            showPlaylistSheet = false,
+            showSongWikiSheet = false,
+            statusText = if (replacedQueue) {
+                "已替换播放列表"
+            } else {
+                "已切换到: ${playlistSession.activeItem?.displayName.orEmpty()}"
+            }
+        )
+        return ExternalQueueSelectionResult(
+            replacedQueue = replacedQueue,
+            activeItemId = playlistSession.activeItem?.id
+        )
+    }
+
+    fun updatePlaylistItemsMetadata(
+        updatesById: Map<String, PlaylistItem>
+    ) {
+        if (updatesById.isEmpty()) {
+            return
+        }
+        val previousState = playlistSession.state
+        playlistSession.updateItemsById(updatesById)
+        if (playlistSession.state == previousState) {
+            return
+        }
+        syncSelectionFromPlaylist(forceRefreshActiveMetadata = true)
     }
 
     private fun restorePlaylistState() {
@@ -346,7 +426,9 @@ internal class PlayerRuntime(
         val item = PlaylistItem(
             id = UUID.randomUUID().toString(),
             uri = uri.toString(),
-            displayName = displayName
+            displayName = displayName,
+            title = displayName,
+            itemType = PlaylistItemType.LOCAL
         )
         playlistSession.addItem(item, makeActive = true)
         syncSelectionFromPlaylist()
@@ -367,23 +449,54 @@ internal class PlayerRuntime(
             seekPositionMs = 0L,
             seekDragPositionMs = 0L,
             isSeekDragging = false,
+            isPreparing = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
             showSongWikiSheet = false
         )
     }
 
-    private fun syncSelectionFromPlaylist() {
+    private fun syncSelectionFromPlaylist(forceRefreshActiveMetadata: Boolean = false) {
         val activeItem = playlistSession.activeItem
         val previousActiveId = uiState.playlistItems
             .getOrNull(uiState.activePlaylistIndex)
             ?.id
         val activeChanged = previousActiveId != activeItem?.id
+        val shouldRefreshActiveMetadata = activeChanged || forceRefreshActiveMetadata
         val canShowSongWiki = !activeItem?.songId.isNullOrBlank()
         uiState = uiState.copy(
-            selectedFileName = activeItem?.displayName ?: "No audio selected",
+            selectedFileName = if (shouldRefreshActiveMetadata) {
+                activeItem?.displayName ?: "No audio selected"
+            } else {
+                uiState.selectedFileName
+            },
+            currentTrackTitle = if (shouldRefreshActiveMetadata) {
+                activeItem?.effectiveTitle ?: "No audio selected"
+            } else {
+                uiState.currentTrackTitle
+            },
             hasSelection = playlistSession.items.isNotEmpty(),
             playlistItems = playlistSession.items,
             activePlaylistIndex = playlistSession.activeIndex,
+            currentTrackArtist = if (shouldRefreshActiveMetadata) {
+                activeItem?.artistText
+            } else {
+                uiState.currentTrackArtist
+            },
+            currentArtistId = if (shouldRefreshActiveMetadata) {
+                activeItem?.primaryArtistId
+            } else {
+                uiState.currentArtistId
+            },
+            currentCoverUrl = if (shouldRefreshActiveMetadata) {
+                activeItem?.coverUrl
+            } else {
+                uiState.currentCoverUrl
+            },
+            currentSongIdOverride = if (shouldRefreshActiveMetadata) {
+                activeItem?.songId
+            } else {
+                uiState.currentSongIdOverride
+            },
             showPlaylistSheet = if (playlistSession.items.isEmpty()) false else uiState.showPlaylistSheet,
             showSongWikiSheet = if (activeChanged) {
                 false
@@ -420,3 +533,8 @@ internal class PlayerRuntime(
         return remote ?: if (reportedDurationMs <= 0L && !isSeekSupported) emptyAudioMeta() else current
     }
 }
+
+internal data class ExternalQueueSelectionResult(
+    val replacedQueue: Boolean,
+    val activeItemId: String?
+)

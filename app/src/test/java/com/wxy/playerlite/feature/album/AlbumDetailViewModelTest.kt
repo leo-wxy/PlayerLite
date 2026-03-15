@@ -1,5 +1,7 @@
 package com.wxy.playerlite.feature.album
 
+import com.wxy.playerlite.feature.player.runtime.DetailPlaybackGateway
+import com.wxy.playerlite.feature.player.runtime.DetailPlaybackRequest
 import com.wxy.playerlite.test.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -54,7 +56,8 @@ class AlbumDetailViewModelTest {
 
         val viewModel = AlbumDetailViewModel(
             albumId = "32311",
-            repository = repository
+            repository = repository,
+            playbackGateway = FakeAlbumDetailPlaybackGateway()
         )
         advanceUntilIdle()
 
@@ -96,7 +99,8 @@ class AlbumDetailViewModelTest {
 
         val viewModel = AlbumDetailViewModel(
             albumId = "32311",
-            repository = repository
+            repository = repository,
+            playbackGateway = FakeAlbumDetailPlaybackGateway()
         )
         advanceUntilIdle()
 
@@ -171,6 +175,7 @@ class AlbumDetailViewModelTest {
         val viewModel = AlbumDetailViewModel(
             albumId = "32311",
             repository = repository,
+            playbackGateway = FakeAlbumDetailPlaybackGateway(),
             pageSize = 1
         )
         advanceUntilIdle()
@@ -226,6 +231,7 @@ class AlbumDetailViewModelTest {
         val viewModel = AlbumDetailViewModel(
             albumId = "32311",
             repository = repository,
+            playbackGateway = FakeAlbumDetailPlaybackGateway(),
             pageSize = 1
         )
         advanceUntilIdle()
@@ -237,6 +243,73 @@ class AlbumDetailViewModelTest {
         assertEquals(1, contentState.content.tracks.size)
         assertEquals("下一页加载失败", contentState.loadMoreErrorMessage)
         assertTrue(!contentState.endReached)
+    }
+
+    @Test
+    fun playAllAndTrack_shouldUseCurrentAlbumTracksAndTargetIndex() = runTest {
+        val repository = FakeAlbumDetailRepository(
+            contentResults = ArrayDeque(
+                listOf(
+                    Result.success(
+                        AlbumDetailContent(
+                            albumId = "32311",
+                            title = "神的游戏",
+                            artistText = "张悬",
+                            description = "专辑简介",
+                            coverUrl = "http://example.com/album.jpg",
+                            company = "索尼音乐",
+                            publishTimeText = "2012-08-10",
+                            trackCount = 2,
+                            tracks = listOf(
+                                AlbumTrackRow(
+                                    trackId = "track-1",
+                                    title = "疯狂的阳光",
+                                    artistText = "张悬",
+                                    albumTitle = "神的游戏",
+                                    coverUrl = "http://example.com/track-1.jpg",
+                                    durationMs = 235146L
+                                ),
+                                AlbumTrackRow(
+                                    trackId = "track-2",
+                                    title = "两者",
+                                    artistText = "张悬",
+                                    albumTitle = "神的游戏",
+                                    coverUrl = null,
+                                    durationMs = 200000L
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            dynamicResult = Result.success(
+                AlbumDynamicInfo(
+                    commentCount = 1990,
+                    shareCount = 8542,
+                    subscribedCount = 66888
+                )
+            )
+        )
+        val playbackGateway = FakeAlbumDetailPlaybackGateway()
+        val viewModel = AlbumDetailViewModel(
+            albumId = "32311",
+            repository = repository,
+            playbackGateway = playbackGateway
+        )
+        advanceUntilIdle()
+
+        viewModel.playAll()
+        viewModel.playTrack(1)
+
+        assertEquals(listOf(0, 1), playbackGateway.requests.map { it.activeIndex })
+        assertEquals(2, playbackGateway.requests.first().items.size)
+        assertEquals("album", playbackGateway.requests.first().items.first().contextType)
+        assertEquals("32311", playbackGateway.requests.first().items.first().contextId)
+        assertEquals("神的游戏", playbackGateway.requests.first().items.first().contextTitle)
+        assertEquals(
+            "http://example.com/album.jpg",
+            playbackGateway.requests.last().items[1].coverUrl
+        )
     }
 }
 
@@ -257,5 +330,14 @@ private class FakeAlbumDetailRepository(
 
     override suspend fun fetchAlbumDynamic(albumId: String): AlbumDynamicInfo {
         return dynamicResult.getOrThrow()
+    }
+}
+
+private class FakeAlbumDetailPlaybackGateway : DetailPlaybackGateway {
+    val requests = mutableListOf<DetailPlaybackRequest>()
+
+    override fun play(request: DetailPlaybackRequest): Boolean {
+        requests += request
+        return true
     }
 }

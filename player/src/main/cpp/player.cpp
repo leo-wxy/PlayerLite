@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -631,6 +632,9 @@ public:
 
             recover_retries = 0;
             offset += written;
+            if (output_bytes_per_frame_ > 0) {
+                total_written_frames_ += static_cast<uint64_t>(written / output_bytes_per_frame_);
+            }
 
             if (TryRecoverForPlaybackHeadStall(error_message)) {
                 recover_retries += 1;
@@ -667,6 +671,32 @@ public:
         }
         return NormalizePlaybackSpeedTenths(
                 context_->playback_speed_tenths.load(std::memory_order_relaxed));
+    }
+
+    bool FinalizePlayback(std::string* error_message) override {
+        if (audio_track_ == nullptr || output_sample_rate_ <= 0 || total_written_frames_ == 0) {
+            return true;
+        }
+
+        while (!ShouldStop()) {
+            uint64_t playback_head_frames = 0;
+            std::string ignored_error;
+            if (!ReadPlaybackHeadFrames(&playback_head_frames, &ignored_error)) {
+                if (error_message != nullptr) {
+                    error_message->clear();
+                }
+                return true;
+            }
+
+            NotifyProgressIfNeeded(true, nullptr);
+            if (playback_head_frames >= total_written_frames_) {
+                return true;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        return true;
     }
 
 private:
@@ -779,6 +809,8 @@ private:
         pending_audio_track_flush_ = false;
         is_paused_ = false;
         applied_playback_speed_tenths_ = CurrentPlaybackSpeedTenths();
+        output_bytes_per_frame_ = BytesPerFrame(candidate.channels, candidate.encoding);
+        total_written_frames_ = 0;
 
         return true;
     }
@@ -869,6 +901,7 @@ private:
         seek_anchor_head_frames_ = 0;
         last_notified_progress_ms_ = -1;
         pending_audio_track_flush_ = false;
+        total_written_frames_ = 0;
         return true;
     }
 
@@ -1107,6 +1140,12 @@ private:
         return false;
     }
 
+    int BytesPerFrame(int channels, jint encoding) const {
+        const int safe_channels = channels > 0 ? channels : 2;
+        const int bytes_per_sample = encoding == kEncodingPcmFloat ? 4 : 2;
+        return safe_channels * bytes_per_sample;
+    }
+
     void Shutdown() {
         ReleaseAudioTrackInstance();
 
@@ -1166,6 +1205,8 @@ private:
     int output_sample_rate_ = kFallbackSampleRate;
     int output_channel_count_ = 2;
     jint output_encoding_ = kEncodingPcm16Bit;
+    int output_bytes_per_frame_ = 4;
+    uint64_t total_written_frames_ = 0;
     int applied_playback_speed_tenths_ = kDefaultPlaybackSpeedTenths;
 };
 

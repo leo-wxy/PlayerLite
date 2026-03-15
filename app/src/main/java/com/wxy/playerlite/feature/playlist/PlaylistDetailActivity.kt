@@ -26,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,11 +51,14 @@ import com.wxy.playerlite.feature.detail.DetailHeroSummaryPreview
 import com.wxy.playerlite.feature.detail.DetailLoadingCard
 import com.wxy.playerlite.feature.detail.DetailMetaPill
 import com.wxy.playerlite.feature.detail.DetailPagingFooter
+import com.wxy.playerlite.feature.detail.DetailSectionPlayAllButton
 import com.wxy.playerlite.feature.detail.DetailTextDialog
+import com.wxy.playerlite.feature.detail.createOpenPlayerAfterQueueReplacementIntent
 import com.wxy.playerlite.feature.detail.MusicDetailScaffold
 import com.wxy.playerlite.feature.detail.formatTrackDuration
 import com.wxy.playerlite.feature.detail.previewSummaryText
 import com.wxy.playerlite.feature.detail.rememberDynamicHeroBrush
+import com.wxy.playerlite.feature.player.runtime.RuntimeDetailPlaybackGateway
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 internal const val EXTRA_PLAYLIST_ID = "playlist_id"
@@ -63,7 +67,8 @@ class PlaylistDetailActivity : ComponentActivity() {
     private val viewModel: PlaylistDetailViewModel by viewModels {
         PlaylistDetailViewModel.factory(
             playlistId = playlistIdFrom(intent),
-            repository = AppContainer.playlistDetailRepository(this)
+            repository = AppContainer.playlistDetailRepository(this),
+            playbackGateway = RuntimeDetailPlaybackGateway(this)
         )
     }
 
@@ -78,7 +83,17 @@ class PlaylistDetailActivity : ComponentActivity() {
                     state = state,
                     onBack = ::finish,
                     onRetry = viewModel::retry,
-                    onLoadMore = viewModel::loadMoreTracks
+                    onLoadMore = viewModel::loadMoreTracks,
+                    onPlayAll = {
+                        if (viewModel.playAll()) {
+                            startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
+                        }
+                    },
+                    onTrackClick = { index ->
+                        if (viewModel.playTrack(index)) {
+                            startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
+                        }
+                    }
                 )
             }
         }
@@ -106,7 +121,9 @@ internal fun PlaylistDetailScreen(
     state: PlaylistDetailUiState,
     onBack: () -> Unit,
     onRetry: () -> Unit,
-    onLoadMore: () -> Unit
+    onLoadMore: () -> Unit,
+    onPlayAll: () -> Unit,
+    onTrackClick: (Int) -> Unit
 ) {
     var isDescriptionVisible by rememberSaveable { mutableStateOf(false) }
 
@@ -145,14 +162,30 @@ internal fun PlaylistDetailScreen(
                 }
             ) {
                 item {
-                    Text(
-                        text = "歌曲列表",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .padding(horizontal = 20.dp, vertical = 12.dp)
-                            .testTag("playlist_tracks_section")
-                    )
+                    when (val dynamicState = state.dynamicState) {
+                        PlaylistDynamicUiState.Loading -> {
+                            DetailLoadingCard(text = "歌单动态信息加载中")
+                        }
+
+                        is PlaylistDynamicUiState.Error -> {
+                            DetailErrorCard(
+                                message = dynamicState.message,
+                                onRetry = onRetry,
+                                testTag = "playlist_dynamic_error"
+                            )
+                        }
+
+                        PlaylistDynamicUiState.Empty -> {
+                            DetailLoadingCard(text = "暂时没有更多歌单动态信息")
+                        }
+
+                        is PlaylistDynamicUiState.Content -> {
+                            PlaylistDynamicMetaSection(content = dynamicState.content)
+                        }
+                    }
+                }
+                item {
+                    PlaylistTracksSectionHeader(onPlayAll = onPlayAll)
                 }
                 when (val tracksState = state.tracksState) {
                     PlaylistTracksUiState.Loading -> {
@@ -178,10 +211,15 @@ internal fun PlaylistDetailScreen(
 
                     is PlaylistTracksUiState.Content -> {
                         items(
-                            items = tracksState.items,
-                            key = { item -> item.trackId }
-                        ) { item ->
-                            PlaylistTrackCard(item = item)
+                            count = tracksState.items.size,
+                            key = { index -> tracksState.items[index].trackId }
+                        ) { index ->
+                            PlaylistTrackCard(
+                                item = tracksState.items[index],
+                                onClick = {
+                                    onTrackClick(index)
+                                }
+                            )
                         }
                         item {
                             DetailPagingFooter(
@@ -264,6 +302,30 @@ private fun PlaylistDetailHero(
 }
 
 @Composable
+private fun PlaylistTracksSectionHeader(
+    onPlayAll: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "歌曲列表",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.testTag("playlist_tracks_section")
+        )
+        Spacer(modifier = Modifier.width(14.dp))
+        DetailSectionPlayAllButton(
+            onClick = onPlayAll,
+            testTag = "playlist_play_all_button"
+        )
+    }
+}
+
+@Composable
 private fun PlaylistCover(
     imageUrl: String?,
     title: String
@@ -339,13 +401,67 @@ private fun PlaylistTracksErrorCard(
 }
 
 @Composable
+private fun PlaylistDynamicMetaSection(
+    content: PlaylistDynamicInfo
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp)
+            .testTag("playlist_dynamic_meta_section"),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            PlaylistMetricText(label = "评论", value = content.commentCount.toString())
+            PlaylistMetricText(
+                label = "收藏",
+                value = if (content.isSubscribed) "已收藏" else "未收藏"
+            )
+            PlaylistMetricText(label = "播放", value = content.playCount.toString())
+        }
+    }
+}
+
+@Composable
+private fun PlaylistMetricText(
+    label: String,
+    value: String
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
 private fun PlaylistTrackCard(
-    item: PlaylistTrackRow
+    item: PlaylistTrackRow,
+    onClick: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 6.dp)
+            .clickable(onClick = onClick)
             .testTag("playlist_track_${item.trackId}"),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(

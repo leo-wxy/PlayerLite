@@ -10,7 +10,7 @@ class TrackPreparationCoordinatorProtectedOnlineTest {
     fun prepareNetworkSource_shouldRejectProtectedRequestWithoutAuthorizationContext() = runBlocking {
         val result = prepareNetworkSourceInternal(
             item = PlaybackTrack(
-                music = com.wxy.playerlite.playback.model.MusicInfo(
+                playable = com.wxy.playerlite.playback.model.MusicInfo(
                     id = "protected-1",
                     title = "Protected",
                     playbackUri = "https://example.com/protected.mp3",

@@ -1,12 +1,14 @@
 package com.wxy.playerlite.playback.process.source
 
 import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.ArrayDeque
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HttpRangeDataProviderTest {
@@ -55,6 +57,43 @@ class HttpRangeDataProviderTest {
         assertArrayEquals("llo".encodeToByteArray(), second)
         assertEquals(1, factory.requests.size)
         assertEquals("bytes=0-", factory.requests.single().headers["Range"])
+    }
+
+    @Test
+    fun contiguousReadsCanCrossTwoMegBoundary() {
+        val payload = ByteArray((2.5 * 1024 * 1024).toInt()) { index ->
+            (index % 251).toByte()
+        }
+        val factory = FakeConnectionFactory(
+            listOf(
+                FakeResponse(
+                    code = 206,
+                    headers = mapOf(
+                        "Content-Range" to "bytes 0-${payload.lastIndex}/${payload.size}",
+                        "Content-Length" to payload.size.toString()
+                    ),
+                    body = payload
+                )
+            )
+        )
+        val provider = HttpRangeDataProvider(
+            url = "https://example.com/audio.flac",
+            connectionFactory = factory::create
+        )
+
+        var offset = 0L
+        repeat(40) {
+            val bytes = provider.readAtBytes(offset = offset, size = 64 * 1024)
+            if (bytes.isEmpty()) {
+                return@repeat
+            }
+            val expected = payload.copyOfRange(offset.toInt(), offset.toInt() + bytes.size)
+            assertArrayEquals(expected, bytes)
+            offset += bytes.size
+        }
+
+        assertTrue(offset > 2L * 1024L * 1024L)
+        assertEquals(1, factory.requests.size)
     }
 
     @Test
@@ -115,13 +154,126 @@ class HttpRangeDataProviderTest {
         assertNotNull(factory.requests.single().headers["Accept-Encoding"])
     }
 
+    @Test
+    fun httpsReadShouldKeepOriginalHostnameInsteadOfResolvedIpv4() {
+        val factory = FakeConnectionFactory(
+            listOf(
+                FakeResponse(
+                    code = 206,
+                    headers = mapOf("Content-Range" to "bytes 0-4/5"),
+                    body = "hello".encodeToByteArray()
+                )
+            )
+        )
+        val provider = HttpRangeDataProvider(
+            url = "https://example.com/audio.mp3",
+            connectionFactory = factory::create,
+            ipv4Resolver = { "1.2.3.4" }
+        )
+
+        val bytes = provider.readAtBytes(offset = 0L, size = 5)
+
+        assertArrayEquals("hello".encodeToByteArray(), bytes)
+        assertEquals("example.com", factory.requests.single().url.host)
+        assertTrue(!factory.requests.single().headers.containsKey("Host"))
+    }
+
+    @Test
+    fun readAtAppliesCustomRequestHeaders() {
+        val factory = FakeConnectionFactory(
+            listOf(
+                FakeResponse(
+                    code = 206,
+                    headers = mapOf("Content-Range" to "bytes 0-4/5"),
+                    body = "hello".encodeToByteArray()
+                )
+            )
+        )
+        val provider = HttpRangeDataProvider(
+            url = "https://example.com/audio.mp3",
+            requestHeaders = mapOf(
+                "Cookie" to "MUSIC_U=test",
+                "X-CSRF-Token" to "csrf-token"
+            ),
+            connectionFactory = factory::create
+        )
+
+        provider.readAtBytes(offset = 0L, size = 5)
+
+        val request = factory.requests.single()
+        assertEquals("MUSIC_U=test", request.headers["Cookie"])
+        assertEquals("csrf-token", request.headers["X-CSRF-Token"])
+    }
+
+    @Test
+    fun unexpectedImmediateEofShouldReconnectAndRetrySameRange() {
+        val factory = FakeConnectionFactory(
+            listOf(
+                FakeResponse(
+                    code = 206,
+                    headers = mapOf(
+                        "Content-Range" to "bytes 1024-1028/4096",
+                        "Content-Length" to "5"
+                    ),
+                    bodyStreamFactory = { ByteArrayInputStream(ByteArray(0)) }
+                ),
+                FakeResponse(
+                    code = 206,
+                    headers = mapOf(
+                        "Content-Range" to "bytes 1024-1028/4096",
+                        "Content-Length" to "5"
+                    ),
+                    body = "hello".encodeToByteArray()
+                )
+            )
+        )
+        val provider = HttpRangeDataProvider(
+            url = "https://example.com/audio.mp3",
+            connectionFactory = factory::create
+        )
+
+        val bytes = provider.readAtBytes(offset = 1024L, size = 5)
+
+        assertArrayEquals("hello".encodeToByteArray(), bytes)
+        assertEquals(2, factory.requests.size)
+        assertEquals("bytes=1024-", factory.requests[0].headers["Range"])
+        assertEquals("bytes=1024-", factory.requests[1].headers["Range"])
+    }
+
+    @Test
+    fun transientZeroByteReadShouldKeepReadingSameConnection() {
+        val factory = FakeConnectionFactory(
+            listOf(
+                FakeResponse(
+                    code = 206,
+                    headers = mapOf(
+                        "Content-Range" to "bytes 0-4/5",
+                        "Content-Length" to "5"
+                    ),
+                    bodyStreamFactory = { ZeroThenPayloadInputStream("hello".encodeToByteArray()) }
+                )
+            )
+        )
+        val provider = HttpRangeDataProvider(
+            url = "https://example.com/audio.mp3",
+            connectionFactory = factory::create
+        )
+
+        val bytes = provider.readAtBytes(offset = 0L, size = 5)
+
+        assertArrayEquals("hello".encodeToByteArray(), bytes)
+        assertEquals(1, factory.requests.size)
+    }
+
     private data class FakeResponse(
         val code: Int,
         val headers: Map<String, String>,
-        val body: ByteArray
+        val body: ByteArray = ByteArray(0),
+        val bodyStreamFactory: (() -> InputStream)? = null
     )
 
     private data class CapturedRequest(
+        val url: URL,
         val method: String,
         val headers: Map<String, String>
     )
@@ -138,8 +290,8 @@ class HttpRangeDataProviderTest {
             } else {
                 queue.removeFirst()
             }
-            return FakeHttpURLConnection(url, response) { method, headers ->
-                requests += CapturedRequest(method = method, headers = headers)
+            return FakeHttpURLConnection(url, response) { requestUrl, method, headers ->
+                requests += CapturedRequest(url = requestUrl, method = method, headers = headers)
             }
         }
     }
@@ -147,7 +299,7 @@ class HttpRangeDataProviderTest {
     private class FakeHttpURLConnection(
         url: URL,
         private val response: FakeResponse,
-        private val onRequest: (String, Map<String, String>) -> Unit
+        private val onRequest: (URL, String, Map<String, String>) -> Unit
     ) : HttpURLConnection(url) {
         private val requestHeaders = mutableMapOf<String, String>()
         private var captured = false
@@ -178,14 +330,57 @@ class HttpRangeDataProviderTest {
             return response.code
         }
 
-        override fun getInputStream() = ByteArrayInputStream(response.body).also { captureIfNeeded() }
+        override fun getInputStream(): InputStream {
+            captureIfNeeded()
+            return response.bodyStreamFactory?.invoke() ?: ByteArrayInputStream(response.body)
+        }
 
         private fun captureIfNeeded() {
             if (captured) {
                 return
             }
             captured = true
-            onRequest(requestMethod, requestHeaders.toMap())
+            onRequest(url, requestMethod, requestHeaders.toMap())
+        }
+    }
+
+    private class ZeroThenPayloadInputStream(
+        private val payload: ByteArray
+    ) : InputStream() {
+        private var returnedZero = false
+        private var offset = 0
+
+        override fun read(): Int {
+            val buffer = ByteArray(1)
+            val read = read(buffer, 0, 1)
+            return if (read <= 0) {
+                -1
+            } else {
+                buffer[0].toInt() and 0xFF
+            }
+        }
+
+        override fun read(
+            b: ByteArray,
+            off: Int,
+            len: Int
+        ): Int {
+            if (!returnedZero) {
+                returnedZero = true
+                return 0
+            }
+            if (offset >= payload.size) {
+                return -1
+            }
+            val copySize = len.coerceAtMost(payload.size - offset)
+            payload.copyInto(
+                destination = b,
+                destinationOffset = off,
+                startIndex = offset,
+                endIndex = offset + copySize
+            )
+            offset += copySize
+            return copySize
         }
     }
 }

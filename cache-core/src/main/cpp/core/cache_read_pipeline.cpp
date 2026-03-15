@@ -38,6 +38,12 @@ bool CacheRuntime::WaitForReadable(
                 if (session->read_generation.load() != expected_generation) {
                     return true;
                 }
+                if (session->prefetch_failed &&
+                    session->prefetch_failure_generation == expected_generation &&
+                    session->prefetch_failure_offset >= 0 &&
+                    offset >= session->prefetch_failure_offset) {
+                    return true;
+                }
                 if (session->storage.content_length >= 0 && offset >= session->storage.content_length) {
                     return true;
                 }
@@ -72,6 +78,9 @@ void CacheRuntime::EnsurePrefetch(
             session->prefetch_generation = expected_generation;
             should_start = true;
         }
+        session->prefetch_failed = false;
+        session->prefetch_failure_generation = 0;
+        session->prefetch_failure_offset = -1;
     }
 
     // Wake an existing prefetch loop if it's waiting.
@@ -232,7 +241,7 @@ void CacheRuntime::PrefetchLoop(
             return true;
         };
 
-        (void) provider_bridge_->ReadAtStream(
+        const bool streamed = provider_bridge_->ReadAtStream(
                 provider_handle,
                 fetch_offset,
                 fetch_size,
@@ -246,7 +255,31 @@ void CacheRuntime::PrefetchLoop(
                 fetch_size,
                 delivered.load());
 
+        {
+            std::lock_guard<std::mutex> lock(session->mutex);
+            if (!session->closed.load() && session->read_generation.load() == expected_generation) {
+                if (delivered.load() > 0) {
+                    session->prefetch_failed = false;
+                    session->prefetch_failure_generation = 0;
+                    session->prefetch_failure_offset = -1;
+                } else if (!streamed) {
+                    session->prefetch_failed = true;
+                    session->prefetch_failure_generation = expected_generation;
+                    session->prefetch_failure_offset = fetch_offset;
+                }
+            }
+        }
+        session->data_cv.notify_all();
+
         if (delivered.load() <= 0) {
+            if (!streamed) {
+                std::lock_guard<std::mutex> lock(session->mutex);
+                if (session->prefetch_generation == expected_generation) {
+                    session->prefetch_running = false;
+                    session->prefetch_generation = 0;
+                }
+                break;
+            }
             // Avoid spinning hard on repeated failures.
             std::unique_lock<std::mutex> lock(session->mutex);
             if (session->closed.load() || session->read_generation.load() != expected_generation) {
@@ -278,6 +311,15 @@ std::vector<uint8_t> CacheRuntime::ReadAtInternal(
     // available, and block until at least 1 byte is readable (unless EOF/close).
     const auto stall_start = std::chrono::steady_clock::now();
     while (true) {
+        int64_t known_content_length = -1;
+        {
+            std::lock_guard<std::mutex> lock(session->mutex);
+            known_content_length = session->storage.content_length;
+        }
+        if (known_content_length < 0 || offset >= known_content_length) {
+            (void) RefreshContentLengthFromProvider(session);
+        }
+
         if (session->closed.load()) {
             return {};
         }
@@ -358,6 +400,43 @@ std::vector<uint8_t> CacheRuntime::ReadAtInternal(
 
         EnsurePrefetch(session, offset, generation);
         (void) WaitForReadable(session, offset, generation, kReadWaitTimeoutMs);
+
+        bool prefetch_failed = false;
+        {
+            std::lock_guard<std::mutex> lock(session->mutex);
+            prefetch_failed =
+                    session->prefetch_failed &&
+                    session->prefetch_failure_generation == generation &&
+                    session->prefetch_failure_offset >= 0 &&
+                    offset >= session->prefetch_failure_offset;
+        }
+        if (prefetch_failed) {
+            int32_t streamed_bytes = 0;
+            bool cancelled = false;
+            if (FetchBlockFromProvider(
+                        session,
+                        offset,
+                        desired,
+                        generation,
+                        &streamed_bytes,
+                        &cancelled) &&
+                streamed_bytes > 0) {
+                {
+                    std::lock_guard<std::mutex> lock(session->mutex);
+                    if (session->read_generation.load() == generation) {
+                        session->prefetch_failed = false;
+                        session->prefetch_failure_generation = 0;
+                        session->prefetch_failure_offset = -1;
+                    }
+                }
+                session->data_cv.notify_all();
+                continue;
+            }
+            if (cancelled) {
+                continue;
+            }
+            return {};
+        }
 
         const auto stall_elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - stall_start);
@@ -505,9 +584,10 @@ void CacheRuntime::ScheduleBlockPersist(
         locked->storage.cached_blocks =
                 locked->local_cache.GetTrunkIndex().ToBlockSet(locked->storage.block_size_bytes);
 
-        if (locked->storage.content_length < 0 && provider_bridge_ != nullptr && locked->provider_handle > 0) {
+        if (provider_bridge_ != nullptr && locked->provider_handle > 0) {
             const auto content_length = provider_bridge_->QueryContentLength(locked->provider_handle);
-            if (content_length >= 0) {
+            if (content_length > 0 &&
+                (locked->storage.content_length < 0 || content_length > locked->storage.content_length)) {
                 locked->storage.content_length = content_length;
             }
         }
@@ -522,6 +602,13 @@ void CacheRuntime::ScheduleBlockPersist(
             session->storage.completed_ranges = session->local_cache.GetTrunkIndex().Ranges();
             session->storage.cached_blocks =
                     session->local_cache.GetTrunkIndex().ToBlockSet(session->storage.block_size_bytes);
+            if (provider_bridge_ != nullptr && session->provider_handle > 0) {
+                const auto content_length = provider_bridge_->QueryContentLength(session->provider_handle);
+                if (content_length > 0 &&
+                    (session->storage.content_length < 0 || content_length > session->storage.content_length)) {
+                    session->storage.content_length = content_length;
+                }
+            }
             session->storage.last_access_epoch_ms = NowEpochMs();
             PersistConfigLocked(*session);
         }
