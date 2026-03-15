@@ -78,4 +78,41 @@ class MusicInfoTest {
         assertNotNull(restored)
         assertEquals(playable, restored)
     }
+
+    @Test
+    fun playableItemSnapshot_fromMediaItemShouldPreferOriginalTrackMetadataWhenDisplayTitleOverridesSessionTitle() {
+        val baseMediaItem = PlayableItemSnapshot(
+            id = "queue-3",
+            songId = "1969519579",
+            title = "夜曲",
+            artistText = "周杰伦",
+            albumTitle = "十一月的萧邦",
+            coverUrl = "https://example.com/night.jpg",
+            durationMs = 213_000L,
+            playbackUri = "https://example.com/night.mp3"
+        ).toMediaItem(statusText = "正在播放")
+        val mediaItem = baseMediaItem
+            .buildUpon()
+            .setMediaMetadata(
+                androidx.media3.common.MediaMetadata.Builder()
+                    .setTitle("为你弹奏肖邦的夜曲")
+                    .setArtist("夜曲 - 周杰伦")
+                    .setAlbumTitle("十一月的萧邦")
+                    .setArtworkUri(android.net.Uri.parse("https://example.com/night.jpg"))
+                    .setExtras(
+                        android.os.Bundle(baseMediaItem.mediaMetadata.extras ?: android.os.Bundle()).apply {
+                            putString("original_title", "夜曲")
+                            putString("original_artist_text", "周杰伦")
+                        }
+                    )
+                    .build()
+            )
+            .build()
+
+        val restored = PlayableItemSnapshot.fromMediaItem(mediaItem)
+
+        assertNotNull(restored)
+        assertEquals("夜曲", restored?.title)
+        assertEquals("周杰伦", restored?.artistText)
+    }
 }

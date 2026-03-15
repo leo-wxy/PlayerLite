@@ -142,6 +142,46 @@ class PlayerSessionPlayerTest {
     }
 
     @Test
+    fun getState_projectsDisplayMetadataIntoCurrentItemWhilePreservingOriginalTrackMetadata() {
+        val runtime = createRuntime(
+            PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-1",
+                            songId = "1969519579",
+                            title = "夜曲",
+                            artistNames = listOf("周杰伦"),
+                            albumTitle = "十一月的萧邦",
+                            playbackUri = "https://example.com/track-1.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 0,
+                displayTitleOverride = "为你弹奏肖邦的夜曲",
+                displaySubtitleOverride = "夜曲 - 周杰伦"
+            )
+        )
+
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+        val titleRef = AtomicReference<String?>()
+        val artistRef = AtomicReference<String?>()
+        val extrasRef = AtomicReference<android.os.Bundle?>()
+
+        Handler(Looper.getMainLooper()).post {
+            titleRef.set(player.currentMediaItem?.mediaMetadata?.title?.toString())
+            artistRef.set(player.currentMediaItem?.mediaMetadata?.artist?.toString())
+            extrasRef.set(player.currentMediaItem?.mediaMetadata?.extras)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals("为你弹奏肖邦的夜曲", titleRef.get())
+        assertEquals("夜曲 - 周杰伦", artistRef.get())
+        assertEquals("夜曲", extrasRef.get()?.getString("original_title"))
+        assertEquals("周杰伦", extrasRef.get()?.getString("original_artist_text"))
+    }
+
+    @Test
     fun getState_keepsNextCommandAvailableOnListLoopTail() {
         val runtime = createRuntime(
             PlaybackProcessState(

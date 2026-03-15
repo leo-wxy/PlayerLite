@@ -94,6 +94,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import coil.compose.AsyncImage
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
+import com.wxy.playerlite.feature.player.resolvePlayerDisplayMetadataProjection
 import com.wxy.playerlite.feature.player.ui.PlayerTrackText
 import com.wxy.playerlite.feature.player.ui.resolvePlayerTrackText
 import com.wxy.playerlite.feature.user.AccountCardSurface
@@ -717,25 +718,25 @@ private fun HomePlayEntryCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("home_mini_player_bar")
-                .padding(start = 10.dp, top = 10.dp, end = 12.dp, bottom = 10.dp),
+                .padding(start = 8.dp, top = 8.dp, end = 10.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(18.dp))
                     .clickable(onClick = onOpenPlayer)
-                    .padding(vertical = 4.dp)
+                    .padding(vertical = 2.dp)
                     .testTag("home_mini_player_body"),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Surface(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(44.dp)
                         .testTag("home_mini_player_artwork"),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = HOME_ACCENT_RED.copy(alpha = 0.12f)
                 ) {
                     if (!miniPlayerState.artworkUrl.isNullOrBlank()) {
@@ -775,7 +776,7 @@ private fun HomePlayEntryCard(
                                 imageVector = Icons.Rounded.Album,
                                 contentDescription = null,
                                 tint = HOME_ACCENT_RED,
-                                modifier = Modifier.size(26.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
@@ -862,7 +863,7 @@ private fun HomePlayEntryCard(
                 ) {
                     Text(
                         text = miniPlayerState.title,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Clip,
@@ -877,17 +878,24 @@ private fun HomePlayEntryCard(
                     )
                     Text(
                         text = miniPlayerState.artist,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("home_mini_player_artist")
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                repeatDelayMillis = 1_000,
+                                spacing = MarqueeSpacing(20.dp)
+                            )
+                            .testTag("home_mini_player_artist")
                     )
                 }
             }
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 HomeMiniPlayerProgressButton(
@@ -905,7 +913,9 @@ private fun HomePlayEntryCard(
                             containerColor = Color.Transparent,
                             contentColor = MaterialTheme.colorScheme.onSurface
                         ),
-                        modifier = Modifier.testTag("home_mini_player_playlist_button")
+                        modifier = Modifier
+                            .size(34.dp)
+                            .testTag("home_mini_player_playlist_button")
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
@@ -956,10 +966,18 @@ private fun resolveHomeMiniPlayerState(playerState: PlayerUiState): HomeMiniPlay
     } else {
         0f
     }
+    val displayMetadata = resolvePlayerDisplayMetadataProjection(
+        baseTitle = trackText?.title,
+        baseArtist = trackText?.artist,
+        lyricUiState = playerState.lyricUiState,
+        currentPositionMs = playerState.displayedSeekMs,
+        emptyTitle = "未选择音频",
+        emptySubtitle = "点击进入播放页"
+    )
 
     return HomeMiniPlayerState(
-        title = trackText?.title ?: "未选择音频",
-        artist = trackText?.artist ?: "点击进入播放页",
+        title = displayMetadata.title,
+        artist = displayMetadata.subtitle,
         progress = progress,
         isPlaying = playerState.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING,
         artworkUrl = playerState.currentCoverUrl
@@ -979,11 +997,11 @@ private fun HomeMiniPlayerProgressButton(
     modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = modifier.size(42.dp),
+        modifier = modifier.size(38.dp),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.size(42.dp)) {
-            val strokeWidth = 3.dp.toPx()
+        Canvas(modifier = Modifier.size(38.dp)) {
+            val strokeWidth = 2.5.dp.toPx()
             drawArc(
                 color = HOME_ACCENT_RED.copy(alpha = 0.14f),
                 startAngle = -90f,
@@ -1011,7 +1029,7 @@ private fun HomeMiniPlayerProgressButton(
                     contentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(30.dp)
                     .testTag("home_mini_player_play_pause_button")
             ) {
                 Icon(
@@ -1750,9 +1768,18 @@ private val HOME_ACCENT_RED = Color(0xFFD33A31)
 @Composable
 internal fun HomeContent(
     homeSurfaceMode: HomeSurfaceMode,
+    animateTransitions: Boolean = true,
     overviewContent: @Composable () -> Unit,
     expandedContent: @Composable () -> Unit
 ) {
+    if (!animateTransitions) {
+        when (homeSurfaceMode) {
+            HomeSurfaceMode.OVERVIEW -> overviewContent()
+            HomeSurfaceMode.PLAYER_EXPANDED -> expandedContent()
+        }
+        return
+    }
+
     AnimatedContent(
         targetState = homeSurfaceMode,
         transitionSpec = {

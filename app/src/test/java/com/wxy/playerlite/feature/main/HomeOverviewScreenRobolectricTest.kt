@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -21,12 +22,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import com.wxy.playerlite.core.playlist.PlaylistItem
+import com.wxy.playerlite.feature.player.LyricLine
+import com.wxy.playerlite.feature.player.ParsedLyrics
+import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -36,6 +43,41 @@ import org.robolectric.RobolectricTestRunner
 class HomeOverviewScreenRobolectricTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun homeContent_externalOpenPlayer_shouldSkipOverviewToPlayerAnimation() {
+        var mode by mutableStateOf(HomeSurfaceMode.OVERVIEW)
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                HomeContent(
+                    homeSurfaceMode = mode,
+                    animateTransitions = false,
+                    overviewContent = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("home_content_overview")
+                        )
+                    },
+                    expandedContent = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("home_content_player")
+                        )
+                    }
+                )
+            }
+        }
+
+        composeRule.runOnIdle {
+            mode = HomeSurfaceMode.PLAYER_EXPANDED
+        }
+
+        composeRule.onNodeWithTag("home_content_player").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("home_content_overview").assertCountEquals(0)
+    }
 
     @Test
     fun discoveryItems_shouldExposeClickActionAcrossLayouts() {
@@ -137,8 +179,10 @@ class HomeOverviewScreenRobolectricTest {
         composeRule.onNodeWithTag("home_mini_player_playlist_button").assertIsDisplayed().assertHasClickAction()
         composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithTag("home_mini_player_artist", useUnmergedTree = true).assertIsDisplayed()
-        composeRule.onNodeWithText("尘大师 Lightly").assertIsDisplayed()
-        composeRule.onNodeWithText("陈奕迅").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true)
+            .assertTextEquals("尘大师 Lightly")
+        composeRule.onNodeWithTag("home_mini_player_artist", useUnmergedTree = true)
+            .assertTextEquals("尘大师 Lightly - 陈奕迅")
     }
 
     @Test
@@ -166,9 +210,54 @@ class HomeOverviewScreenRobolectricTest {
             }
         }
 
-        composeRule.onNodeWithText("尘大师 Lightly").assertIsDisplayed()
-        composeRule.onNodeWithText("陈奕迅").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true)
+            .assertTextEquals("尘大师 Lightly")
+        composeRule.onNodeWithTag("home_mini_player_artist", useUnmergedTree = true)
+            .assertTextEquals("尘大师 Lightly - 陈奕迅")
         composeRule.onAllNodesWithText("raw-cache-file-name").assertCountEquals(0)
+    }
+
+    @Test
+    fun miniPlayerBar_shouldPreferCurrentLyricAndShowSongArtistOnSecondLine() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                HomeOverviewScreen(
+                    playerState = PlayerUiState(
+                        selectedFileName = "周杰伦 - 夜曲.mp3",
+                        currentTrackTitle = "夜曲",
+                        currentTrackArtist = "周杰伦",
+                        lyricUiState = PlayerLyricUiState.Content(
+                            lyrics = ParsedLyrics(
+                                songId = "1973665667",
+                                lines = listOf(
+                                    LyricLine(timestampMs = 1_000L, text = "第一句"),
+                                    LyricLine(timestampMs = 3_000L, text = "第二句")
+                                ),
+                                rawText = "[00:01.00]第一句\n[00:03.00]第二句"
+                            )
+                        ),
+                        seekPositionMs = 3_500L,
+                        durationMs = 120_000L,
+                        statusText = "正在播放"
+                    ),
+                    overviewState = HomeOverviewUiState(
+                        isLoading = false,
+                        sections = emptyList(),
+                        searchKeywords = listOf("默认热搜")
+                    ),
+                    onSearchClick = {},
+                    onRetry = {},
+                    onItemClick = {},
+                    onOpenPlayer = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true)
+            .assertTextEquals("第二句")
+        composeRule.onNodeWithTag("home_mini_player_artist", useUnmergedTree = true)
+            .assertTextEquals("夜曲 - 周杰伦")
+        composeRule.onAllNodesWithText("周杰伦 - 夜曲.mp3").assertCountEquals(0)
     }
 
     @Test
@@ -542,5 +631,66 @@ class HomeOverviewScreenRobolectricTest {
         composeRule.onNodeWithTag("home_mini_player_song_area", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithText("一首为了验证首页迷你播放条标题过长时需要跑马灯展示效果的超长歌曲名称").assertIsDisplayed()
+    }
+
+    @Test
+    fun miniPlayerBar_shouldUseMoreCompactSizing() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                HomeOverviewScreen(
+                    playerState = PlayerUiState(
+                        currentTrackTitle = "尘大师 Lightly",
+                        currentTrackArtist = "陈奕迅",
+                        currentCoverUrl = "https://example.com/lightly.jpg",
+                        statusText = "正在播放"
+                    ),
+                    overviewState = HomeOverviewUiState(
+                        isLoading = false,
+                        sections = emptyList(),
+                        searchKeywords = listOf("默认热搜")
+                    ),
+                    onSearchClick = {},
+                    onRetry = {},
+                    onItemClick = {},
+                    onOpenPlayer = {}
+                )
+            }
+        }
+
+        val barBounds = composeRule
+            .onNodeWithTag("home_mini_player_bar")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val artworkBounds = composeRule
+            .onNodeWithTag("home_mini_player_artwork", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val playPauseBounds = composeRule
+            .onNodeWithTag("home_mini_player_play_pause_button")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val playlistBounds = composeRule
+            .onNodeWithTag("home_mini_player_playlist_button")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val barHeightDp = with(composeRule.density) { barBounds.height.toDp() }
+        val artworkWidthDp = with(composeRule.density) { artworkBounds.width.toDp() }
+
+        assertTrue(
+            "Expected mini player bar height to shrink for compact layout, but was $barHeightDp",
+            barHeightDp <= 96.dp
+        )
+        assertTrue(
+            "Expected artwork to shrink with compact minibar layout, but was $artworkWidthDp",
+            artworkWidthDp <= 46.dp
+        )
+        assertTrue(
+            "Expected play button to remain inside compact bar, play=$playPauseBounds bar=$barBounds",
+            playPauseBounds.bottom <= barBounds.bottom
+        )
+        assertTrue(
+            "Expected playlist button to remain inside compact bar, playlist=$playlistBounds bar=$barBounds",
+            playlistBounds.bottom <= barBounds.bottom
+        )
     }
 }

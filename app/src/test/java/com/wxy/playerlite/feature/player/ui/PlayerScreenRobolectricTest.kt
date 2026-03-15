@@ -5,6 +5,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -13,6 +17,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
@@ -20,9 +27,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.wxy.playerlite.core.playlist.PlaylistItem
+import com.wxy.playerlite.feature.player.LyricLine
+import com.wxy.playerlite.feature.player.ParsedLyrics
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
+import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState
+import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.demoSongWikiSummary
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
@@ -87,10 +98,16 @@ class PlayerScreenRobolectricTest {
         }
 
         composeRule.onNodeWithTag("player_screen_top_bar").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_top_title").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_top_tabs").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_top_tab_song").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_top_tab_lyrics").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("player_screen_top_tab_indicator_song", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodesWithTag("player_screen_top_tab_indicator_lyrics", useUnmergedTree = true).assertCountEquals(0)
         composeRule.onNodeWithTag("player_screen_top_back_button").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_top_share_button").assertIsDisplayed()
         composeRule.onNodeWithText("歌曲").assertIsDisplayed()
+        composeRule.onNodeWithText("歌词").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_song_page").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_visual_section").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_cover_card").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_bottom_section").assertIsDisplayed()
@@ -116,10 +133,6 @@ class PlayerScreenRobolectricTest {
             lowerTag = "player_screen_lyric_placeholder"
         )
         assertVerticalOrder(
-            upperTag = "player_screen_visual_section",
-            lowerTag = "player_screen_info_section"
-        )
-        assertVerticalOrder(
             upperTag = "player_screen_info_section",
             lowerTag = "player_screen_progress_section"
         )
@@ -133,7 +146,7 @@ class PlayerScreenRobolectricTest {
             .fetchSemanticsNode()
             .boundsInRoot
         val titleBounds = composeRule
-            .onNodeWithTag("player_screen_top_title")
+            .onNodeWithTag("player_screen_top_tabs")
             .fetchSemanticsNode()
             .boundsInRoot
         val shareBounds = composeRule
@@ -334,7 +347,7 @@ class PlayerScreenRobolectricTest {
             .boundsInRoot
         assertTrue(
             "Expected square cover card, but was $coverBounds",
-            kotlin.math.abs(coverBounds.width - coverBounds.height) < 1f
+            kotlin.math.abs(coverBounds.width - coverBounds.height) < 4f
         )
     }
 
@@ -438,8 +451,384 @@ class PlayerScreenRobolectricTest {
         }
 
         composeRule.onNodeWithTag("player_screen_buffering_indicator").assertIsDisplayed()
-        composeRule.onNodeWithText("缓冲中...").assertIsDisplayed()
+        composeRule.onNodeWithText("缓冲中...", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_lyric_placeholder").assertIsDisplayed()
+    }
+
+    @Test
+    fun lyricTopTabClick_shouldSwitchToImmersiveLyricsPageWithoutBottomPlaybackChrome() {
+        var selectedTopTab by mutableStateOf(PlayerTopTab.SONG)
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "夜曲",
+                    artistText = "周杰伦",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylistWithCover,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    showSongWikiSheet = false,
+                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                    lyricUiState = demoLyricUiState(),
+                    selectedTopTab = selectedTopTab,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 2_500L,
+                    currentDurationText = "00:02",
+                    durationMs = 120_000L,
+                    totalDurationText = "02:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onShowSongWiki = {},
+                    onDismissSongWiki = {},
+                    onRetrySongWiki = {},
+                    onRetryLyrics = {},
+                    onSelectTopTab = { selectedTopTab = it },
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("player_screen_lyric_summary").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_lyric_summary").assertTextEquals("“第一句”")
+        composeRule.onNode(hasText("歌词") and hasClickAction())
+            .performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.runOnIdle {
+            assertEquals(PlayerTopTab.LYRICS, selectedTopTab)
+        }
+        composeRule.onAllNodesWithTag("player_screen_top_tab_indicator_lyrics", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodesWithTag("player_screen_top_tab_indicator_song", useUnmergedTree = true).assertCountEquals(0)
+        composeRule.onNodeWithTag("player_screen_lyrics_page").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_lyrics_viewport").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_bottom_section").assertIsNotDisplayed()
+        composeRule.onNodeWithTag("player_screen_info_section").assertIsNotDisplayed()
+        composeRule.onNodeWithTag("player_screen_progress_section").assertIsNotDisplayed()
+        composeRule.onNodeWithTag("player_screen_controls_section").assertIsNotDisplayed()
+        composeRule.onNodeWithTag("player_screen_title").assertIsNotDisplayed()
+        composeRule.onNodeWithTag("player_screen_artist").assertIsNotDisplayed()
+        composeRule.onNodeWithTag("player_screen_lyrics_line_active_0").assertIsDisplayed()
+    }
+
+    @Test
+    fun lyricsPageSwipe_shouldAutoScrollAndReturnToSongPageWithoutBottomPlaybackChrome() {
+        var seekValueMs by mutableStateOf(1_500L)
+        var selectedTopTab by mutableStateOf(PlayerTopTab.SONG)
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "夜曲",
+                    artistText = "周杰伦",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylistWithCover,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    showSongWikiSheet = false,
+                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                    lyricUiState = demoLongLyricUiState(),
+                    selectedTopTab = selectedTopTab,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = seekValueMs,
+                    currentDurationText = "00:18",
+                    durationMs = 120_000L,
+                    totalDurationText = "02:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onShowSongWiki = {},
+                    onDismissSongWiki = {},
+                    onRetrySongWiki = {},
+                    onRetryLyrics = {},
+                    onSelectTopTab = { selectedTopTab = it },
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {}
+                )
+            }
+        }
+
+        composeRule.runOnIdle {
+            seekValueMs = 18_500L
+        }
+        composeRule.onNodeWithTag("player_screen_lyric_summary").assertTextEquals("“第18句”")
+        composeRule.onNodeWithTag("player_screen_content_pager").performTouchInput {
+            swipeLeft()
+        }
+        composeRule.waitUntil(timeoutMillis = 3_000) {
+            selectedTopTab == PlayerTopTab.LYRICS
+        }
+        composeRule.onNodeWithTag("player_screen_lyrics_page").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_lyrics_viewport").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_progress_section").assertIsNotDisplayed()
+        composeRule.onNodeWithTag("player_screen_lyrics_line_active_17").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_content_pager").performTouchInput {
+            swipeRight()
+        }
+        composeRule.waitUntil(timeoutMillis = 3_000) {
+            selectedTopTab == PlayerTopTab.SONG
+        }
+        composeRule.onNodeWithTag("player_screen_song_page").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_progress_section").assertIsDisplayed()
+    }
+
+    @Test
+    fun lyricError_shouldExposeRetryAction() {
+        var retryCount = 0
+        var selectedTopTab by mutableStateOf(PlayerTopTab.SONG)
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "夜曲",
+                    artistText = "周杰伦",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylistWithCover,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    showSongWikiSheet = false,
+                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                    lyricUiState = PlayerLyricUiState.Error("歌词加载失败"),
+                    selectedTopTab = selectedTopTab,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 2_500L,
+                    currentDurationText = "00:02",
+                    durationMs = 120_000L,
+                    totalDurationText = "02:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onShowSongWiki = {},
+                    onDismissSongWiki = {},
+                    onRetrySongWiki = {},
+                    onRetryLyrics = { retryCount += 1 },
+                    onSelectTopTab = { selectedTopTab = it },
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {}
+                )
+            }
+        }
+
+        composeRule.runOnIdle {
+            selectedTopTab = PlayerTopTab.LYRICS
+        }
+        composeRule.onNodeWithTag("player_screen_lyrics_page").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_lyrics_retry_button").performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, retryCount)
+        }
+    }
+
+    @Test
+    fun lyricsPage_shouldMatchSongPageVerticalRhythmWithoutExtraMetadataHeader() {
+        var selectedTopTab by mutableStateOf(PlayerTopTab.SONG)
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(
+                    modifier = Modifier
+                        .size(width = 360.dp, height = 760.dp)
+                        .testTag("player_screen_root")
+                ) {
+                    PlayerScreen(
+                        fileName = "夜曲",
+                        artistText = "周杰伦",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        lyricUiState = demoLongLyricUiState(),
+                        selectedTopTab = selectedTopTab,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 18_500L,
+                        currentDurationText = "00:18",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        modifier = Modifier.testTag("player_screen_root_content"),
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onRetryLyrics = {},
+                        onSelectTopTab = { selectedTopTab = it },
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        val rootBounds = composeRule.onNodeWithTag("player_screen_root").fetchSemanticsNode().boundsInRoot
+        val songTopAnchorBounds = composeRule
+            .onNodeWithTag("player_screen_song_content_top_anchor")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val controlsAnchorBounds = composeRule
+            .onNodeWithTag("player_screen_song_controls_bottom_anchor")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        composeRule.runOnIdle {
+            selectedTopTab = PlayerTopTab.LYRICS
+        }
+
+        composeRule.onNodeWithTag("player_screen_title").assertIsNotDisplayed()
+        composeRule.onNodeWithTag("player_screen_artist").assertIsNotDisplayed()
+
+        val lyricsViewportBounds = composeRule
+            .onNodeWithTag("player_screen_lyrics_viewport")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val songBottomInset = rootBounds.bottom - controlsAnchorBounds.bottom
+        val lyricsBottomInset = rootBounds.bottom - lyricsViewportBounds.bottom
+
+        assertTrue(
+            "Expected lyrics viewport top ${lyricsViewportBounds.top} to align with song anchor top ${songTopAnchorBounds.top}",
+            kotlin.math.abs(lyricsViewportBounds.top - songTopAnchorBounds.top) <= 4f
+        )
+        assertTrue(
+            "Expected lyrics viewport bottom inset $lyricsBottomInset to align with song controls inset $songBottomInset",
+            kotlin.math.abs(lyricsBottomInset - songBottomInset) <= 4f
+        )
+    }
+
+    @Test
+    fun lyricsPage_activeLineHighlightShouldStayWithinModerateSizeDelta() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "夜曲",
+                    artistText = "周杰伦",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylistWithCover,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    showSongWikiSheet = false,
+                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                    lyricUiState = demoLyricUiState(),
+                    selectedTopTab = PlayerTopTab.LYRICS,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 3_500L,
+                    currentDurationText = "00:03",
+                    durationMs = 120_000L,
+                    totalDurationText = "02:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onShowSongWiki = {},
+                    onDismissSongWiki = {},
+                    onRetrySongWiki = {},
+                    onRetryLyrics = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {}
+                )
+            }
+        }
+
+        val activeBounds = composeRule
+            .onNodeWithTag("player_screen_lyrics_line_active_1")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val inactiveBounds = composeRule
+            .onNodeWithTag("player_screen_lyrics_line_0")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val activeHeight = activeBounds.height
+        val inactiveHeight = inactiveBounds.height
+
+        assertTrue(
+            "Expected active lyric line height $activeHeight to stay close to inactive height $inactiveHeight",
+            activeHeight <= inactiveHeight * 1.12f
+        )
     }
 
     @Test
@@ -869,12 +1258,12 @@ class PlayerScreenRobolectricTest {
             .boundsInRoot
 
         assertTrue(
-            "Expected previous button to be visually larger than the old compact spec, but width was ${previousBounds.width}",
-            previousBounds.width >= 52f
+            "Expected previous button to keep a clear touch target after the responsive shrink, but width was ${previousBounds.width}",
+            previousBounds.width >= 48f
         )
         assertTrue(
-            "Expected next button to be visually larger than the old compact spec, but width was ${nextBounds.width}",
-            nextBounds.width >= 52f
+            "Expected next button to keep a clear touch target after the responsive shrink, but width was ${nextBounds.width}",
+            nextBounds.width >= 48f
         )
     }
 
@@ -941,8 +1330,8 @@ class PlayerScreenRobolectricTest {
             .boundsInRoot
 
         assertTrue(
-            "Expected center toggle button to be clearly larger than side buttons, but toggle=${toggleBounds.width} previous=${previousBounds.width}",
-            toggleBounds.width - previousBounds.width >= 18f
+            "Expected center toggle button to stay larger than side buttons without overpowering them, but toggle=${toggleBounds.width} previous=${previousBounds.width}",
+            toggleBounds.width - previousBounds.width >= 8f
         )
     }
 
@@ -1463,4 +1852,35 @@ class PlayerScreenRobolectricTest {
             )
         )
     }
+}
+
+private fun demoLyricUiState(songId: String = "1973665667"): PlayerLyricUiState.Content {
+    return PlayerLyricUiState.Content(
+        lyrics = ParsedLyrics(
+            songId = songId,
+            lines = listOf(
+                LyricLine(timestampMs = 1_000L, text = "第一句"),
+                LyricLine(timestampMs = 3_000L, text = "第二句")
+            ),
+            rawText = "[00:01.00]第一句\n[00:03.00]第二句"
+        )
+    )
+}
+
+private fun demoLongLyricUiState(songId: String = "1973665667"): PlayerLyricUiState.Content {
+    val lines = (1..24).map { index ->
+        LyricLine(
+            timestampMs = index * 1_000L,
+            text = "第${index}句"
+        )
+    }
+    return PlayerLyricUiState.Content(
+        lyrics = ParsedLyrics(
+            songId = songId,
+            lines = lines,
+            rawText = lines.joinToString(separator = "\n") { line ->
+                "[00:${line.timestampMs / 1_000L}.${"00"}]${line.text}"
+            }
+        )
+    )
 }

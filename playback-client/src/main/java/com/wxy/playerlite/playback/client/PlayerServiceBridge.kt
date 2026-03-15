@@ -34,6 +34,7 @@ class PlayerServiceBridge(
     private val pendingActions = mutableListOf<(MediaController) -> Unit>()
     private var pendingQueueSyncRequest: PendingQueueSyncRequest? = null
     private var pendingPlaybackModeUpdate: PlaybackMode? = null
+    private var pendingDisplayMetadataUpdate: PendingDisplayMetadataUpdate? = null
 
     fun prewarmConnection() {
         connectIfNeeded()
@@ -91,7 +92,8 @@ class PlayerServiceBridge(
                         if (
                             pendingActions.isNotEmpty() ||
                             pendingQueueSyncRequest != null ||
-                            pendingPlaybackModeUpdate != null
+                            pendingPlaybackModeUpdate != null ||
+                            pendingDisplayMetadataUpdate != null
                         ) {
                             connectIfNeeded()
                         }
@@ -100,6 +102,7 @@ class PlayerServiceBridge(
                     pendingActions.clear()
                     pendingQueueSyncRequest = null
                     pendingPlaybackModeUpdate = null
+                    pendingDisplayMetadataUpdate = null
                     onControllerError("MediaController connect failed: ${it.message ?: "unknown"}")
                 }
             },
@@ -319,6 +322,52 @@ class PlayerServiceBridge(
         }
     }
 
+    fun setDisplayMetadata(title: String?, subtitle: String?): Boolean {
+        val args = Bundle().apply {
+            putString(PlaybackSessionCommands.EXTRA_DISPLAY_TITLE, title)
+            putString(PlaybackSessionCommands.EXTRA_DISPLAY_SUBTITLE, subtitle)
+        }
+        val activeController = controller
+        if (activeController == null || !isConnected(activeController)) {
+            if (released) {
+                return false
+            }
+            if (activeController != null) {
+                runCatching { activeController.release() }
+                controller = null
+            }
+            pendingDisplayMetadataUpdate = PendingDisplayMetadataUpdate(
+                title = title,
+                subtitle = subtitle
+            )
+            connectIfNeeded()
+            safeLogD("Controller unavailable; display metadata update deferred")
+            return true
+        }
+        return withController { resolvedController ->
+            val future = resolvedController.sendCustomCommand(
+                SessionCommand(PlaybackSessionCommands.ACTION_SET_DISPLAY_METADATA, Bundle.EMPTY),
+                args
+            )
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess { result ->
+                            if (result.resultCode != SessionResult.RESULT_SUCCESS) {
+                                onControllerError("Set display metadata rejected: ${result.resultCode}")
+                            }
+                        }
+                        .onFailure { error ->
+                            onControllerError(
+                                "Set display metadata failed: ${error.message ?: "unknown"}"
+                            )
+                        }
+                },
+                mainExecutor
+            )
+        }
+    }
+
     fun currentSnapshot(): RemotePlaybackSnapshot? {
         val activeController = controller ?: return null
         val sessionExtras = activeController.sessionExtras
@@ -407,6 +456,14 @@ class PlayerServiceBridge(
                 onControllerError("MediaController command failed: ${it.message ?: "unknown"}")
             }
         }
+        pendingDisplayMetadataUpdate?.let { update ->
+            pendingDisplayMetadataUpdate = null
+            runCatching {
+                setDisplayMetadata(update.title, update.subtitle)
+            }.onFailure {
+                onControllerError("MediaController command failed: ${it.message ?: "unknown"}")
+            }
+        }
         if (pendingActions.isEmpty()) {
             return
         }
@@ -440,6 +497,11 @@ class PlayerServiceBridge(
         val activeIndex: Int,
         val playWhenReady: Boolean,
         val startPositionMs: Long
+    )
+
+    private data class PendingDisplayMetadataUpdate(
+        val title: String?,
+        val subtitle: String?
     )
 
     private fun safeLogD(message: String) {

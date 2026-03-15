@@ -20,6 +20,7 @@ class MainActivityLaunchRequestTest {
         )
 
         assertTrue(MainActivity.shouldOpenPlayerFromIntent(intent))
+        assertFalse(MainActivity.shouldStartPlaybackFromIntent(intent))
     }
 
     @Test
@@ -30,5 +31,18 @@ class MainActivityLaunchRequestTest {
         )
 
         assertFalse(MainActivity.shouldOpenPlayerFromIntent(intent))
+        assertFalse(MainActivity.shouldStartPlaybackFromIntent(intent))
+    }
+
+    @Test
+    fun createIntentWithStartPlaybackFlag_shouldMarkPlaybackStartRequest() {
+        val intent = MainActivity.createIntent(
+            context = context,
+            openPlayer = true,
+            startPlayback = true
+        )
+
+        assertTrue(MainActivity.shouldOpenPlayerFromIntent(intent))
+        assertTrue(MainActivity.shouldStartPlaybackFromIntent(intent))
     }
 }

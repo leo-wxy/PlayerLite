@@ -1,6 +1,7 @@
 package com.wxy.playerlite.feature.player.model
 
 import com.wxy.playerlite.core.playlist.PlaylistItem
+import com.wxy.playerlite.feature.player.ParsedLyrics
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.PlaybackSpeed
@@ -23,6 +24,28 @@ internal sealed interface PlayerSongWikiUiState {
     ) : PlayerSongWikiUiState
 }
 
+internal sealed interface PlayerLyricUiState {
+    data object Placeholder : PlayerLyricUiState
+    data object Loading : PlayerLyricUiState
+
+    data class Content(
+        val lyrics: ParsedLyrics
+    ) : PlayerLyricUiState
+
+    data class Empty(
+        val message: String
+    ) : PlayerLyricUiState
+
+    data class Error(
+        val message: String
+    ) : PlayerLyricUiState
+}
+
+internal enum class PlayerTopTab {
+    SONG,
+    LYRICS
+}
+
 internal data class PlayerUiState(
     val selectedFileName: String = "No audio selected",
     val currentTrackTitle: String = "No audio selected",
@@ -39,6 +62,8 @@ internal data class PlayerUiState(
     val showPlaylistSheet: Boolean = false,
     val showSongWikiSheet: Boolean = false,
     val songWikiUiState: PlayerSongWikiUiState = PlayerSongWikiUiState.Placeholder,
+    val lyricUiState: PlayerLyricUiState = PlayerLyricUiState.Placeholder,
+    val selectedTopTab: PlayerTopTab = PlayerTopTab.SONG,
     val isPreparing: Boolean = false,
     val playbackState: Int = AUDIO_TRACK_PLAYSTATE_UNAVAILABLE,
     val isSeekSupported: Boolean = false,

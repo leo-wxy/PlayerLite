@@ -31,6 +31,13 @@ The app SHALL derive playback UI state from remote playback snapshots and SHALL 
 - **THEN** the app updates the player page duration display and cover artwork from the remote snapshot
 - **AND** it does not require a separate detail-page fetch to render the current track's primary visual information
 
+#### Scenario: 非权威远端快照不会覆盖本地已恢复的当前曲目信息
+- **WHEN** app 已经从本地播放列表恢复出当前激活项与其展示元数据
+- **AND** 远端这次同步只返回了缺少当前媒体身份的过渡快照，或返回了不属于当前本地队列的旧 `currentMediaId`
+- **THEN** app 保留本地已恢复的当前歌曲标题、歌手、封面与当前时间投影
+- **AND** 不会把这些字段错误清空成空白、`0` 或上一条旧曲目信息
+- **AND** 只有真正匹配当前队列的权威远端快照到达后，才允许覆盖这组本地投影
+
 #### Scenario: 暂停时唱片主视觉保持当前旋转角度
 - **WHEN** 当前曲目处于播放页唱片主视觉展示态
 - **AND** 用户执行暂停

@@ -55,8 +55,12 @@ data class PlayableItemSnapshot(
             putString(EXTRA_PLAYBACK_URI, playbackUri)
             putString(EXTRA_REQUEST_HEADERS_JSON, encodeHeaders(requestHeaders))
             putBoolean(EXTRA_REQUIRES_AUTHORIZATION, requiresAuthorization)
+            putString(EXTRA_ORIGINAL_TITLE, title.ifBlank { "Unknown audio" })
             songId?.takeIf { it.isNotBlank() }?.let { putString(EXTRA_SONG_ID, it) }
-            artistText?.takeIf { it.isNotBlank() }?.let { putString(EXTRA_ARTIST_TEXT, it) }
+            artistText?.takeIf { it.isNotBlank() }?.let {
+                putString(EXTRA_ARTIST_TEXT, it)
+                putString(EXTRA_ORIGINAL_ARTIST_TEXT, it)
+            }
             albumTitle?.takeIf { it.isNotBlank() }?.let { putString(EXTRA_ALBUM_TITLE, it) }
             coverUrl?.takeIf { it.isNotBlank() }?.let { putString(EXTRA_COVER_URL, it) }
             if (durationMs > 0L) {
@@ -84,6 +88,8 @@ data class PlayableItemSnapshot(
         private const val EXTRA_REQUIRES_AUTHORIZATION = "requires_authorization"
         private const val EXTRA_SONG_ID = "song_id"
         private const val EXTRA_ARTIST_TEXT = "artist_text"
+        private const val EXTRA_ORIGINAL_TITLE = "original_title"
+        private const val EXTRA_ORIGINAL_ARTIST_TEXT = "original_artist_text"
         private const val EXTRA_ALBUM_TITLE = "album_title"
         private const val EXTRA_COVER_URL = "cover_url"
         private const val EXTRA_DURATION_MS = "duration_ms"
@@ -124,9 +130,12 @@ data class PlayableItemSnapshot(
             return PlayableItemSnapshot(
                 id = mediaItem.mediaId.takeIf { it.isNotBlank() } ?: uri,
                 songId = extras?.getString(EXTRA_SONG_ID)?.takeIf { it.isNotBlank() },
-                title = mediaItem.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() } ?: "Unknown audio",
-                artistText = mediaItem.mediaMetadata.artist?.toString()
-                    ?.takeIf { it.isNotBlank() }
+                title = extras?.getString(EXTRA_ORIGINAL_TITLE)?.takeIf { it.isNotBlank() }
+                    ?: mediaItem.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() }
+                    ?: "Unknown audio",
+                artistText = extras?.getString(EXTRA_ORIGINAL_ARTIST_TEXT)?.takeIf { it.isNotBlank() }
+                    ?: mediaItem.mediaMetadata.artist?.toString()
+                        ?.takeIf { it.isNotBlank() }
                     ?: extras?.getString(EXTRA_ARTIST_TEXT)?.takeIf { it.isNotBlank() },
                 albumTitle = mediaItem.mediaMetadata.albumTitle?.toString()
                     ?.takeIf { it.isNotBlank() }

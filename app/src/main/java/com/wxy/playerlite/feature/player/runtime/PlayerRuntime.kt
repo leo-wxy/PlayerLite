@@ -8,6 +8,8 @@ import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.core.playlist.SharedPreferencesPlaylistStorage
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
+import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
+import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.emptyAudioMeta
 import com.wxy.playerlite.feature.player.model.withPlaybackSpeed
@@ -83,6 +85,14 @@ internal class PlayerRuntime(
 
     fun updateSongWikiUiState(songWikiUiState: com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState) {
         uiState = uiState.copy(songWikiUiState = songWikiUiState)
+    }
+
+    fun updateLyricUiState(lyricUiState: PlayerLyricUiState) {
+        uiState = uiState.copy(lyricUiState = lyricUiState)
+    }
+
+    fun selectTopTab(topTab: PlayerTopTab) {
+        uiState = uiState.copy(selectedTopTab = topTab)
     }
 
     fun updateLocalPlaybackMode(playbackMode: PlaybackMode) {
@@ -228,8 +238,12 @@ internal class PlayerRuntime(
             pendingSpeed = pendingPlaybackSpeed
         )
         pendingPlaybackSpeed = speedResolution.pendingSpeed
+        val remoteProjection = resolveRemotePlaybackProjection(
+            currentMediaId = currentMediaId,
+            currentPlayable = currentPlayable
+        )
         val localPlaybackMode = playlistSession.state.playbackMode
-        val remoteModeAuthoritative = !currentMediaId.isNullOrBlank()
+        val remoteModeAuthoritative = remoteProjection.isAuthoritative
         val resolvedPlaybackMode = when {
             pendingPlaybackMode != null && pendingPlaybackMode != playbackMode -> pendingPlaybackMode!!
             remoteModeAuthoritative -> playbackMode
@@ -241,39 +255,82 @@ internal class PlayerRuntime(
             pendingPlaybackMode
         }
         playlistSession.setPlaybackMode(resolvedPlaybackMode)
-        val nextDuration = if (durationMs > 0L) durationMs else uiState.durationMs
-        val bounded = if (nextDuration > 0L) {
-            positionMs.coerceIn(0L, nextDuration)
+        val shouldApplyRemoteProgress = remoteProjection.isAuthoritative
+        val nextDuration = if (shouldApplyRemoteProgress && durationMs > 0L) {
+            durationMs
         } else {
-            positionMs.coerceAtLeast(0L)
+            uiState.durationMs
         }
-        remoteProgressShouldAdvance = isProgressAdvancing
-        updateRemoteProgressAnchor(bounded)
-        val currentQueueItem = currentMediaId
-            ?.takeIf { it.isNotBlank() }
-            ?.let { mediaId ->
-                playlistSession.originalItems.firstOrNull { it.id == mediaId }
-            }
+        val bounded = if (shouldApplyRemoteProgress && nextDuration > 0L) {
+            positionMs.coerceIn(0L, nextDuration)
+        } else if (shouldApplyRemoteProgress) {
+            positionMs.coerceAtLeast(0L)
+        } else {
+            uiState.seekPositionMs
+        }
+        remoteProgressShouldAdvance = shouldApplyRemoteProgress && isProgressAdvancing
+        if (shouldApplyRemoteProgress) {
+            updateRemoteProgressAnchor(bounded)
+        }
+        val currentQueueItem = remoteProjection.queueItem
         uiState = uiState.copy(
-            selectedFileName = currentPlayable?.title?.takeIf { it.isNotBlank() } ?: uiState.selectedFileName,
-            currentTrackTitle = currentPlayable?.title?.takeIf { it.isNotBlank() } ?: uiState.currentTrackTitle,
-            currentTrackArtist = currentPlayable?.artistText?.takeIf { it.isNotBlank() },
-            currentArtistId = currentQueueItem?.primaryArtistId?.takeIf { it.isNotBlank() },
-            currentCoverUrl = currentPlayable?.coverUrl?.takeIf { it.isNotBlank() }
-                ?: currentQueueItem?.coverUrl?.takeIf { it.isNotBlank() },
-            currentSongIdOverride = currentPlayable?.songId?.takeIf { it.isNotBlank() },
+            selectedFileName = if (remoteProjection.isAuthoritative) {
+                currentPlayable?.title?.takeIf { it.isNotBlank() }
+                    ?: currentQueueItem?.displayName
+                    ?: uiState.selectedFileName
+            } else {
+                uiState.selectedFileName
+            },
+            currentTrackTitle = if (remoteProjection.isAuthoritative) {
+                currentPlayable?.title?.takeIf { it.isNotBlank() }
+                    ?: currentQueueItem?.effectiveTitle
+                    ?: uiState.currentTrackTitle
+            } else {
+                uiState.currentTrackTitle
+            },
+            currentTrackArtist = if (remoteProjection.isAuthoritative) {
+                currentPlayable?.artistText?.takeIf { it.isNotBlank() }
+                    ?: currentQueueItem?.artistText
+                    ?: uiState.currentTrackArtist
+            } else {
+                uiState.currentTrackArtist
+            },
+            currentArtistId = if (remoteProjection.isAuthoritative) {
+                currentQueueItem?.primaryArtistId?.takeIf { it.isNotBlank() }
+                    ?: uiState.currentArtistId
+            } else {
+                uiState.currentArtistId
+            },
+            currentCoverUrl = if (remoteProjection.isAuthoritative) {
+                currentPlayable?.coverUrl?.takeIf { it.isNotBlank() }
+                    ?: currentQueueItem?.coverUrl?.takeIf { it.isNotBlank() }
+                    ?: uiState.currentCoverUrl
+            } else {
+                uiState.currentCoverUrl
+            },
+            currentSongIdOverride = if (remoteProjection.isAuthoritative) {
+                currentPlayable?.songId?.takeIf { it.isNotBlank() }
+                    ?: currentQueueItem?.songId?.takeIf { it.isNotBlank() }
+                    ?: uiState.currentSongIdOverride
+            } else {
+                uiState.currentSongIdOverride
+            },
             playbackState = playbackState,
             isPreparing = isPreparing,
             durationMs = nextDuration,
-            isSeekSupported = isSeekSupported,
+            isSeekSupported = if (shouldApplyRemoteProgress) isSeekSupported else uiState.isSeekSupported,
             seekPositionMs = if (uiState.isSeekDragging) uiState.seekPositionMs else bounded,
             seekDragPositionMs = if (uiState.isSeekDragging) uiState.seekDragPositionMs else bounded,
-            playbackOutputInfo = playbackOutputInfo,
+            playbackOutputInfo = if (shouldApplyRemoteProgress) {
+                playbackOutputInfo
+            } else {
+                uiState.playbackOutputInfo
+            },
             audioMeta = resolveAudioMeta(
                 current = uiState.audioMeta,
-                remote = audioMeta,
-                reportedDurationMs = durationMs,
-                isSeekSupported = isSeekSupported
+                remote = if (shouldApplyRemoteProgress) audioMeta else null,
+                reportedDurationMs = if (shouldApplyRemoteProgress) durationMs else uiState.durationMs,
+                isSeekSupported = if (shouldApplyRemoteProgress) isSeekSupported else uiState.isSeekSupported
             ),
             playbackMode = playlistSession.state.playbackMode
         ).withPlaybackSpeed(speedResolution.resolvedSpeed)
@@ -332,6 +389,8 @@ internal class PlayerRuntime(
             isPreparing = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
             showSongWikiSheet = false,
+            lyricUiState = PlayerLyricUiState.Placeholder,
+            selectedTopTab = PlayerTopTab.SONG,
             statusText = if (updateStatus) "Stopped" else uiState.statusText
         )
     }
@@ -451,7 +510,8 @@ internal class PlayerRuntime(
             isSeekDragging = false,
             isPreparing = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
-            showSongWikiSheet = false
+            showSongWikiSheet = false,
+            lyricUiState = PlayerLyricUiState.Placeholder
         )
     }
 
@@ -508,6 +568,11 @@ internal class PlayerRuntime(
             } else {
                 uiState.songWikiUiState
             },
+            lyricUiState = if (activeChanged) {
+                PlayerLyricUiState.Placeholder
+            } else {
+                uiState.lyricUiState
+            },
             playbackMode = playlistSession.state.playbackMode,
             showOriginalOrderInShuffle = playlistSession.state.showOriginalOrderInShuffle,
             canReorderPlaylist = playlistSession.canReorderCurrentView
@@ -524,6 +589,30 @@ internal class PlayerRuntime(
         remoteProgressAnchorElapsedRealtimeMs = elapsedRealtimeProvider()
     }
 
+    private fun resolveRemotePlaybackProjection(
+        currentMediaId: String?,
+        currentPlayable: PlayableItemSnapshot?
+    ): RemotePlaybackProjection {
+        val remoteIds = buildList {
+            currentMediaId?.takeIf { it.isNotBlank() }?.let(::add)
+            currentPlayable?.id?.takeIf { it.isNotBlank() }?.let { playableId ->
+                if (playableId !in this) {
+                    add(playableId)
+                }
+            }
+        }
+        val queueItem = remoteIds.firstNotNullOfOrNull { remoteId ->
+            playlistSession.originalItems.firstOrNull { it.id == remoteId }
+        }
+        val hasIdentity = remoteIds.isNotEmpty()
+        val isAuthoritative = queueItem != null || (playlistSession.originalItems.isEmpty() && hasIdentity)
+        return RemotePlaybackProjection(
+            queueItem = queueItem,
+            hasIdentity = hasIdentity,
+            isAuthoritative = isAuthoritative
+        )
+    }
+
     private fun resolveAudioMeta(
         current: AudioMetaDisplay,
         remote: AudioMetaDisplay?,
@@ -537,4 +626,10 @@ internal class PlayerRuntime(
 internal data class ExternalQueueSelectionResult(
     val replacedQueue: Boolean,
     val activeItemId: String?
+)
+
+private data class RemotePlaybackProjection(
+    val queueItem: PlaylistItem?,
+    val hasIdentity: Boolean,
+    val isAuthoritative: Boolean
 )

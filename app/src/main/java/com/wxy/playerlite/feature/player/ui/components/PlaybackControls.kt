@@ -55,61 +55,55 @@ internal data class PlaybackControlsMetrics(
 )
 
 internal fun resolvePlaybackControlsMetrics(
-    narrowWidthMode: Boolean,
-    compactMode: Boolean
+    viewportWidthDp: Float,
+    viewportHeightDp: Float
 ): PlaybackControlsMetrics {
-    val baseStripHeight = when {
-        narrowWidthMode && compactMode -> 84.dp
-        narrowWidthMode -> 88.dp
-        compactMode -> 92.dp
-        else -> 96.dp
-    }
-    val sideButtonSize = when {
-        narrowWidthMode && compactMode -> 54.dp
-        narrowWidthMode -> 56.dp
-        compactMode -> 58.dp
-        else -> 60.dp
-    }
-    val sideButtonInnerSize = when {
-        narrowWidthMode && compactMode -> 48.dp
-        narrowWidthMode -> 50.dp
-        compactMode -> 52.dp
-        else -> 54.dp
-    }
-    val sideIconSize = when {
-        narrowWidthMode && compactMode -> 31.dp
-        narrowWidthMode -> 32.dp
-        compactMode -> 33.dp
-        else -> 35.dp
-    }
-    val centerHaloSize = when {
-        narrowWidthMode && compactMode -> 80.dp
-        narrowWidthMode -> 84.dp
-        compactMode -> 88.dp
-        else -> 92.dp
-    }
-    val centerButtonSize = when {
-        narrowWidthMode && compactMode -> 72.dp
-        narrowWidthMode -> 74.dp
-        compactMode -> 78.dp
-        else -> 80.dp
-    }
-    val centerIconSize = when {
-        narrowWidthMode && compactMode -> 33.dp
-        narrowWidthMode -> 34.dp
-        compactMode -> 35.dp
-        else -> 36.dp
-    }
-    val controlsOffsetY = when {
-        narrowWidthMode -> 4.dp
-        compactMode -> 3.dp
-        else -> 2.dp
-    }
-    val stripHorizontalPadding = when {
-        narrowWidthMode -> 2.dp
-        compactMode -> 4.dp
-        else -> 6.dp
-    }
+    val shortestSide = minOf(viewportWidthDp, viewportHeightDp)
+    val sideButtonSize = clampDp(
+        value = shortestSide * 0.16f,
+        min = 48f,
+        max = 58f
+    )
+    val sideButtonInnerSize = clampDp(
+        value = sideButtonSize.value * 0.88f,
+        min = 44f,
+        max = 52f
+    )
+    val sideIconSize = clampDp(
+        value = sideButtonInnerSize.value * 0.58f,
+        min = 24f,
+        max = 30f
+    )
+    val centerButtonSize = clampDp(
+        value = sideButtonSize.value * 1.19f,
+        min = 58f,
+        max = 69f
+    )
+    val centerHaloSize = clampDp(
+        value = centerButtonSize.value + 12f,
+        min = 72f,
+        max = 82f
+    )
+    val centerIconSize = clampDp(
+        value = centerButtonSize.value * 0.44f,
+        min = 26f,
+        max = 31f
+    )
+    val baseStripHeight = clampDp(
+        value = centerHaloSize.value + (viewportHeightDp * 0.012f),
+        min = centerHaloSize.value,
+        max = 92f
+    )
+    val controlsOffsetY = clampDp(
+        value = viewportHeightDp * 0.003f,
+        min = 0f,
+        max = 3f
+    )
+    val stripHorizontalPadding = clampDp(
+        value = viewportWidthDp * 0.012f,
+        min = 2f,
+        max = 8f
+    )
     return PlaybackControlsMetrics(
         stripHeight = if (baseStripHeight < centerHaloSize) centerHaloSize else baseStripHeight,
         sideButtonSize = sideButtonSize,
@@ -165,10 +159,9 @@ internal fun PlaybackControls(
             .fillMaxWidth()
             .testTag("player_screen_controls_strip")
     ) {
-        val narrowWidthMode = maxWidth < 320.dp
         val metrics = resolvePlaybackControlsMetrics(
-            narrowWidthMode = narrowWidthMode,
-            compactMode = compactMode
+            viewportWidthDp = maxWidth.value,
+            viewportHeightDp = if (compactMode) maxHeight.value.coerceAtMost(700f) else maxHeight.value
         )
 
         Row(
@@ -416,3 +409,9 @@ private fun SideControlButton(
 private fun lerp(start: Float, stop: Float, fraction: Float): Float {
     return start + (stop - start) * fraction.coerceIn(0f, 1f)
 }
+
+private fun clampDp(
+    value: Float,
+    min: Float,
+    max: Float
+): Dp = value.coerceIn(min, max).dp

@@ -136,16 +136,38 @@ class PlayerMediaSessionService : MediaSessionService() {
     private fun buildNotification(state: PlaybackProcessState, isPlaying: Boolean) =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(resolveNotificationSmallIcon(applicationInfo.icon))
-            .setContentTitle(
-                state.currentTrack?.displayName?.ifBlank { packageName }
-                    ?: packageName
-            )
-            .setContentText(state.statusText)
+            .setContentTitle(resolveNotificationTitle(state))
+            .setContentText(resolveNotificationSubtitle(state))
             .setOngoing(isPlaying)
             .setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(buildContentIntent())
             .build()
+
+    private fun resolveNotificationTitle(state: PlaybackProcessState): String {
+        return state.displayTitleOverride
+            ?.takeIf { it.isNotBlank() }
+            ?: state.currentTrack?.displayName?.ifBlank { packageName }
+            ?: packageName
+    }
+
+    private fun resolveNotificationSubtitle(state: PlaybackProcessState): String {
+        return state.displaySubtitleOverride
+            ?.takeIf { it.isNotBlank() }
+            ?: buildSongArtistSubtitle(state.currentTrack)
+            ?: state.statusText
+    }
+
+    private fun buildSongArtistSubtitle(track: PlaybackTrack?): String? {
+        val title = track?.displayName?.takeIf { it.isNotBlank() }
+        val artist = track?.artistText?.takeIf { it.isNotBlank() }
+        return when {
+            title != null && artist != null -> "$title - $artist"
+            title != null -> title
+            artist != null -> artist
+            else -> null
+        }
+    }
 
     private fun buildContentIntent(): PendingIntent? {
         val launchIntent = PlaybackLaunchRequest.createMainActivityIntent(
@@ -209,6 +231,7 @@ class PlayerMediaSessionService : MediaSessionService() {
                 .add(SessionCommand(PlaybackSessionCommands.ACTION_CLEAR_CACHE, Bundle.EMPTY))
                 .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_SPEED, Bundle.EMPTY))
                 .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_MODE, Bundle.EMPTY))
+                .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_DISPLAY_METADATA, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
@@ -252,6 +275,14 @@ class PlayerMediaSessionService : MediaSessionService() {
                         args.getString(PlaybackSessionCommands.EXTRA_PLAYBACK_MODE)
                     )
                     runtime.setPlaybackMode(requested)
+                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+
+                PlaybackSessionCommands.ACTION_SET_DISPLAY_METADATA -> {
+                    runtime.setDisplayMetadata(
+                        title = args.getString(PlaybackSessionCommands.EXTRA_DISPLAY_TITLE),
+                        subtitle = args.getString(PlaybackSessionCommands.EXTRA_DISPLAY_SUBTITLE)
+                    )
                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
 

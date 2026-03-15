@@ -44,7 +44,7 @@ internal class CachedNetworkSource(
                 return IPlaysource.AudioSourceCode.ASC_SUCCESS
             }
             val cachedLengthHint = contentLength.takeIf { it > 0L }
-            val openResult = CacheCore.openSession(
+            fun openSession() = CacheCore.openSession(
                 OpenSessionParams(
                     resourceKey = resourceKey,
                     provider = provider,
@@ -53,6 +53,17 @@ internal class CachedNetworkSource(
                     durationMsHint = durationMsHint?.takeIf { it > 0L }
                 )
             )
+            var openResult = openSession()
+            if (openResult.isFailure) {
+                val existingSnapshot = CacheCore.lookup(resourceKey).getOrNull()
+                if (existingSnapshot != null) {
+                    safeLogE(
+                        "openSession failed once; purging stale snapshot: key=$resourceKey, error=${openResult.exceptionOrNull()?.message}"
+                    )
+                    OnlineCacheMetadata.purgeSnapshot(existingSnapshot)
+                    openResult = openSession()
+                }
+            }
             if (openResult.isFailure) {
                 safeLogE("openSession failed: key=$resourceKey, error=${openResult.exceptionOrNull()?.message}")
                 return IPlaysource.AudioSourceCode.ASC_IO_EXCEPTION

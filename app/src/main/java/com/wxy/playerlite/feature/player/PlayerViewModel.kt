@@ -12,6 +12,8 @@ import com.wxy.playerlite.core.AppContainer
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
+import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
+import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.runtime.PlayerRuntimeRegistry
 import com.wxy.playerlite.feature.player.runtime.toQueuePlayableItem
@@ -29,6 +31,8 @@ import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,6 +44,7 @@ internal class PlayerViewModel(
     private val runtime: com.wxy.playerlite.feature.player.runtime.PlayerRuntime = PlayerRuntimeRegistry.get(application.applicationContext),
     private val userRepository: com.wxy.playerlite.user.UserRepository = AppContainer.userRepository(application.applicationContext),
     private val songWikiRepository: SongWikiRepository = AppContainer.songWikiRepository(application.applicationContext),
+    private val lyricRepository: LyricRepository = AppContainer.lyricRepository(application.applicationContext),
     private val serviceBridge: PlayerControlBridge = MediaControllerPlayerControlBridge(
         context = application.applicationContext,
         onControllerError = { errorMessage ->
@@ -49,13 +54,17 @@ internal class PlayerViewModel(
     ),
     private val initializeSessionRestore: Boolean = true,
     private val remoteSyncIntervalMs: Long = 250L,
-    private val uiProgressIntervalMs: Long = 100L
+    private val uiProgressIntervalMs: Long = 100L,
+    private val lyricRequestDelayMs: Long = DEFAULT_LYRIC_REQUEST_DELAY_MS
 ) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
     private val remoteSyncJob: Job
     private val uiProgressJob: Job
     private val userStateJob: Job
+    private val lyricTargetJob: Job
+    private val displayMetadataJob: Job
     private var songWikiJob: Job? = null
+    private var lyricJob: Job? = null
     private var playbackModeToast: Toast? = null
     private var playbackModeToastDismissJob: Job? = null
     private val _userSessionUiState = MutableStateFlow(UserSessionUiState(isBusy = true))
@@ -68,6 +77,7 @@ internal class PlayerViewModel(
         runtime = PlayerRuntimeRegistry.get(application.applicationContext),
         userRepository = AppContainer.userRepository(application.applicationContext),
         songWikiRepository = AppContainer.songWikiRepository(application.applicationContext),
+        lyricRepository = AppContainer.lyricRepository(application.applicationContext),
         serviceBridge = MediaControllerPlayerControlBridge(
             context = application.applicationContext,
             onControllerError = { errorMessage ->
@@ -78,13 +88,46 @@ internal class PlayerViewModel(
         ),
         initializeSessionRestore = true,
         remoteSyncIntervalMs = 250L,
-        uiProgressIntervalMs = 100L
+        uiProgressIntervalMs = 100L,
+        lyricRequestDelayMs = DEFAULT_LYRIC_REQUEST_DELAY_MS
     )
 
     init {
         serviceBridge.prewarmConnection()
         userStateJob = viewModelScope.launch {
             userRepository.loginStateFlow.collect(::publishUserState)
+        }
+        lyricTargetJob = viewModelScope.launch {
+            uiStateFlow.map { state ->
+                LyricLoadTarget(
+                    songId = state.currentSongId,
+                    hasSelection = state.hasSelection,
+                    isPreparing = state.isPreparing
+                )
+            }.distinctUntilChanged()
+                .collect(::scheduleLyricsForTarget)
+        }
+        displayMetadataJob = viewModelScope.launch {
+            var hasPublishedDisplayMetadata = false
+            uiStateFlow.map(::resolveDisplayMetadataTarget)
+                .distinctUntilChanged()
+                .collect { target ->
+                    if (target == null) {
+                        if (!hasPublishedDisplayMetadata) {
+                            return@collect
+                        }
+                        serviceBridge.connectIfNeeded()
+                        serviceBridge.setDisplayMetadata(title = null, subtitle = null)
+                        hasPublishedDisplayMetadata = false
+                        return@collect
+                    }
+                    serviceBridge.connectIfNeeded()
+                    serviceBridge.setDisplayMetadata(
+                        title = target.title,
+                        subtitle = target.subtitle
+                    )
+                    hasPublishedDisplayMetadata = true
+                }
         }
         remoteSyncJob = viewModelScope.launch {
             while (isActive) {
@@ -144,6 +187,19 @@ internal class PlayerViewModel(
         loadSongWiki(songId)
     }
 
+    fun onRetryLyrics() {
+        val songId = uiStateFlow.value.currentSongId ?: return
+        loadLyricsNow(songId = songId, showLoading = true)
+    }
+
+    fun onSelectTopTab(topTab: PlayerTopTab) {
+        runtime.selectTopTab(topTab)
+    }
+
+    fun onPlayerSurfaceVisibilityChanged(isVisible: Boolean) {
+        // Lyrics are now keyed to the playback prepare phase instead of view visibility.
+    }
+
     fun onSeekValueChange(value: Long) {
         runtime.onSeekValueChange(value)
     }
@@ -200,9 +256,8 @@ internal class PlayerViewModel(
     }
 
     fun selectPlaylistItem(index: Int) {
-        val shouldContinue = shouldContinuePlayback()
         runtime.selectPlaylistItem(index)
-        syncQueueToPlaybackProcess(playWhenReady = shouldContinue)
+        syncQueueToPlaybackProcess(playWhenReady = true)
     }
 
     fun removePlaylistItem(index: Int) {
@@ -349,6 +404,73 @@ internal class PlayerViewModel(
         }
     }
 
+    private fun scheduleLyricsForTarget(target: LyricLoadTarget) {
+        lyricJob?.cancel()
+        val songId = target.songId
+        if (songId.isNullOrBlank()) {
+            runtime.updateLyricUiState(
+                if (target.hasSelection) {
+                    PlayerLyricUiState.Empty("暂无歌词")
+                } else {
+                    PlayerLyricUiState.Placeholder
+                }
+            )
+            return
+        }
+        if (!target.isPreparing) {
+            return
+        }
+        val currentLyricState = uiStateFlow.value.lyricUiState
+        val alreadyResolvedForCurrentSong = currentLyricState is PlayerLyricUiState.Content &&
+            currentLyricState.lyrics.songId == songId
+        if (alreadyResolvedForCurrentSong) {
+            return
+        }
+        lyricJob = viewModelScope.launch {
+            val cached = runCatching {
+                lyricRepository.readCachedLyrics(songId)
+            }.getOrNull()
+            if (uiStateFlow.value.currentSongId != songId) {
+                return@launch
+            }
+            if (cached != null) {
+                runtime.updateLyricUiState(PlayerLyricUiState.Content(cached))
+                return@launch
+            }
+            loadLyricsInternal(songId = songId, showLoading = false)
+        }
+    }
+
+    private fun loadLyricsNow(songId: String, showLoading: Boolean) {
+        lyricJob?.cancel()
+        lyricJob = viewModelScope.launch {
+            loadLyricsInternal(songId = songId, showLoading = showLoading)
+        }
+    }
+
+    private suspend fun loadLyricsInternal(songId: String, showLoading: Boolean) {
+        if (showLoading) {
+            runtime.updateLyricUiState(PlayerLyricUiState.Loading)
+        }
+        val nextState = runCatching {
+            lyricRepository.fetchLyrics(songId)
+        }.fold(
+            onSuccess = { lyrics ->
+                if (lyrics == null) {
+                    PlayerLyricUiState.Empty("暂无歌词")
+                } else {
+                    PlayerLyricUiState.Content(lyrics)
+                }
+            },
+            onFailure = {
+                PlayerLyricUiState.Error("歌词加载失败")
+            }
+        )
+        if (uiStateFlow.value.currentSongId == songId) {
+            runtime.updateLyricUiState(nextState)
+        }
+    }
+
     fun formatDuration(durationMs: Long): String {
         return runtime.formatDuration(durationMs)
     }
@@ -356,6 +478,9 @@ internal class PlayerViewModel(
     override fun onCleared() {
         playbackModeToastDismissJob?.cancel()
         playbackModeToast?.cancel()
+        lyricJob?.cancel()
+        lyricTargetJob.cancel()
+        displayMetadataJob.cancel()
         userStateJob.cancel()
         remoteSyncJob.cancel()
         uiProgressJob.cancel()
@@ -481,6 +606,32 @@ internal class PlayerViewModel(
         return synced
     }
 
+    private fun resolveDisplayMetadataTarget(state: PlayerUiState): DisplayMetadataTarget? {
+        if (!state.hasSelection) {
+            return null
+        }
+        val baseTitle = state.currentTrackTitle
+            .takeIf { it.isNotBlank() && it != "No audio selected" }
+        val baseArtist = state.currentTrackArtist
+            ?.takeIf { it.isNotBlank() }
+            ?: state.playlistItems
+                .getOrNull(state.activePlaylistIndex)
+                ?.artistText
+                ?.takeIf { it.isNotBlank() }
+        val projection = resolvePlayerDisplayMetadataProjection(
+            baseTitle = baseTitle,
+            baseArtist = baseArtist,
+            lyricUiState = state.lyricUiState,
+            currentPositionMs = state.displayedSeekMs,
+            emptyTitle = "",
+            emptySubtitle = ""
+        )
+        return DisplayMetadataTarget(
+            title = projection.title.takeIf { it.isNotBlank() },
+            subtitle = projection.subtitle.takeIf { it.isNotBlank() }
+        )
+    }
+
     private fun showPlaybackModeToast(message: String) {
         showTransientToast(message)
     }
@@ -514,8 +665,20 @@ internal class PlayerViewModel(
         private const val TAG = "PlayerViewModel"
         private const val UI_TEST_TITLE = "UI Local MP3 Test"
         private const val UI_TEST_MP3_URL = "http://10.0.2.2:18080/local-media-ui-test.mp3"
+        private const val DEFAULT_LYRIC_REQUEST_DELAY_MS = 400L
     }
 }
+
+private data class LyricLoadTarget(
+    val songId: String?,
+    val hasSelection: Boolean,
+    val isPreparing: Boolean
+)
+
+private data class DisplayMetadataTarget(
+    val title: String?,
+    val subtitle: String?
+)
 
 internal interface PlayerControlBridge {
     fun prewarmConnection()
@@ -537,6 +700,7 @@ internal interface PlayerControlBridge {
     fun clearCache(): Boolean
     fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)? = null): Boolean
     fun setPlaybackMode(playbackMode: PlaybackMode, onResult: ((Boolean) -> Unit)? = null): Boolean
+    fun setDisplayMetadata(title: String?, subtitle: String?): Boolean
     fun currentSnapshot(): RemotePlaybackSnapshot?
     fun release()
 }
@@ -585,6 +749,10 @@ private class MediaControllerPlayerControlBridge(
 
     override fun setPlaybackMode(playbackMode: PlaybackMode, onResult: ((Boolean) -> Unit)?): Boolean {
         return delegate.setPlaybackMode(playbackMode, onResult)
+    }
+
+    override fun setDisplayMetadata(title: String?, subtitle: String?): Boolean {
+        return delegate.setDisplayMetadata(title = title, subtitle = subtitle)
     }
 
     override fun currentSnapshot(): RemotePlaybackSnapshot? = delegate.currentSnapshot()

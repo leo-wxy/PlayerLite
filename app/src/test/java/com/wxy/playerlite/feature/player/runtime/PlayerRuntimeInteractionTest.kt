@@ -3,6 +3,7 @@ package com.wxy.playerlite.feature.player.runtime
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
+import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -159,6 +160,112 @@ class PlayerRuntimeInteractionTest {
         assertEquals("artist-6452", state.currentArtistId)
     }
 
+    @Test
+    fun updateRemotePlaybackState_withoutAuthoritativeIdentity_shouldPreserveProjectedTrackAndPosition() {
+        val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
+        val queueItem = onlineItem(
+            contextId = "playlist-1",
+            index = 0,
+            songId = "track-1",
+            title = "第一首"
+        )
+        runtime.applyExternalQueueSelection(
+            items = listOf(queueItem),
+            activeIndex = 0
+        )
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+            positionMs = 4_578L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = queueItem.id,
+            isProgressAdvancing = false,
+            currentPlayable = queueItem.toPlayableSnapshot(),
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+            positionMs = 0L,
+            durationMs = 0L,
+            isSeekSupported = false,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = null,
+            isProgressAdvancing = false,
+            currentPlayable = null,
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        val state = runtime.uiStateFlow.value
+        assertEquals(4_578L, state.displayedSeekMs)
+        assertEquals("第一首", state.currentTrackTitle)
+        assertEquals("周杰伦", state.currentTrackArtist)
+        assertEquals("http://example.com/track-1.jpg", state.currentCoverUrl)
+    }
+
+    @Test
+    fun updateRemotePlaybackState_withStalePreviousQueueIdentity_shouldIgnoreOldProjection() {
+        val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
+        val previousQueueItem = onlineItem(
+            contextId = "playlist-old",
+            index = 0,
+            songId = "track-old",
+            title = "旧歌"
+        )
+        val nextQueueItem = onlineItem(
+            contextId = "playlist-new",
+            index = 0,
+            songId = "track-new",
+            title = "新歌"
+        )
+        runtime.applyExternalQueueSelection(
+            items = listOf(previousQueueItem),
+            activeIndex = 0
+        )
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+            positionMs = 3_000L,
+            durationMs = 180_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = previousQueueItem.id,
+            isProgressAdvancing = false,
+            currentPlayable = previousQueueItem.toPlayableSnapshot(),
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        runtime.applyExternalQueueSelection(
+            items = listOf(nextQueueItem),
+            activeIndex = 0
+        )
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+            positionMs = 6_000L,
+            durationMs = 210_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = previousQueueItem.id,
+            isProgressAdvancing = false,
+            currentPlayable = previousQueueItem.toPlayableSnapshot(),
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        val state = runtime.uiStateFlow.value
+        assertEquals("新歌", state.currentTrackTitle)
+        assertEquals("周杰伦", state.currentTrackArtist)
+        assertEquals("http://example.com/track-new.jpg", state.currentCoverUrl)
+        assertEquals(0L, state.displayedSeekMs)
+    }
+
     private fun onlineItem(
         contextId: String,
         index: Int,
@@ -179,6 +286,19 @@ class PlayerRuntimeInteractionTest {
             contextType = "artist",
             contextId = contextId,
             contextTitle = "周杰伦"
+        )
+    }
+
+    private fun PlaylistItem.toPlayableSnapshot(): PlayableItemSnapshot {
+        return PlayableItemSnapshot(
+            id = id,
+            songId = songId,
+            title = title,
+            artistText = artistText,
+            albumTitle = albumTitle,
+            coverUrl = coverUrl,
+            durationMs = durationMs,
+            playbackUri = "https://example.com/$id.mp3"
         )
     }
 }

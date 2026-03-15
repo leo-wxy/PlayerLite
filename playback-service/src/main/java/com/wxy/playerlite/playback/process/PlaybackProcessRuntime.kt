@@ -35,7 +35,9 @@ internal data class PlaybackProcessState(
     val durationMs: Long = 0L,
     val audioMeta: AudioMetaDisplay? = null,
     val isPreparing: Boolean = false,
-    val statusText: String = "Idle"
+    val statusText: String = "Idle",
+    val displayTitleOverride: String? = null,
+    val displaySubtitleOverride: String? = null
 ) {
     val currentTrack: PlaybackTrack?
         get() = tracks.getOrNull(activeIndex)
@@ -247,6 +249,13 @@ internal class PlaybackProcessRuntime(
 
     fun setPlaybackMode(playbackMode: PlaybackMode) {
         _state.value = _state.value.copy(playbackMode = playbackMode)
+    }
+
+    fun setDisplayMetadata(title: String?, subtitle: String?) {
+        _state.value = _state.value.copy(
+            displayTitleOverride = title?.takeIf { it.isNotBlank() },
+            displaySubtitleOverride = subtitle?.takeIf { it.isNotBlank() }
+        )
     }
 
     suspend fun prepareCurrent() {
@@ -582,7 +591,9 @@ internal class PlaybackProcessRuntime(
             durationMs = if (changedTrack) 0L else previous.durationMs,
             audioMeta = if (changedTrack) null else previous.audioMeta,
             isPreparing = false,
-            statusText = statusText
+            statusText = statusText,
+            displayTitleOverride = if (changedTrack) null else previous.displayTitleOverride,
+            displaySubtitleOverride = if (changedTrack) null else previous.displaySubtitleOverride
         )
     }
 

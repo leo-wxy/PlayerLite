@@ -289,7 +289,10 @@ internal class OnlinePlaybackPreparationPlanner(
         val initialKey = buildOnlineResourceKey(songId, defaultLevel, requestedMode)
         val initialSnapshot = cacheLookup(initialKey)
             .getOrNull()
-            ?.sanitizeForReuse(expectedClipMode = requestedMode)
+            ?.sanitizeForReuse(
+                expectedClipMode = requestedMode,
+                expectedDurationMs = track.durationHintMs
+            )
         if (initialSnapshot.isCompleteCachedContent()) {
             return Result.success(
                 OnlinePlaybackPlan(
@@ -323,7 +326,10 @@ internal class OnlinePlaybackPreparationPlanner(
             cacheLookup(finalKey).getOrNull()
         } else {
             initialSnapshot
-        }?.sanitizeForReuse(expectedClipMode = actualMode)
+        }?.sanitizeForReuse(
+            expectedClipMode = actualMode,
+            expectedDurationMs = track.durationHintMs
+        )
         val completeSnapshot = finalSnapshot.takeIf { it.isCompleteCachedContent() }
 
         return Result.success(
@@ -433,12 +439,21 @@ private fun CacheLookupSnapshot?.isCompleteCachedContent(): Boolean {
 }
 
 private fun CacheLookupSnapshot.sanitizeForReuse(
-    expectedClipMode: OnlineClipMode
+    expectedClipMode: OnlineClipMode,
+    expectedDurationMs: Long
 ): CacheLookupSnapshot? {
     if (!isCompleteCachedContent()) {
         return this
     }
     if (OnlineCacheMetadata.isTrustedForReuse(this, expectedClipMode)) {
+        return this
+    }
+    if (
+        expectedClipMode == OnlineClipMode.FULL &&
+        expectedDurationMs > 0L &&
+        durationMs > 0L &&
+        !looksLikeShortRestrictedClip(expectedDurationMs, durationMs)
+    ) {
         return this
     }
     OnlineCacheMetadata.purgeSnapshot(this)

@@ -20,6 +20,10 @@ import com.wxy.playerlite.feature.playlist.DefaultPlaylistDetailRepository
 import com.wxy.playerlite.feature.playlist.NeteasePlaylistDetailRemoteDataSource
 import com.wxy.playerlite.feature.playlist.PlaylistDetailRepository
 import com.wxy.playerlite.feature.player.DefaultSongWikiRepository
+import com.wxy.playerlite.feature.player.DefaultLyricRepository
+import com.wxy.playerlite.feature.player.LyricLocalStore
+import com.wxy.playerlite.feature.player.LyricRepository
+import com.wxy.playerlite.feature.player.NeteaseLyricRemoteDataSource
 import com.wxy.playerlite.feature.player.NeteaseSongWikiRemoteDataSource
 import com.wxy.playerlite.feature.player.SongWikiRepository
 import com.wxy.playerlite.feature.search.SearchRepository
@@ -70,6 +74,10 @@ internal object AppContainer {
 
     fun songWikiRepository(context: Context): SongWikiRepository {
         return getServices(context).songWikiRepository
+    }
+
+    fun lyricRepository(context: Context): LyricRepository {
+        return getServices(context).lyricRepository
     }
 
     fun songDetailRepository(context: Context): SongDetailRepository {
@@ -131,6 +139,12 @@ internal object AppContainer {
             ),
             songWikiRepository = DefaultSongWikiRepository(
                 remoteDataSource = NeteaseSongWikiRemoteDataSource(httpClient)
+            ),
+            lyricRepository = DefaultLyricRepository(
+                remoteDataSource = NeteaseLyricRemoteDataSource(httpClient),
+                localStore = LyricLocalStore(
+                    directory = context.filesDir.resolve("lyrics")
+                )
             )
         )
     }
@@ -144,6 +158,7 @@ internal object AppContainer {
         val playlistDetailRepository: PlaylistDetailRepository,
         val albumDetailRepository: AlbumDetailRepository,
         val songDetailRepository: SongDetailRepository,
-        val songWikiRepository: SongWikiRepository
+        val songWikiRepository: SongWikiRepository,
+        val lyricRepository: LyricRepository
     )
 }

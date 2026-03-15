@@ -57,7 +57,7 @@ class PlayerRuntimeProjectionTest {
     }
 
     @Test
-    fun updateRemotePlaybackState_clearsStaleAudioMetaWhenRemoteSnapshotHasNoMetadata() {
+    fun updateRemotePlaybackState_keepsProjectedAudioMetaWhenTransitionSnapshotHasNoIdentity() {
         val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
 
         runtime.updateRemotePlaybackState(
@@ -94,6 +94,55 @@ class PlayerRuntimeProjectionTest {
             currentMediaId = null,
             isProgressAdvancing = false,
             currentPlayable = null,
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        assertEquals("AAC", runtime.uiStateFlow.value.audioMeta.codec)
+    }
+
+    @Test
+    fun updateRemotePlaybackState_clearsStaleAudioMetaWhenAuthoritativeSnapshotHasNoMetadata() {
+        val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 0L,
+            durationMs = 321_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = false,
+            currentPlayable = PlayableItemSnapshot(
+                id = "track-1",
+                title = "本地文件",
+                playbackUri = "file:///storage/emulated/0/test.mp3"
+            ),
+            playbackOutputInfo = null,
+            audioMeta = AudioMetaDisplay(
+                codec = "AAC",
+                sampleRate = "44100 Hz",
+                channels = "2",
+                bitRate = "256 kbps",
+                durationMs = 321_000L
+            )
+        )
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 0L,
+            durationMs = 0L,
+            isSeekSupported = false,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = false,
+            currentPlayable = PlayableItemSnapshot(
+                id = "track-1",
+                title = "本地文件",
+                playbackUri = "file:///storage/emulated/0/test.mp3"
+            ),
             playbackOutputInfo = null,
             audioMeta = null
         )

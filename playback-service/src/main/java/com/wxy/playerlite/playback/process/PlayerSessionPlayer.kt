@@ -49,8 +49,15 @@ internal class PlayerSessionPlayer(
                 runtimeState.playbackOutputInfo?.let { info ->
                     PlaybackMetadataExtras.writePlaybackOutputInfo(extras, info)
                 }
+                val metadataBuilder = baseItem.mediaMetadata.buildUpon()
+                runtimeState.displayTitleOverride
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { metadataBuilder.setTitle(it) }
+                runtimeState.displaySubtitleOverride
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { metadataBuilder.setArtist(it) }
                 baseItem.buildUpon()
-                    .setMediaMetadata(baseItem.mediaMetadata.buildUpon().setExtras(extras).build())
+                    .setMediaMetadata(metadataBuilder.setExtras(extras).build())
                     .build()
             } else {
                 baseItem

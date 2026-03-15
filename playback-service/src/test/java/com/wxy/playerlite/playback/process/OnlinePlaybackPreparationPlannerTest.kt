@@ -57,7 +57,7 @@ class OnlinePlaybackPreparationPlannerTest {
     }
 
     @Test
-    fun buildPlanShouldIgnoreCompleteFullCacheWithoutTrustedMarker() {
+    fun buildPlanShouldReuseCompleteFullCacheWithoutTrustedMarkerWhenDurationLooksComplete() {
         runBlocking {
             val root = Files.createTempDirectory("online-cache-plan-untrusted-").toFile()
             val snapshot = completeSnapshot(root, "song_1969519579_exhigh_full")
@@ -84,6 +84,50 @@ class OnlinePlaybackPreparationPlannerTest {
                         songId = "1969519579",
                         title = "夜曲",
                         durationMs = 219_893L,
+                        playbackUri = ""
+                    )
+                )
+            ).getOrThrow()
+
+            assertTrue(plan.useCacheOnlyProvider)
+            assertEquals("song_1969519579_exhigh_full", plan.resourceKey)
+            assertEquals(219_893L, plan.durationHintMs)
+            assertEquals(8_798_445L, plan.contentLengthHintBytes)
+            assertEquals(0, resolver.calls)
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun buildPlanShouldIgnoreCompleteFullCacheWithoutTrustedMarkerWhenDurationLooksRestricted() {
+        runBlocking {
+            val root = Files.createTempDirectory("online-cache-plan-untrusted-short-").toFile()
+            val snapshot = completeSnapshot(root, "song_1477319527_exhigh_full").copy(
+                durationMs = 45_024L
+            )
+            val resolver = FakeResolver(
+                Result.success(
+                    ResolvedOnlineStream(
+                        playbackUrl = "https://example.com/refreshed-full.mp3",
+                        requestHeaders = emptyMap(),
+                        contentLengthBytes = 8_798_445L,
+                        durationMs = 253_080L,
+                        expiresAtMs = 5_000L
+                    )
+                )
+            )
+            val planner = OnlinePlaybackPreparationPlanner(
+                cacheLookup = { Result.success(snapshot.takeIf { key -> key.resourceKey == it }) },
+                resolver = resolver
+            )
+
+            val plan = planner.buildPlan(
+                PlaybackTrack(
+                    playable = MusicInfo(
+                        id = "queue-online-untrusted-short",
+                        songId = "1477319527",
+                        title = "讽刺的情书",
+                        durationMs = 253_080L,
                         playbackUri = ""
                     )
                 )

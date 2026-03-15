@@ -18,6 +18,7 @@ class DetailPlaybackNavigationTest {
         val intent = createOpenPlayerAfterQueueReplacementIntent(context)
 
         assertTrue(MainActivity.shouldOpenPlayerFromIntent(intent))
+        assertTrue(MainActivity.shouldStartPlaybackFromIntent(intent))
         assertTrue(intent.flags and Intent.FLAG_ACTIVITY_CLEAR_TOP != 0)
         assertTrue(intent.flags and Intent.FLAG_ACTIVITY_SINGLE_TOP != 0)
     }

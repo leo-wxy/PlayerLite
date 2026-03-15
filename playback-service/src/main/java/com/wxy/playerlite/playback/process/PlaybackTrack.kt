@@ -23,6 +23,9 @@ internal data class PlaybackTrack(
     val durationHintMs: Long
         get() = playable.durationMs
 
+    val artistText: String?
+        get() = playable.artistText
+
     val previewClip: PlaybackPreviewClip?
         get() = playable.previewClip
 

@@ -65,8 +65,12 @@ class MainActivity : ComponentActivity() {
     private val viewModel: PlayerViewModel by viewModels()
     private val homeViewModel: HomeViewModel by viewModels()
     private val userCenterViewModel: UserCenterViewModel by viewModels()
+    private var shellState by mutableStateOf(MainShellState())
     private var shouldOpenPlayerFromLocalSongs by mutableStateOf(false)
+    private var shouldStartPlaybackFromLocalSongs by mutableStateOf(false)
     private var pendingOpenPlayerLaunchRequests by mutableStateOf(0)
+    private var pendingStartPlaybackLaunchRequests by mutableStateOf(0)
+    private var suppressNextHomeSurfaceTransition by mutableStateOf(false)
 
     private val pickAudioLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -83,16 +87,31 @@ class MainActivity : ComponentActivity() {
     private val localSongsLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        shouldOpenPlayerFromLocalSongs = LocalSongsActivity.shouldOpenPlayerFromResult(
+        val shouldOpenPlayer = LocalSongsActivity.shouldOpenPlayerFromResult(
             resultCode = result.resultCode,
             data = result.data
         )
+        shouldOpenPlayerFromLocalSongs = shouldOpenPlayer
+        shouldStartPlaybackFromLocalSongs = shouldOpenPlayer
+        if (shouldOpenPlayer) {
+            suppressNextHomeSurfaceTransition = true
+            shellState = shellState.openPlayer()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        restoreShellState(savedInstanceState)
         if (shouldOpenPlayerFromIntent(intent)) {
             pendingOpenPlayerLaunchRequests += 1
+            suppressNextHomeSurfaceTransition = true
+        }
+        if (shouldStartPlaybackFromIntent(intent)) {
+            pendingStartPlaybackLaunchRequests += 1
+            suppressNextHomeSurfaceTransition = true
+        }
+        if (pendingOpenPlayerLaunchRequests > 0 || pendingStartPlaybackLaunchRequests > 0) {
+            shellState = shellState.openPlayer()
         }
         enableEdgeToEdge()
 
@@ -103,7 +122,6 @@ class MainActivity : ComponentActivity() {
             val userCenterState = userCenterViewModel.uiStateFlow.collectAsStateWithLifecycle().value
             val isSessionReady = !userState.isBusy
             var initialLoginGateHandled by rememberSaveable { mutableStateOf(false) }
-            var shellState by rememberSaveable { mutableStateOf(MainShellState()) }
             LaunchedEffect(isSessionReady, userState.isLoggedIn, initialLoginGateHandled) {
                 if (
                     InitialLoginLaunchGate.shouldLaunch(
@@ -116,11 +134,38 @@ class MainActivity : ComponentActivity() {
                     loginLauncher.launch(LoginActivity.createIntent(this@MainActivity))
                 }
             }
-            LaunchedEffect(shouldOpenPlayerFromLocalSongs, pendingOpenPlayerLaunchRequests) {
-                if (shouldOpenPlayerFromLocalSongs || pendingOpenPlayerLaunchRequests > 0) {
+            LaunchedEffect(
+                shouldOpenPlayerFromLocalSongs,
+                shouldStartPlaybackFromLocalSongs,
+                pendingOpenPlayerLaunchRequests,
+                pendingStartPlaybackLaunchRequests
+            ) {
+                val shouldOpenPlayer = shouldOpenPlayerFromLocalSongs ||
+                    pendingOpenPlayerLaunchRequests > 0
+                val shouldStartPlayback = shouldStartPlaybackFromLocalSongs ||
+                    pendingStartPlaybackLaunchRequests > 0
+                if (shouldOpenPlayer || shouldStartPlayback) {
                     shellState = shellState.openPlayer()
+                    if (shouldStartPlayback) {
+                        viewModel.playSelectedAudio()
+                    }
                     shouldOpenPlayerFromLocalSongs = false
+                    shouldStartPlaybackFromLocalSongs = false
                     pendingOpenPlayerLaunchRequests = 0
+                    pendingStartPlaybackLaunchRequests = 0
+                }
+            }
+            LaunchedEffect(shellState.homeSurfaceMode) {
+                viewModel.onPlayerSurfaceVisibilityChanged(
+                    shellState.homeSurfaceMode == HomeSurfaceMode.PLAYER_EXPANDED
+                )
+            }
+            LaunchedEffect(shellState.homeSurfaceMode, suppressNextHomeSurfaceTransition) {
+                if (
+                    suppressNextHomeSurfaceTransition &&
+                    shellState.homeSurfaceMode == HomeSurfaceMode.PLAYER_EXPANDED
+                ) {
+                    suppressNextHomeSurfaceTransition = false
                 }
             }
             BackHandler(
@@ -174,6 +219,7 @@ class MainActivity : ComponentActivity() {
                                 Box(modifier = Modifier.fillMaxSize()) {
                                     HomeContent(
                                         homeSurfaceMode = shellState.homeSurfaceMode,
+                                        animateTransitions = !suppressNextHomeSurfaceTransition,
                                         overviewContent = {
                                             HomeOverviewScreen(
                                                 playerState = state,
@@ -226,6 +272,8 @@ class MainActivity : ComponentActivity() {
                                                     showPlaylistSheet = false,
                                                     showSongWikiSheet = state.showSongWikiSheet,
                                                     songWikiUiState = state.songWikiUiState,
+                                                    lyricUiState = state.lyricUiState,
+                                                    selectedTopTab = state.selectedTopTab,
                                                     isPreparing = state.isPreparing,
                                                     playbackState = state.playbackState,
                                                     isSeekSupported = state.isSeekSupported,
@@ -250,6 +298,8 @@ class MainActivity : ComponentActivity() {
                                                     onShowSongWiki = viewModel::onShowSongWiki,
                                                     onDismissSongWiki = viewModel::onDismissSongWiki,
                                                     onRetrySongWiki = viewModel::onRetrySongWiki,
+                                                    onRetryLyrics = viewModel::onRetryLyrics,
+                                                    onSelectTopTab = viewModel::onSelectTopTab,
                                                     onSelectPlaylistItem = { index ->
                                                         viewModel.selectPlaylistItem(index)
                                                     },
@@ -337,7 +387,20 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         if (shouldOpenPlayerFromIntent(intent)) {
             pendingOpenPlayerLaunchRequests += 1
+            suppressNextHomeSurfaceTransition = true
         }
+        if (shouldStartPlaybackFromIntent(intent)) {
+            pendingStartPlaybackLaunchRequests += 1
+            suppressNextHomeSurfaceTransition = true
+        }
+        if (pendingOpenPlayerLaunchRequests > 0 || pendingStartPlaybackLaunchRequests > 0) {
+            shellState = shellState.openPlayer()
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putSerializable(STATE_SHELL_STATE, shellState)
     }
 
     override fun onStop() {
@@ -371,19 +434,34 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
+    @Suppress("DEPRECATION")
+    private fun restoreShellState(savedInstanceState: Bundle?) {
+        val restored = savedInstanceState
+            ?.getSerializable(STATE_SHELL_STATE) as? MainShellState
+        shellState = restored ?: MainShellState()
+    }
+
     companion object {
+        private const val STATE_SHELL_STATE = "main_shell_state"
+
         fun createIntent(
             context: Context,
-            openPlayer: Boolean = false
+            openPlayer: Boolean = false,
+            startPlayback: Boolean = false
         ): Intent {
             return PlaybackLaunchRequest.createMainActivityIntent(
                 context = context,
-                openPlayer = openPlayer
+                openPlayer = openPlayer,
+                startPlayback = startPlayback
             )
         }
 
         fun shouldOpenPlayerFromIntent(intent: Intent?): Boolean {
             return PlaybackLaunchRequest.shouldOpenPlayer(intent)
+        }
+
+        fun shouldStartPlaybackFromIntent(intent: Intent?): Boolean {
+            return PlaybackLaunchRequest.shouldStartPlayback(intent)
         }
     }
 }

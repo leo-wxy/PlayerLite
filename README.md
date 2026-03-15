@@ -1,6 +1,6 @@
 # PlayerLite
 
-一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手/歌单/专辑详情、登录与用户中心等核心能力。
+一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手/歌单/专辑详情、登录与用户中心等核心能力，并补齐了播放页歌词、首页 minibar 歌词摘要以及系统 `MediaSession` 动态展示链路。
 
 ## 主要能力
 
@@ -9,6 +9,8 @@
 - 播放列表管理与持久化恢复，支持删除、激活切换、拖拽排序
 - 播放模式：列表循环、单曲循环、随机播放
 - 网络音源 Range 播放、边播边缓存、缓存清理
+- 播放展开页支持“歌曲 / 歌词”双页面切换、当前歌词摘要、完整歌词自动滚动与高亮
+- 首页 `minibar` 与系统 `MediaSession` 可随播放进度动态展示当前歌词摘要，并稳定回退为 `歌名 - 歌手`
 - 首页发现流、悬浮搜索入口、搜索结果页
 - 歌手详情、歌单详情、专辑详情，以及首页/搜索/个人中心到详情页的跳转闭环
 - 手机号/邮箱登录、用户会话恢复、个人中心基础承载
@@ -108,6 +110,21 @@ OpenSpec 主 spec 校验：
 PATH=/Users/wxy/.nvm/versions/node/v20.20.0/bin:$PATH openspec validate --specs
 ```
 
+## GitHub 发布
+
+仓库已预埋基于 GitHub Actions 的 tag 发布流程：
+
+- 推送符合 `v*` 规则的 tag，例如 `v0.1.0`
+- Actions 会自动执行 `./gradlew :app:assembleRelease`
+- 构建成功后，`release APK` 会自动附加到对应的 GitHub Release
+
+示例：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## 调试提示
 
 - 未登录启动时会先进入 `LoginActivity`，右上角可以直接跳过，继续使用本地播放
@@ -131,6 +148,7 @@ python3 scripts/range_http_server.py --port 18080 --directory .
 - 首页发现区块
 - 默认搜索关键词与搜索结果
 - 登录与用户资料
+- 歌词接口 `/lyric?id=<songId>`
 - 歌手/歌单/专辑详情相关接口
 
 ## 目录概览
