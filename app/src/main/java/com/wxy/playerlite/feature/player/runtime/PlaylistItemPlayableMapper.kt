@@ -18,6 +18,10 @@ internal fun PlaylistItem.toQueuePlayableItem(): PlayableItem? {
                 ?.map(String::trim)
                 ?.filter(String::isNotEmpty)
                 .orEmpty(),
+            artistIds = primaryArtistId
+                ?.takeIf { it.isNotBlank() }
+                ?.let(::listOf)
+                .orEmpty(),
             albumTitle = albumTitle,
             coverUrl = coverUrl,
             durationMs = durationMs,

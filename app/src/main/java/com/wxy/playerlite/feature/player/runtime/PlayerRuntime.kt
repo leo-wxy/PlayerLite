@@ -192,6 +192,26 @@ internal class PlayerRuntime(
         )
     }
 
+    fun clearPlaylist() {
+        if (playlistSession.items.isEmpty()) {
+            uiState = uiState.copy(
+                statusText = "播放列表已清空",
+                showPlaylistSheet = false,
+                showSongWikiSheet = false
+            )
+            return
+        }
+
+        playlistSession.replaceAll(emptyList(), activeIndex = 0)
+        syncSelectionFromPlaylist()
+        resetPlaybackProjection()
+        uiState = uiState.copy(
+            statusText = "播放列表已清空",
+            showPlaylistSheet = false,
+            showSongWikiSheet = false
+        )
+    }
+
     fun movePlaylistItem(fromIndex: Int, toIndex: Int) {
         if (fromIndex == toIndex) {
             return
@@ -261,12 +281,28 @@ internal class PlayerRuntime(
         } else {
             uiState.durationMs
         }
-        val bounded = if (shouldApplyRemoteProgress && nextDuration > 0L) {
+        val remoteBoundedPosition = if (shouldApplyRemoteProgress && nextDuration > 0L) {
             positionMs.coerceIn(0L, nextDuration)
         } else if (shouldApplyRemoteProgress) {
             positionMs.coerceAtLeast(0L)
         } else {
             uiState.seekPositionMs
+        }
+        val currentProjectedPosition = uiState.displayedSeekMs
+        val sameActiveQueueItem = remoteProjection.queueItem?.id == playlistSession.activeItem?.id
+        val bounded = if (
+            shouldApplyRemoteProgress &&
+            sameActiveQueueItem &&
+            isProgressAdvancing &&
+            !isPreparing &&
+            playbackState == com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING &&
+            uiState.playbackState == com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING &&
+            remoteBoundedPosition < currentProjectedPosition &&
+            currentProjectedPosition - remoteBoundedPosition <= MINOR_REMOTE_PROGRESS_REGRESSION_TOLERANCE_MS
+        ) {
+            currentProjectedPosition
+        } else {
+            remoteBoundedPosition
         }
         remoteProgressShouldAdvance = shouldApplyRemoteProgress && isProgressAdvancing
         if (shouldApplyRemoteProgress) {
@@ -622,6 +658,8 @@ internal class PlayerRuntime(
         return remote ?: if (reportedDurationMs <= 0L && !isSeekSupported) emptyAudioMeta() else current
     }
 }
+
+private const val MINOR_REMOTE_PROGRESS_REGRESSION_TOLERANCE_MS = 450L
 
 internal data class ExternalQueueSelectionResult(
     val replacedQueue: Boolean,

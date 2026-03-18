@@ -30,6 +30,7 @@ import com.wxy.playerlite.feature.player.ParsedLyrics
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
+import com.wxy.playerlite.feature.search.SearchRouteTarget
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 import org.junit.Assert.assertEquals
@@ -150,6 +151,145 @@ class HomeOverviewScreenRobolectricTest {
     }
 
     @Test
+    fun homeSearchBox_shouldAlignWithHeroCardWidthBaseline() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                HomeOverviewScreen(
+                    playerState = PlayerUiState(
+                        selectedFileName = "晴天.mp3",
+                        statusText = "点击底部按钮进入播放页"
+                    ),
+                    overviewState = HomeOverviewUiState(
+                        isLoading = false,
+                        sections = listOf(
+                            HomeSectionUiModel(
+                                code = "HOMEPAGE_BANNER",
+                                title = "",
+                                layout = HomeSectionLayout.BANNER,
+                                items = listOf(
+                                    HomeSectionItemUiModel(
+                                        id = "banner-1",
+                                        title = "今日推荐",
+                                        subtitle = "每日精选",
+                                        imageUrl = null,
+                                        badge = "精选"
+                                    )
+                                )
+                            )
+                        ),
+                        searchKeywords = listOf("默认热搜")
+                    ),
+                    onSearchClick = {},
+                    onRetry = {},
+                    onItemClick = {},
+                    onOpenPlayer = {}
+                )
+            }
+        }
+
+        val searchBounds = composeRule
+            .onNodeWithTag("home_search_box_container")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val bannerBounds = composeRule
+            .onNodeWithTag("home_banner_card_banner-1")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        assertTrue(
+            "Expected search box and hero card to share the same left baseline, search=$searchBounds banner=$bannerBounds",
+            kotlin.math.abs(searchBounds.left - bannerBounds.left) < 1f
+        )
+        assertTrue(
+            "Expected search box and hero card to share the same right baseline, search=$searchBounds banner=$bannerBounds",
+            kotlin.math.abs(searchBounds.right - bannerBounds.right) < 1f
+        )
+    }
+
+    @Test
+    fun shortcutCards_shouldExposeCompactIconAlongsideLabel() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                HomeOverviewScreen(
+                    playerState = PlayerUiState(
+                        selectedFileName = "晴天.mp3",
+                        statusText = "点击底部按钮进入播放页"
+                    ),
+                    overviewState = HomeOverviewUiState(
+                        isLoading = false,
+                        sections = listOf(
+                            HomeSectionUiModel(
+                                code = "HOMEPAGE_SHORTCUT",
+                                title = "快捷入口",
+                                layout = HomeSectionLayout.ICON_GRID,
+                                items = listOf(
+                                    HomeSectionItemUiModel(
+                                        id = "shortcut-1",
+                                        title = "每日推荐",
+                                        subtitle = "",
+                                        imageUrl = null
+                                    )
+                                )
+                            )
+                        ),
+                        searchKeywords = listOf("默认热搜")
+                    ),
+                    onSearchClick = {},
+                    onRetry = {},
+                    onItemClick = {},
+                    onOpenPlayer = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("home_compact_card_icon_shortcut-1", useUnmergedTree = true)
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun songSections_shouldRenderCompactRowsWithMoreAction() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                HomeOverviewScreen(
+                    playerState = PlayerUiState(
+                        selectedFileName = "晴天.mp3",
+                        statusText = "点击底部按钮进入播放页"
+                    ),
+                    overviewState = HomeOverviewUiState(
+                        isLoading = false,
+                        sections = listOf(
+                            HomeSectionUiModel(
+                                code = "HOMEPAGE_BLOCK_STYLE_SONG",
+                                title = "Songs You Might Like",
+                                layout = HomeSectionLayout.HORIZONTAL_LIST,
+                                items = listOf(
+                                    HomeSectionItemUiModel(
+                                        id = "song-1",
+                                        title = "Neon Horizon",
+                                        subtitle = "Luna Wave",
+                                        imageUrl = null,
+                                        action = ContentEntryAction.OpenDetail(
+                                            SearchRouteTarget.Song(songId = "song-1")
+                                        )
+                                    )
+                                )
+                            )
+                        ),
+                        searchKeywords = listOf("默认热搜")
+                    ),
+                    onSearchClick = {},
+                    onRetry = {},
+                    onItemClick = {},
+                    onOpenPlayer = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("home_song_row_song-1").assertIsDisplayed().assertHasClickAction()
+        composeRule.onNodeWithTag("home_song_more_song-1").assertIsDisplayed().assertHasClickAction()
+    }
+
+    @Test
     fun miniPlayerBar_shouldRenderParsedTrackInfoAndIndependentControls() {
         composeRule.setContent {
             PlayerLiteTheme {
@@ -172,17 +312,16 @@ class HomeOverviewScreenRobolectricTest {
         }
 
         composeRule.onNodeWithTag("home_mini_player_bar").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_mini_player_progress_line", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithTag("home_mini_player_artwork", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithTag("home_mini_player_body").assertIsDisplayed().assertHasClickAction()
         composeRule.onNodeWithTag("home_mini_player_song_area", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithTag("home_mini_player_play_pause_button").assertIsDisplayed().assertHasClickAction()
         composeRule.onNodeWithTag("home_mini_player_playlist_button").assertIsDisplayed().assertHasClickAction()
         composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true).assertIsDisplayed()
-        composeRule.onNodeWithTag("home_mini_player_artist", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true)
-            .assertTextEquals("尘大师 Lightly")
-        composeRule.onNodeWithTag("home_mini_player_artist", useUnmergedTree = true)
             .assertTextEquals("尘大师 Lightly - 陈奕迅")
+        composeRule.onAllNodesWithTag("home_mini_player_artist", useUnmergedTree = true).assertCountEquals(0)
     }
 
     @Test
@@ -211,14 +350,13 @@ class HomeOverviewScreenRobolectricTest {
         }
 
         composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true)
-            .assertTextEquals("尘大师 Lightly")
-        composeRule.onNodeWithTag("home_mini_player_artist", useUnmergedTree = true)
             .assertTextEquals("尘大师 Lightly - 陈奕迅")
+        composeRule.onAllNodesWithTag("home_mini_player_artist", useUnmergedTree = true).assertCountEquals(0)
         composeRule.onAllNodesWithText("raw-cache-file-name").assertCountEquals(0)
     }
 
     @Test
-    fun miniPlayerBar_shouldPreferCurrentLyricAndShowSongArtistOnSecondLine() {
+    fun miniPlayerBar_shouldPreferCurrentLyricInSingleLine() {
         composeRule.setContent {
             PlayerLiteTheme {
                 HomeOverviewScreen(
@@ -255,8 +393,7 @@ class HomeOverviewScreenRobolectricTest {
 
         composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true)
             .assertTextEquals("第二句")
-        composeRule.onNodeWithTag("home_mini_player_artist", useUnmergedTree = true)
-            .assertTextEquals("夜曲 - 周杰伦")
+        composeRule.onAllNodesWithTag("home_mini_player_artist", useUnmergedTree = true).assertCountEquals(0)
         composeRule.onAllNodesWithText("周杰伦 - 夜曲.mp3").assertCountEquals(0)
     }
 
@@ -437,7 +574,7 @@ class HomeOverviewScreenRobolectricTest {
         }
 
         composeRule.onNodeWithTag("home_mini_player_playlist_button").performClick()
-        composeRule.onNodeWithText("播放列表").assertIsDisplayed()
+        composeRule.onNodeWithText("接下来播放").assertIsDisplayed()
     }
 
     @Test
@@ -630,7 +767,7 @@ class HomeOverviewScreenRobolectricTest {
 
         composeRule.onNodeWithTag("home_mini_player_song_area", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true).assertIsDisplayed()
-        composeRule.onNodeWithText("一首为了验证首页迷你播放条标题过长时需要跑马灯展示效果的超长歌曲名称").assertIsDisplayed()
+        composeRule.onNodeWithText("一首为了验证首页迷你播放条标题过长时需要跑马灯展示效果的超长歌曲名称 - 陈奕迅").assertIsDisplayed()
     }
 
     @Test
@@ -661,8 +798,20 @@ class HomeOverviewScreenRobolectricTest {
             .onNodeWithTag("home_mini_player_bar")
             .fetchSemanticsNode()
             .boundsInRoot
+        val cardBounds = composeRule
+            .onNodeWithTag("home_play_entry_card")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val rootBounds = composeRule
+            .onNodeWithTag("home_discovery_list")
+            .fetchSemanticsNode()
+            .boundsInRoot
         val artworkBounds = composeRule
             .onNodeWithTag("home_mini_player_artwork", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val songAreaBounds = composeRule
+            .onNodeWithTag("home_mini_player_song_area", useUnmergedTree = true)
             .fetchSemanticsNode()
             .boundsInRoot
         val playPauseBounds = composeRule
@@ -673,16 +822,78 @@ class HomeOverviewScreenRobolectricTest {
             .onNodeWithTag("home_mini_player_playlist_button")
             .fetchSemanticsNode()
             .boundsInRoot
+        val progressBounds = composeRule
+            .onNodeWithTag("home_mini_player_progress_line", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
         val barHeightDp = with(composeRule.density) { barBounds.height.toDp() }
         val artworkWidthDp = with(composeRule.density) { artworkBounds.width.toDp() }
+        val playButtonWidthDp = with(composeRule.density) { playPauseBounds.width.toDp() }
+        val playlistButtonWidthDp = with(composeRule.density) { playlistBounds.width.toDp() }
+        val cardWidthRatio = cardBounds.width / rootBounds.width
+        val progressWidthRatio = progressBounds.width / barBounds.width
+        val barCenterY = barBounds.center.y
+        val artworkCenterOffset = kotlin.math.abs(artworkBounds.center.y - barCenterY)
+        val playButtonCenterOffset = kotlin.math.abs(playPauseBounds.center.y - barCenterY)
+        val verticalCenterTolerancePx = with(composeRule.density) { 3.dp.toPx() }
+        val progressBottomDeltaPx = kotlin.math.abs(progressBounds.bottom - barBounds.bottom)
+        val progressBottomTolerancePx = with(composeRule.density) { 1.dp.toPx() }
+        val progressHeightDp = with(composeRule.density) { progressBounds.height.toDp() }
+        val cardLeftInsetDp = with(composeRule.density) { (cardBounds.left - rootBounds.left).toDp() }
+        val cardRightInsetDp = with(composeRule.density) { (rootBounds.right - cardBounds.right).toDp() }
+        val artworkLeftInsetDp = with(composeRule.density) {
+            (artworkBounds.left - barBounds.left).toDp()
+        }
+        val songAreaLeftInsetDp = with(composeRule.density) {
+            (songAreaBounds.left - barBounds.left).toDp()
+        }
+        val playlistRightInsetDp = with(composeRule.density) {
+            (barBounds.right - playlistBounds.right).toDp()
+        }
+        val horizontalInsetDeltaPx = kotlin.math.abs(
+            (artworkBounds.left - barBounds.left) - (barBounds.right - playlistBounds.right)
+        )
+        val horizontalInsetTolerancePx = with(composeRule.density) { 2.dp.toPx() }
 
         assertTrue(
-            "Expected mini player bar height to shrink for compact layout, but was $barHeightDp",
-            barHeightDp <= 96.dp
+            "Expected mini player bar to keep the current slimmer height baseline, but was $barHeightDp",
+            barHeightDp in 56.dp..62.dp
         )
         assertTrue(
-            "Expected artwork to shrink with compact minibar layout, but was $artworkWidthDp",
-            artworkWidthDp <= 46.dp
+            "Expected minibar card to stay close to the page horizontal baseline instead of shrinking too much, but ratio was $cardWidthRatio",
+            cardWidthRatio in 0.89f..0.93f
+        )
+        assertTrue(
+            "Expected minibar card left inset to stay close to the page gutter, but inset was $cardLeftInsetDp",
+            cardLeftInsetDp in 14.dp..18.dp
+        )
+        assertTrue(
+            "Expected minibar card right inset to stay close to the page gutter, but inset was $cardRightInsetDp",
+            cardRightInsetDp in 14.dp..18.dp
+        )
+        assertTrue(
+            "Expected artwork to read as a fuller square cover inside the minibar, but was $artworkWidthDp",
+            artworkWidthDp in 30.dp..34.dp
+        )
+        assertTrue(
+            "Expected play button to stay visually dominant like the reference minibar, but was $playButtonWidthDp",
+            playButtonWidthDp in 32.dp..36.dp
+        )
+        assertTrue(
+            "Expected playlist button to stay readable inside the minibar, but was $playlistButtonWidthDp",
+            playlistButtonWidthDp in 26.dp..30.dp
+        )
+        assertTrue(
+            "Expected top progress line to span almost the full minibar width, but ratio was $progressWidthRatio",
+            progressWidthRatio >= 0.96f
+        )
+        assertTrue(
+            "Expected minibar progress line bottom to align with the minibar bottom edge, progress=$progressBounds bar=$barBounds",
+            progressBottomDeltaPx <= progressBottomTolerancePx
+        )
+        assertTrue(
+            "Expected minibar progress line to stay slim but readable, but height was $progressHeightDp",
+            progressHeightDp in 3.dp..5.dp
         )
         assertTrue(
             "Expected play button to remain inside compact bar, play=$playPauseBounds bar=$barBounds",
@@ -691,6 +902,34 @@ class HomeOverviewScreenRobolectricTest {
         assertTrue(
             "Expected playlist button to remain inside compact bar, playlist=$playlistBounds bar=$barBounds",
             playlistBounds.bottom <= barBounds.bottom
+        )
+        assertTrue(
+            "Expected artwork block to stay vertically centered in minibar, offset=$artworkCenterOffset",
+            artworkCenterOffset <= verticalCenterTolerancePx
+        )
+        assertTrue(
+            "Expected artwork to leave a bit more breathing room from the left edge, but inset was $artworkLeftInsetDp",
+            artworkLeftInsetDp in 10.dp..14.dp
+        )
+        assertTrue(
+            "Expected song text block to shift right together with the larger artwork, but inset was $songAreaLeftInsetDp",
+            songAreaLeftInsetDp in 46.dp..58.dp
+        )
+        assertTrue(
+            "Expected playlist button to leave matching breathing room on the right edge, but inset was $playlistRightInsetDp",
+            playlistRightInsetDp in 10.dp..14.dp
+        )
+        assertTrue(
+            "Expected left artwork inset and right playlist inset to stay visually balanced, delta=$horizontalInsetDeltaPx",
+            horizontalInsetDeltaPx <= horizontalInsetTolerancePx
+        )
+        assertTrue(
+            "Expected song text block to stay to the right of artwork, artwork=$artworkBounds song=$songAreaBounds",
+            songAreaBounds.left > artworkBounds.right
+        )
+        assertTrue(
+            "Expected primary play button to stay vertically centered in minibar, offset=$playButtonCenterOffset",
+            playButtonCenterOffset <= verticalCenterTolerancePx
         )
     }
 }

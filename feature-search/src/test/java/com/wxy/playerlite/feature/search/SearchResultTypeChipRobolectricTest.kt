@@ -50,6 +50,8 @@ class SearchResultTypeChipRobolectricTest {
                     onQueryChanged = {},
                     onSubmitSearch = {},
                     onHistoryKeywordClick = {},
+                    onRemoveHistoryKeyword = {},
+                    onClearHistory = {},
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
@@ -92,6 +94,8 @@ class SearchResultTypeChipRobolectricTest {
                     onQueryChanged = {},
                     onSubmitSearch = {},
                     onHistoryKeywordClick = {},
+                    onRemoveHistoryKeyword = {},
+                    onClearHistory = {},
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
@@ -122,6 +126,54 @@ class SearchResultTypeChipRobolectricTest {
         assertTrue(
             "Expected chip label to stay vertically centered, but centers were $labelCenterY vs $chipCenterY",
             abs(labelCenterY - chipCenterY) < 1f
+        )
+    }
+
+    @Test
+    fun resultMode_shouldKeepMvTypeChipWidthAlignedWithChineseTypeChips() {
+        composeRule.setContent {
+            SearchFeatureTheme {
+                SearchScreen(
+                    state = SearchUiState(
+                        query = "周杰伦",
+                        pageMode = SearchPageMode.RESULT,
+                        selectedResultType = SearchResultType.MV,
+                        availableResultTypes = listOf(
+                            SearchResultType.SONG,
+                            SearchResultType.MV,
+                            SearchResultType.ALBUM
+                        ),
+                        resultStatesByType = mapOf(
+                            SearchResultType.MV to SearchResultUiState.Empty
+                        )
+                    ),
+                    onBack = {},
+                    onQueryChanged = {},
+                    onSubmitSearch = {},
+                    onHistoryKeywordClick = {},
+                    onRemoveHistoryKeyword = {},
+                    onClearHistory = {},
+                    onSuggestionClick = {},
+                    onHotKeywordClick = {},
+                    onResultTypeSelected = {},
+                    onResultClick = {},
+                    onRetry = {}
+                )
+            }
+        }
+
+        val mvBounds = composeRule
+            .onNodeWithTag("search_result_type_mv")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val songBounds = composeRule
+            .onNodeWithTag("search_result_type_song")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        assertTrue(
+            "Expected MV type chip width to align with standard Chinese type chips, but widths were ${mvBounds.width} vs ${songBounds.width}",
+            abs(mvBounds.width - songBounds.width) < 1f
         )
     }
 }

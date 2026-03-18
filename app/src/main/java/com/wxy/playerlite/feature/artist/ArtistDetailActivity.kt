@@ -2,66 +2,121 @@ package com.wxy.playerlite.feature.artist
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.zIndex
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.wxy.playerlite.core.AppContainer
 import com.wxy.playerlite.feature.detail.DetailErrorCard
-import com.wxy.playerlite.feature.detail.DetailHeroSummaryPreview
 import com.wxy.playerlite.feature.detail.DetailLoadingCard
-import com.wxy.playerlite.feature.detail.DetailSectionPlayAllButton
 import com.wxy.playerlite.feature.detail.DetailTextDialog
-import com.wxy.playerlite.feature.detail.createOpenPlayerAfterQueueReplacementIntent
 import com.wxy.playerlite.feature.detail.MusicDetailScaffold
-import com.wxy.playerlite.feature.detail.formatTrackDuration
-import com.wxy.playerlite.feature.detail.previewSummaryText
+import com.wxy.playerlite.feature.detail.createOpenPlayerAfterQueueReplacementIntent
+import com.wxy.playerlite.feature.detail.rememberDynamicHeroAccentColor
 import com.wxy.playerlite.feature.detail.rememberDynamicHeroBrush
 import com.wxy.playerlite.feature.player.runtime.RuntimeDetailPlaybackGateway
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
+import java.util.Locale
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 internal const val EXTRA_ARTIST_ID = "artist_id"
+
+private enum class ArtistDetailTab(
+    val title: String,
+    val testTag: String
+) {
+    HOT_SONGS("热门歌曲", "artist_tab_hot_songs"),
+    ALBUMS("专辑", "artist_tab_albums"),
+    ENCYCLOPEDIA("百科", "artist_tab_encyclopedia")
+}
+
+private const val ARTIST_STICKY_TAB_LIST_INDEX = 2
+private const val ARTIST_DESCRIPTION_CARD_LIST_INDEX = 1
+private val ARTIST_COMPACT_TOP_BAR_CONTENT_HEIGHT = 56.dp
+private val ARTIST_COLLAPSED_HEADER_SAFE_GAP = 6.dp
+
+internal fun formatArtistFansCount(fansCount: Long): String {
+    val normalized = fansCount.coerceAtLeast(0L)
+    if (normalized < 10_000L) {
+        return normalized.toString()
+    }
+    val formatted = String.format(Locale.US, "%.1f", normalized / 10_000.0)
+        .removeSuffix(".0")
+    return "${formatted}w"
+}
 
 class ArtistDetailActivity : ComponentActivity() {
     private val viewModel: ArtistDetailViewModel by viewModels {
@@ -78,11 +133,40 @@ class ArtistDetailActivity : ComponentActivity() {
         setContent {
             PlayerLiteTheme {
                 val state = viewModel.uiStateFlow.collectAsStateWithLifecycle().value
+                val headerChromeProgressState = remember { mutableFloatStateOf(0f) }
+                val statusBarReferenceColor = when (val headerState = state.headerState) {
+                    is ArtistDetailHeaderUiState.Content -> rememberDynamicHeroAccentColor(
+                        imageUrl = headerState.content.coverUrl ?: headerState.content.avatarUrl
+                    )
+
+                    else -> MaterialTheme.colorScheme.primary
+                }
+                val statusBarBlendColor = lerp(
+                    start = statusBarReferenceColor,
+                    stop = MaterialTheme.colorScheme.background,
+                    fraction = headerChromeProgressState.floatValue.coerceIn(0f, 1f)
+                )
+                val useDarkStatusBarContent = statusBarBlendColor.luminance() > 0.58f
+                val topBarContentColor = if (useDarkStatusBarContent) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.surface
+                }
+                SideEffect {
+                    window.statusBarColor = AndroidColor.TRANSPARENT
+                    WindowCompat.getInsetsController(window, window.decorView)
+                        .isAppearanceLightStatusBars = useDarkStatusBarContent
+                }
                 BackHandler(onBack = ::finish)
                 ArtistDetailScreen(
                     state = state,
+                    heroAccentColor = statusBarReferenceColor,
+                    topBarContentColor = topBarContentColor,
                     onBack = ::finish,
                     onRetry = viewModel::retry,
+                    onHeaderChromeProgressChange = {
+                        headerChromeProgressState.floatValue = it
+                    },
                     onPlayAll = {
                         if (viewModel.playAll()) {
                             startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
@@ -92,7 +176,8 @@ class ArtistDetailActivity : ComponentActivity() {
                         if (viewModel.playTrack(index)) {
                             startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
                         }
-                    }
+                    },
+                    onLoadMoreAlbums = viewModel::loadMoreAlbums
                 )
             }
         }
@@ -116,117 +201,171 @@ class ArtistDetailActivity : ComponentActivity() {
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 internal fun ArtistDetailScreen(
     state: ArtistDetailUiState,
+    heroAccentColor: Color,
+    topBarContentColor: Color,
     onBack: () -> Unit,
     onRetry: () -> Unit,
+    onHeaderChromeProgressChange: ((Float) -> Unit)? = null,
     onPlayAll: () -> Unit,
-    onTrackClick: (Int) -> Unit
+    onTrackClick: (Int) -> Unit,
+    onLoadMoreAlbums: () -> Unit = {}
 ) {
     val isDescriptionVisibleState = rememberSaveable { mutableStateOf(false) }
     val isAvatarPreviewVisibleState = rememberSaveable { mutableStateOf(false) }
+    val selectedTabState = rememberSaveable { mutableStateOf(ArtistDetailTab.HOT_SONGS.name) }
+    val bodyListState = rememberLazyListState()
+    val selectedTab = ArtistDetailTab.valueOf(selectedTabState.value)
+    val density = LocalDensity.current
+    val heroHeightPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
+    val headerCollapseProgress by remember(bodyListState, heroHeightPx) {
+        derivedStateOf {
+            when {
+                bodyListState.firstVisibleItemIndex > 0 -> 1f
+                heroHeightPx <= 0f -> 0f
+                else -> (bodyListState.firstVisibleItemScrollOffset / (heroHeightPx * 0.72f))
+                    .coerceIn(0f, 1f)
+            }
+        }
+    }
+    val animatedCollapseProgress by animateFloatAsState(
+        targetValue = headerCollapseProgress,
+        animationSpec = tween(durationMillis = 180),
+        label = "artistHeaderCollapseProgress"
+    )
+    val compactTopBarHeight = rememberArtistCompactTopBarHeight()
+    val stickyHeaderInsetDistancePx = with(density) {
+        (compactTopBarHeight + ARTIST_COLLAPSED_HEADER_SAFE_GAP).toPx()
+    }
+    val stickyHeaderInsetProgress by remember(bodyListState, stickyHeaderInsetDistancePx) {
+        derivedStateOf {
+            val descriptionCardInfo = bodyListState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.index == ARTIST_DESCRIPTION_CARD_LIST_INDEX }
+            when {
+                stickyHeaderInsetDistancePx <= 0f -> 0f
+                bodyListState.firstVisibleItemIndex > ARTIST_DESCRIPTION_CARD_LIST_INDEX -> 1f
+                descriptionCardInfo != null -> {
+                    val descriptionCardBottomPx =
+                        descriptionCardInfo.offset + descriptionCardInfo.size
+                    (
+                        (stickyHeaderInsetDistancePx - descriptionCardBottomPx) /
+                            stickyHeaderInsetDistancePx
+                        ).coerceIn(0f, 1f)
+                }
+                else -> 0f
+            }.coerceIn(0f, 1f)
+        }
+    }
+    val headerChromeProgress = max(animatedCollapseProgress, stickyHeaderInsetProgress)
+        .coerceIn(0f, 1f)
+    val stableHeaderChromeProgress = remember(headerChromeProgress) {
+        ((headerChromeProgress * 100f).roundToInt() / 100f).coerceIn(0f, 1f)
+    }
+    if (onHeaderChromeProgressChange != null) {
+        LaunchedEffect(stableHeaderChromeProgress, onHeaderChromeProgressChange) {
+            onHeaderChromeProgressChange(stableHeaderChromeProgress)
+        }
+    }
 
     when (val headerState = state.headerState) {
         ArtistDetailHeaderUiState.Loading -> {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+            ArtistDetailShell(
+                onBack = onBack,
+                listState = bodyListState,
+                scaffoldBackButtonTint = topBarContentColor,
+                heroContent = {
+                    ArtistDetailHeroSkeleton()
+                }
             ) {
-                CircularProgressIndicator()
+                item {
+                    DetailLoadingCard(text = "歌手详情加载中")
+                }
             }
         }
 
         is ArtistDetailHeaderUiState.Error -> {
-            DetailErrorCard(
-                message = headerState.message,
-                onRetry = onRetry
-            )
+            ArtistDetailShell(
+                onBack = onBack,
+                listState = bodyListState,
+                scaffoldBackButtonTint = topBarContentColor,
+                heroContent = {
+                    ArtistDetailHeroSkeleton()
+                }
+            ) {
+                item {
+                    DetailErrorCard(
+                        message = headerState.message,
+                        onRetry = onRetry,
+                        testTag = "artist_detail_error"
+                    )
+                }
+            }
         }
 
         is ArtistDetailHeaderUiState.Content -> {
-            val descriptionSummary = artistDescriptionSummary(
-                content = headerState.content,
+            val content = headerState.content
+            val descriptionSummary = ArtistDetailEncyclopediaTab.artistDescriptionSummary(
+                content = content,
                 encyclopediaState = state.encyclopediaState
             )
-            val descriptionBody = artistDescriptionBody(
-                content = headerState.content,
+            val descriptionBody = ArtistDetailEncyclopediaTab.artistDescriptionBody(
+                content = content,
                 encyclopediaState = state.encyclopediaState
             )
-            MusicDetailScaffold(
-                heroTestTag = "artist_detail_hero_panel",
+            ArtistDetailShell(
                 onBack = onBack,
+                listState = bodyListState,
+                showScaffoldBackButton = false,
+                scaffoldBackButtonTint = Color.Transparent,
                 heroBrush = rememberDynamicHeroBrush(
-                    imageUrl = headerState.content.avatarUrl ?: headerState.content.coverUrl
+                    imageUrl = content.coverUrl ?: content.avatarUrl
                 ),
+                overlayContent = {
+                    ArtistDetailCollapsingTopBar(
+                        artistName = content.name,
+                        accentColor = heroAccentColor,
+                        topBarContentColor = topBarContentColor,
+                        collapseProgress = animatedCollapseProgress,
+                        stickyHeaderInsetProgress = stickyHeaderInsetProgress,
+                        compactTopBarHeight = compactTopBarHeight,
+                        onBack = onBack
+                    )
+                },
                 heroContent = {
                     ArtistDetailHero(
-                        content = headerState.content,
-                        descriptionSummary = descriptionSummary,
-                        onDescriptionClick = {
-                            isDescriptionVisibleState.value = true
-                        },
+                        content = content,
+                        accentColor = heroAccentColor,
+                        collapseProgress = animatedCollapseProgress,
+                        onPlayHotClick = onPlayAll,
                         onAvatarClick = {
                             isAvatarPreviewVisibleState.value = true
                         }
                     )
                 }
             ) {
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "热门歌曲",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.testTag("artist_hot_songs_section")
-                        )
-                        Spacer(modifier = Modifier.width(14.dp))
-                        DetailSectionPlayAllButton(
-                            onClick = onPlayAll,
-                            testTag = "artist_play_all_button"
-                        )
-                    }
-                }
-                when (val hotSongsState = state.hotSongsState) {
-                    ArtistHotSongsUiState.Loading -> {
-                        item {
-                            DetailLoadingCard(text = "热门歌曲加载中")
+                artistDetailBodyContent(
+                    stickyHeaderInsetProgress = stickyHeaderInsetProgress,
+                    selectedTab = selectedTab,
+                    descriptionSummary = descriptionSummary,
+                    descriptionBody = descriptionBody,
+                    hotSongsState = state.hotSongsState,
+                    albumsState = state.albumsState,
+                    onDescriptionClick = {
+                        isDescriptionVisibleState.value = true
+                    },
+                    onTabSelected = { tab ->
+                        if (selectedTab != tab) {
+                            selectedTabState.value = tab.name
                         }
-                    }
-
-                    is ArtistHotSongsUiState.Error -> {
-                        item {
-                            ArtistHotSongsErrorCard(
-                                message = hotSongsState.message,
-                                onRetry = onRetry
-                            )
-                        }
-                    }
-
-                    ArtistHotSongsUiState.Empty -> {
-                        item {
-                            DetailLoadingCard(text = "暂时没有可展示的热门歌曲")
-                        }
-                    }
-
-                    is ArtistHotSongsUiState.Content -> {
-                        items(
-                            count = hotSongsState.items.size,
-                            key = { index -> hotSongsState.items[index].trackId }
-                        ) { index ->
-                            ArtistHotSongCard(
-                                item = hotSongsState.items[index],
-                                onClick = {
-                                    onTrackClick(index)
-                                }
-                            )
-                        }
-                    }
-                }
+                    },
+                    compactTopBarHeight = compactTopBarHeight,
+                    onRetry = onRetry,
+                    onPlayAll = onPlayAll,
+                    onTrackClick = onTrackClick,
+                    onLoadMoreAlbums = onLoadMoreAlbums
+                )
             }
 
             if (isDescriptionVisibleState.value) {
@@ -241,9 +380,9 @@ internal fun ArtistDetailScreen(
             }
 
             if (isAvatarPreviewVisibleState.value) {
-                ArtistAvatarPreviewDialog(
-                    imageUrl = headerState.content.avatarUrl ?: headerState.content.coverUrl,
-                    name = headerState.content.name,
+                ArtistCoverPreviewDialog(
+                    imageUrl = content.coverUrl ?: content.avatarUrl,
+                    name = content.name,
                     onDismiss = {
                         isAvatarPreviewVisibleState.value = false
                     }
@@ -254,46 +393,88 @@ internal fun ArtistDetailScreen(
 }
 
 @Composable
-private fun ArtistHotSongsErrorCard(
-    message: String,
-    onRetry: () -> Unit
+private fun ArtistDetailShell(
+    onBack: () -> Unit,
+    listState: LazyListState,
+    showScaffoldBackButton: Boolean = true,
+    scaffoldBackButtonTint: Color,
+    heroBrush: Brush? = null,
+    overlayContent: @Composable BoxScope.() -> Unit = {},
+    heroContent: @Composable ColumnScope.() -> Unit,
+    bodyContent: LazyListScope.() -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp)
-            .testTag("artist_hot_songs_error"),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+    Box(modifier = Modifier.fillMaxSize()) {
+        MusicDetailScaffold(
+            heroTestTag = "artist_detail_hero_panel",
+            onBack = onBack,
+            listState = listState,
+            heroBrush = heroBrush,
+            heroHorizontalPadding = 0.dp,
+            heroTopPadding = 0.dp,
+            heroBottomPadding = 0.dp,
+            drawHeroBehindStatusBar = true,
+            showBackButton = showScaffoldBackButton,
+            backButtonTint = scaffoldBackButtonTint,
+            heroContent = heroContent,
+            bodyContent = bodyContent
         )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = "热门歌曲加载失败",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+        overlayContent()
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+private fun LazyListScope.artistDetailBodyContent(
+    stickyHeaderInsetProgress: Float,
+    selectedTab: ArtistDetailTab,
+    descriptionSummary: String,
+    descriptionBody: String,
+    hotSongsState: ArtistHotSongsUiState,
+    albumsState: ArtistAlbumsUiState,
+    onDescriptionClick: () -> Unit,
+    onTabSelected: (ArtistDetailTab) -> Unit,
+    compactTopBarHeight: Dp,
+    onRetry: () -> Unit,
+    onPlayAll: () -> Unit,
+    onTrackClick: (Int) -> Unit,
+    onLoadMoreAlbums: () -> Unit
+) {
+    item {
+        ArtistDetailEncyclopediaTab.ArtistDescriptionCard(
+            summary = descriptionSummary,
+            onClick = onDescriptionClick
+        )
+    }
+    stickyHeader {
+        ArtistDetailStickyTabsHeader(
+            stickyHeaderInsetProgress = stickyHeaderInsetProgress,
+            selectedTab = selectedTab,
+            compactTopBarHeight = compactTopBarHeight,
+            onTabSelected = onTabSelected
+        )
+    }
+    when (selectedTab) {
+        ArtistDetailTab.HOT_SONGS -> {
+            artistHotSongsTabPanel(
+                hotSongsState = hotSongsState,
+                onRetry = onRetry,
+                onTrackClick = onTrackClick
+            )
+        }
+
+        ArtistDetailTab.ALBUMS -> {
+            artistAlbumsTabPanel(
+                albumsState = albumsState,
+                onRetry = onRetry,
+                onLoadMoreAlbums = onLoadMoreAlbums
+            )
+        }
+
+        ArtistDetailTab.ENCYCLOPEDIA -> {
+            item {
+                ArtistDetailEncyclopediaTab.ArtistEncyclopediaCard(
+                    body = descriptionBody,
+                    modifier = Modifier.fillParentMaxHeight()
                 )
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Button(onClick = onRetry) {
-                Text("重试")
             }
         }
     }
@@ -302,72 +483,414 @@ private fun ArtistHotSongsErrorCard(
 @Composable
 private fun ArtistDetailHero(
     content: ArtistDetailContent,
-    descriptionSummary: String,
-    onDescriptionClick: () -> Unit,
+    accentColor: Color,
+    collapseProgress: Float,
+    onPlayHotClick: () -> Unit,
     onAvatarClick: () -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+    val statsText = buildList {
+        if (content.fansCount > 0L) {
+            add("${formatArtistFansCount(content.fansCount)} 粉丝")
+        }
+        add("${content.musicCount} 首歌曲")
+        add("${content.albumCount} 张专辑")
+    }.joinToString(separator = " · ")
+    val bottomTextColor = MaterialTheme.colorScheme.onSurface
+    val secondaryTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val overlayAccentColor = accentColor.copy(alpha = 0.38f)
+    val followButtonLabel = if (content.isFollowed == true) "已关注" else "关注"
+    val heroIdentityFadeProgress = ((collapseProgress - 0.04f) / 0.56f).coerceIn(0f, 1f)
+    val collapsingContentAlpha = 1f - heroIdentityFadeProgress
+    val collapsingTranslationY = with(LocalDensity.current) { 24.dp.toPx() } * heroIdentityFadeProgress
+    val subtitle = buildList {
+        if (content.aliases.isNotEmpty()) {
+            add(content.aliases.joinToString(separator = " · "))
+        }
+        if (content.identities.isNotEmpty()) {
+            add(content.identities.joinToString(separator = " / "))
+        }
+    }.joinToString(separator = "\n")
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
     ) {
-        ArtistAvatar(
-            imageUrl = content.avatarUrl ?: content.coverUrl,
-            name = content.name,
-            onClick = onAvatarClick
-        )
-        Spacer(modifier = Modifier.width(18.dp))
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("artist_detail_cover")
+                .clickable(onClick = onAvatarClick)
         ) {
-            Text(
-                text = content.name,
-                style = MaterialTheme.typography.headlineMedium,
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold
+            ArtistCoverArt(
+                imageUrl = content.coverUrl ?: content.avatarUrl,
+                name = content.name
             )
-            if (content.aliases.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                overlayAccentColor.copy(alpha = 0.12f),
+                                overlayAccentColor,
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
+                            )
+                        )
+                )
+            )
+        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .graphicsLayer {
+                    alpha = collapsingContentAlpha
+                    translationY = collapsingTranslationY
+                }
+                .padding(horizontal = 20.dp, vertical = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 Text(
-                    text = content.aliases.joinToString(separator = " · "),
+                    text = content.name,
+                    style = MaterialTheme.typography.displaySmall,
+                    color = bottomTextColor,
+                    fontWeight = FontWeight.Bold
+                )
+                if (subtitle.isNotBlank()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = secondaryTextColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    text = statsText,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.82f)
+                    color = secondaryTextColor
                 )
             }
-            Text(
-                text = "${content.musicCount} 首歌曲 · ${content.albumCount} 张专辑",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.78f)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = onPlayHotClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(999.dp),
+                    modifier = Modifier.testTag("artist_hero_play_hot_button")
+                ) {
+                    Text("播放最热门")
+                }
+                Button(
+                    onClick = {},
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    shape = RoundedCornerShape(999.dp),
+                    modifier = Modifier.testTag("artist_hero_follow_button")
+                ) {
+                    Text(followButtonLabel)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArtistDetailHeroSkeleton() {
+    val skeletonColor = MaterialTheme.colorScheme.primary
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .background(skeletonColor.copy(alpha = 0.18f))
+        )
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.62f)
+                    .height(28.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(skeletonColor.copy(alpha = 0.18f))
             )
-            DetailHeroSummaryPreview(
-                label = "歌手简介",
-                summary = previewSummaryText(descriptionSummary),
-                testTag = "artist_description_preview",
-                onClick = onDescriptionClick
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .height(18.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(skeletonColor.copy(alpha = 0.14f))
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.55f)
+                    .height(18.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(skeletonColor.copy(alpha = 0.14f))
             )
         }
     }
 }
 
 @Composable
-private fun ArtistAvatar(
-    imageUrl: String?,
-    name: String,
-    onClick: () -> Unit
+private fun ArtistDetailStickyTabsHeader(
+    stickyHeaderInsetProgress: Float,
+    selectedTab: ArtistDetailTab,
+    compactTopBarHeight: Dp,
+    onTabSelected: (ArtistDetailTab) -> Unit
+) {
+    val collapsedSpacerTargetHeight = if (stickyHeaderInsetProgress <= 0f) {
+        0.dp
+    } else {
+        (compactTopBarHeight + ARTIST_COLLAPSED_HEADER_SAFE_GAP) * stickyHeaderInsetProgress
+    }
+    val collapsedSpacerHeight = collapsedSpacerTargetHeight
+    val topCornerRadius = 20.dp * (1f - stickyHeaderInsetProgress.coerceIn(0f, 1f))
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
+            .zIndex(1f)
+            .testTag("artist_sticky_tabs_header")
+    ) {
+        if (collapsedSpacerHeight > 0.dp) {
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(collapsedSpacerHeight)
+                    .testTag("artist_collapsed_header_bar")
+            )
+        }
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 0.dp),
+            shape = RoundedCornerShape(
+                topStart = topCornerRadius,
+                topEnd = topCornerRadius,
+                bottomStart = 20.dp,
+                bottomEnd = 20.dp
+            ),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.background
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                ArtistDetailTab.entries.forEach { tab ->
+                    val isSelected = tab == selectedTab
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                onTabSelected(tab)
+                            }
+                            .testTag(tab.testTag),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = tab.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.onBackground
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.5f)
+                                .height(2.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(
+                                    if (isSelected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        Color.Transparent
+                                    }
+                                )
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArtistDetailCollapsingTopBar(
+    artistName: String,
+    accentColor: Color,
+    topBarContentColor: Color,
+    collapseProgress: Float,
+    stickyHeaderInsetProgress: Float,
+    compactTopBarHeight: Dp,
+    onBack: () -> Unit
+) {
+    val safeTopPadding = rememberArtistSafeTopPadding()
+    val chromeProgress = max(collapseProgress, stickyHeaderInsetProgress).coerceIn(0f, 1f)
+    val gradientAlpha = chromeProgress
+    val titleRevealProgress = max(
+        stickyHeaderInsetProgress.coerceIn(0f, 1f),
+        (collapseProgress * 0.92f).coerceIn(0f, 1f)
+    )
+    val titleAlpha = ((titleRevealProgress - 0.22f) / 0.5f).coerceIn(0f, 1f)
+    val titleTranslationY = with(LocalDensity.current) { 8.dp.toPx() } * (1f - titleAlpha)
+    val backgroundColor = MaterialTheme.colorScheme.background
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(compactTopBarHeight)
+            .testTag("artist_collapsing_top_bar")
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer {
+                    alpha = gradientAlpha
+                }
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            lerp(
+                                start = accentColor,
+                                stop = backgroundColor,
+                                fraction = 0.16f
+                            ),
+                            lerp(
+                                start = accentColor,
+                                stop = backgroundColor,
+                                fraction = 0.42f
+                            ),
+                            backgroundColor
+                        )
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 8.dp, top = safeTopPadding, end = 8.dp)
+                .height(ARTIST_COMPACT_TOP_BAR_CONTENT_HEIGHT)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ArtistDetailTopChromeAction(
+                    testTag = "detail_back_button",
+                    onClick = onBack
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "返回",
+                        tint = topBarContentColor
+                    )
+                }
+                ArtistDetailTopChromeAction(
+                    testTag = "artist_detail_more_button",
+                    onClick = {}
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreHoriz,
+                        contentDescription = "更多",
+                        tint = topBarContentColor
+                    )
+                }
+            }
+            Text(
+                text = artistName,
+                style = MaterialTheme.typography.titleMedium,
+                color = topBarContentColor,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 72.dp)
+                    .graphicsLayer {
+                        alpha = titleAlpha
+                        translationY = titleTranslationY
+                    }
+                    .testTag("artist_collapsing_top_bar_title")
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArtistDetailTopChromeAction(
+    testTag: String,
+    onClick: () -> Unit,
+    content: @Composable BoxScope.() -> Unit
 ) {
     Box(
         modifier = Modifier
-            .size(112.dp)
+            .size(44.dp)
             .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.14f))
             .clickable(onClick = onClick)
-            .testTag("artist_detail_avatar"),
+            .testTag(testTag),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun rememberArtistCompactTopBarHeight(): Dp {
+    return rememberArtistSafeTopPadding() + ARTIST_COMPACT_TOP_BAR_CONTENT_HEIGHT
+}
+
+@Composable
+private fun rememberArtistSafeTopPadding(): Dp {
+    return WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
+}
+
+@Composable
+private fun ArtistCoverArt(
+    imageUrl: String?,
+    name: String
+) {
+    val heroPlaceholderColor = MaterialTheme.colorScheme.primary
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .background(heroPlaceholderColor.copy(alpha = 0.14f))
+            .testTag("artist_detail_cover_image"),
         contentAlignment = Alignment.Center
     ) {
         if (imageUrl.isNullOrBlank()) {
             Text(
                 text = name.take(1),
                 style = MaterialTheme.typography.headlineLarge,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onPrimary
             )
         } else {
             AsyncImage(
@@ -381,7 +904,7 @@ private fun ArtistAvatar(
 }
 
 @Composable
-private fun ArtistAvatarPreviewDialog(
+private fun ArtistCoverPreviewDialog(
     imageUrl: String?,
     name: String,
     onDismiss: () -> Unit
@@ -395,7 +918,7 @@ private fun ArtistAvatarPreviewDialog(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
                 .testTag("artist_avatar_preview_dialog"),
-            shape = RoundedCornerShape(32.dp),
+            shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -408,10 +931,11 @@ private fun ArtistAvatarPreviewDialog(
                 if (imageUrl.isNullOrBlank()) {
                     Box(
                         modifier = Modifier
-                            .size(220.dp)
-                            .clip(CircleShape)
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(24.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .testTag("artist_avatar_preview_image"),
+                            .testTag("artist_cover_preview_image"),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -425,9 +949,10 @@ private fun ArtistAvatarPreviewDialog(
                         model = imageUrl,
                         contentDescription = name,
                         modifier = Modifier
-                            .size(220.dp)
-                            .clip(CircleShape)
-                            .testTag("artist_avatar_preview_image"),
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(24.dp))
+                            .testTag("artist_cover_preview_image"),
                         contentScale = ContentScale.Crop
                     )
                 }
@@ -437,122 +962,4 @@ private fun ArtistAvatarPreviewDialog(
             }
         }
     }
-}
-
-@Composable
-private fun ArtistHotSongCard(
-    item: ArtistHotSongRow,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp)
-            .clickable(onClick = onClick)
-            .testTag("artist_hot_song_${item.trackId}"),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (item.coverUrl.isNullOrBlank()) {
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = item.title.take(1),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                AsyncImage(
-                    model = item.coverUrl,
-                    contentDescription = item.title,
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(RoundedCornerShape(16.dp)),
-                    contentScale = ContentScale.Crop
-                )
-            }
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${item.artistText} · ${item.albumTitle}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = formatTrackDuration(item.durationMs),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-private fun artistDescriptionSummary(
-    content: ArtistDetailContent,
-    encyclopediaState: ArtistEncyclopediaUiState
-): String {
-    return when (encyclopediaState) {
-        is ArtistEncyclopediaUiState.Content -> encyclopediaState.content.summary
-            .ifBlank { content.encyclopediaSummary.ifBlank { content.briefDesc } }
-
-        ArtistEncyclopediaUiState.Empty -> content.encyclopediaSummary.ifBlank { content.briefDesc }
-        is ArtistEncyclopediaUiState.Error -> content.encyclopediaSummary.ifBlank { content.briefDesc }
-        ArtistEncyclopediaUiState.Loading -> content.encyclopediaSummary.ifBlank { content.briefDesc }
-    }.ifBlank {
-        "暂时没有更多歌手简介。"
-    }
-}
-
-private fun artistDescriptionBody(
-    content: ArtistDetailContent,
-    encyclopediaState: ArtistEncyclopediaUiState
-): String {
-    val sections = when (encyclopediaState) {
-        is ArtistEncyclopediaUiState.Content -> encyclopediaState.content.sections
-        else -> content.encyclopediaSections
-    }
-    val summary = artistDescriptionSummary(content, encyclopediaState)
-    val sectionText = sections.joinToString(separator = "\n\n") { section ->
-        buildString {
-            if (section.title.isNotBlank()) {
-                append(section.title)
-                append('\n')
-            }
-            append(section.body)
-        }
-    }
-    return listOf(summary, sectionText)
-        .filter { it.isNotBlank() }
-        .distinct()
-        .joinToString(separator = "\n\n")
-        .ifBlank {
-            "暂时没有更多歌手简介。"
-        }
 }

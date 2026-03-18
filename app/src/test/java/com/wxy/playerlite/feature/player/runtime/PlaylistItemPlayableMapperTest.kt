@@ -37,6 +37,7 @@ class PlaylistItemPlayableMapperTest {
             songId = "1973665667",
             title = "夜曲",
             artistText = "周杰伦 / 杨瑞代",
+            primaryArtistId = "artist-6452",
             albumTitle = "十一月的萧邦",
             coverUrl = "https://example.com/night.jpg",
             durationMs = 213_000L,
@@ -53,6 +54,7 @@ class PlaylistItemPlayableMapperTest {
         assertEquals("1973665667", music.songId)
         assertEquals("夜曲", music.title)
         assertEquals(listOf("周杰伦", "杨瑞代"), music.artistNames)
+        assertEquals(listOf("artist-6452"), music.artistIds)
         assertEquals("十一月的萧邦", music.albumTitle)
         assertEquals("https://example.com/night.jpg", music.coverUrl)
         assertEquals(213_000L, music.durationMs)

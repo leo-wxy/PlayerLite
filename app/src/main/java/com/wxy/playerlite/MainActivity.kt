@@ -56,6 +56,7 @@ import com.wxy.playerlite.feature.main.UserCenterScreen
 import com.wxy.playerlite.feature.player.ui.PlayerSongWikiButton
 import com.wxy.playerlite.feature.player.ui.PlayerScreen
 import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
+import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.user.InitialLoginLaunchGate
 import com.wxy.playerlite.feature.user.LoginActivity
 import com.wxy.playerlite.playback.model.PlaybackLaunchRequest
@@ -117,6 +118,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val state = viewModel.uiStateFlow.collectAsStateWithLifecycle().value
+            val resolvedCurrentArtistId = resolveCurrentPlayerArtistId(state)
             val userState = viewModel.userSessionUiStateFlow.collectAsStateWithLifecycle().value
             val homeState = homeViewModel.uiStateFlow.collectAsStateWithLifecycle().value
             val userCenterState = userCenterViewModel.uiStateFlow.collectAsStateWithLifecycle().value
@@ -192,7 +194,9 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         bottomBar = {
                             AnimatedVisibility(
-                                visible = shellState.shouldShowBottomBar,
+                                visible = shellState.shouldRenderBottomBar(
+                                    isPlaylistSheetVisible = state.showPlaylistSheet
+                                ),
                                 enter = fadeIn(animationSpec = tween(durationMillis = 180)) +
                                     slideInVertically(
                                         animationSpec = tween(durationMillis = 220),
@@ -285,7 +289,7 @@ class MainActivity : ComponentActivity() {
                                                     durationMs = state.durationMs,
                                                     totalDurationText = viewModel.formatDuration(state.durationMs),
                                                     currentSongId = state.currentSongId,
-                                                    currentArtistId = state.currentArtistId,
+                                                    currentArtistId = resolvedCurrentArtistId,
                                                     currentCoverUrl = state.currentCoverUrl,
                                                     showSongWikiInlineButton = true,
                                                     enableEnterMotion = false,
@@ -303,6 +307,7 @@ class MainActivity : ComponentActivity() {
                                                     onSelectPlaylistItem = { index ->
                                                         viewModel.selectPlaylistItem(index)
                                                     },
+                                                    onClearPlaylist = viewModel::clearPlaylist,
                                                     onRemovePlaylistItem = { index ->
                                                         viewModel.removePlaylistItem(index)
                                                     },
@@ -321,7 +326,7 @@ class MainActivity : ComponentActivity() {
                                                     },
                                                     onShareClick = viewModel::onShareCurrentTrack,
                                                     onArtistClick = {
-                                                        state.currentArtistId
+                                                        resolvedCurrentArtistId
                                                             ?.takeIf { it.isNotBlank() }
                                                             ?.let { artistId ->
                                                                 startActivity(
@@ -349,6 +354,7 @@ class MainActivity : ComponentActivity() {
                                         onDismiss = viewModel::onDismissPlaylistSheet,
                                         onShowOriginalOrderInShuffleChange = viewModel::setShowOriginalOrderInShuffle,
                                         onSelect = { index -> viewModel.selectPlaylistItem(index) },
+                                        onClearAll = viewModel::clearPlaylist,
                                         onRemove = { index -> viewModel.removePlaylistItem(index) },
                                         onMove = viewModel::movePlaylistItem,
                                         modifier = Modifier.fillMaxSize()
@@ -372,7 +378,7 @@ class MainActivity : ComponentActivity() {
                                         startActivity(LoginActivity.createIntent(this))
                                     },
                                     onLogoutClick = viewModel::logout,
-                                    modifier = Modifier.padding(innerPadding)
+                                    modifier = Modifier.padding(top = topInset)
                                 )
                             }
                         }
@@ -464,4 +470,13 @@ class MainActivity : ComponentActivity() {
             return PlaybackLaunchRequest.shouldStartPlayback(intent)
         }
     }
+}
+
+internal fun resolveCurrentPlayerArtistId(state: PlayerUiState): String? {
+    return state.currentArtistId
+        ?.takeIf { it.isNotBlank() }
+        ?: state.playlistItems
+            .getOrNull(state.activePlaylistIndex)
+            ?.primaryArtistId
+            ?.takeIf { it.isNotBlank() }
 }

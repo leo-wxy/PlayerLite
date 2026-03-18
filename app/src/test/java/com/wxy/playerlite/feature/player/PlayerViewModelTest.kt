@@ -321,6 +321,42 @@ class PlayerViewModelTest {
     }
 
     @Test
+    fun clearPlaylist_shouldStopPlaybackWhenQueueBecomesEmpty() = runTest {
+        val runtime = PlayerRuntime(application)
+        runtime.applyExternalQueueSelection(
+            items = listOf(
+                onlineItem(index = 0, songId = "track-1", title = "第一首"),
+                onlineItem(index = 1, songId = "track-2", title = "第二首")
+            ),
+            activeIndex = 0
+        )
+        val bridge = FakePlayerControlBridge(currentSnapshot = null)
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            songWikiRepository = FakeSongWikiRepository(),
+            serviceBridge = bridge,
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 60_000L,
+            uiProgressIntervalMs = 60_000L
+        )
+        try {
+            runCurrent()
+            bridge.clearActions()
+
+            viewModel.clearPlaylist()
+
+            assertEquals(listOf("stop"), bridge.actions)
+            assertTrue(viewModel.uiStateFlow.value.playlistItems.isEmpty())
+            assertEquals("播放列表已清空", viewModel.uiStateFlow.value.statusText)
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
     fun playbackPreparing_shouldExposeCachedLyricsWithoutRemoteFetch() = runTest {
         val runtime = PlayerRuntime(application)
         runtime.applyExternalQueueSelection(
@@ -428,6 +464,46 @@ class PlayerViewModelTest {
         try {
             runCurrent()
             assertEquals(listOf("track-1"), lyricRepository.remoteFetchCalls)
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun playbackReadyWithoutPreparing_shouldStillFetchRemoteLyricsForCurrentSong() = runTest {
+        val runtime = PlayerRuntime(application)
+        runtime.applyExternalQueueSelection(
+            items = listOf(
+                onlineItem(index = 0, songId = "track-1", title = "第一首")
+            ),
+            activeIndex = 0
+        )
+        val bridge = FakePlayerControlBridge(
+            currentSnapshot = readyPlayingSnapshot(songId = "track-1", title = "第一首")
+        )
+        val lyricRepository = FakeLyricRepository(
+            remoteBySongId = mapOf("track-1" to demoLyrics("track-1"))
+        )
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            songWikiRepository = FakeSongWikiRepository(),
+            lyricRepository = lyricRepository,
+            serviceBridge = bridge,
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 60_000L,
+            uiProgressIntervalMs = 60_000L,
+            lyricRequestDelayMs = 400L
+        )
+        try {
+            runCurrent()
+
+            assertEquals(listOf("track-1"), lyricRepository.remoteFetchCalls)
+            val lyricUiState = viewModel.uiStateFlow.value.lyricUiState
+            require(lyricUiState is PlayerLyricUiState.Content)
+            assertEquals("第一句", lyricUiState.lyrics.lines.first().text)
         } finally {
             clearViewModel(viewModel)
             runCurrent()
@@ -650,7 +726,10 @@ private class FakePlayerControlBridge(
         return true
     }
 
-    override fun stop(): Boolean = true
+    override fun stop(): Boolean {
+        actions += "stop"
+        return true
+    }
 
     override fun clearCache(): Boolean = true
 
@@ -737,6 +816,37 @@ private fun preparingSnapshot(
         playbackSpeed = 1.0f,
         playbackMode = PlaybackMode.LIST_LOOP,
         statusText = "Preparing",
+        currentPlayable = PlayableItemSnapshot(
+            id = "playlist:test:0:$songId",
+            songId = songId,
+            title = title,
+            artistText = "测试歌手",
+            albumTitle = "测试专辑",
+            coverUrl = "https://example.com/$songId.jpg",
+            durationMs = 200_000L,
+            playbackUri = "https://example.com/$songId.mp3"
+        ),
+        currentMediaId = "playlist:test:0:$songId",
+        playbackOutputInfo = null,
+        audioMeta = null
+    )
+}
+
+private fun readyPlayingSnapshot(
+    songId: String,
+    title: String,
+    currentPositionMs: Long = 0L
+): RemotePlaybackSnapshot {
+    return RemotePlaybackSnapshot(
+        playbackState = 3,
+        playWhenReady = true,
+        isPlaying = true,
+        isSeekSupported = true,
+        currentPositionMs = currentPositionMs,
+        durationMs = 200_000L,
+        playbackSpeed = 1.0f,
+        playbackMode = PlaybackMode.LIST_LOOP,
+        statusText = "Playing",
         currentPlayable = PlayableItemSnapshot(
             id = "playlist:test:0:$songId",
             songId = songId,

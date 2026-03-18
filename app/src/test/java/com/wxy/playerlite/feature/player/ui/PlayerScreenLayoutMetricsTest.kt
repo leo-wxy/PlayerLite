@@ -30,7 +30,9 @@ class PlayerScreenLayoutMetricsTest {
             viewportHeightDp = 915f
         )
 
+        assertTrue(metrics.coverSize >= 340.dp)
         assertTrue(metrics.coverSize <= 352.dp)
+        assertTrue(metrics.coverTopSpacing <= 12.dp)
         assertTrue(metrics.titleFontSizeSp <= 40f)
         assertTrue(metrics.topBarActionButtonSize <= 40.dp)
         assertTrue(metrics.toolButtonSize <= 52.dp)

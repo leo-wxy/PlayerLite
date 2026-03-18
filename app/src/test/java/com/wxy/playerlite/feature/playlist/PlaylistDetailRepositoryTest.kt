@@ -65,7 +65,7 @@ class PlaylistDetailRepositoryTest {
                         {
                           "id": 1973665667,
                           "name": "海屿你",
-                          "ar": [{ "name": "马也_Crabbit" }],
+                          "ar": [{ "id": 6452, "name": "马也_Crabbit" }],
                           "al": {
                             "name": "海屿你",
                             "picUrl": "http://example.com/cover.jpg"
@@ -90,6 +90,7 @@ class PlaylistDetailRepositoryTest {
         assertEquals("1973665667", tracks.single().trackId)
         assertEquals("海屿你", tracks.single().title)
         assertEquals("马也_Crabbit", tracks.single().artistText)
+        assertEquals("6452", tracks.single().primaryArtistId)
         assertEquals("海屿你", tracks.single().albumTitle)
         assertEquals("http://example.com/cover.jpg", tracks.single().coverUrl)
         assertEquals(295940L, tracks.single().durationMs)

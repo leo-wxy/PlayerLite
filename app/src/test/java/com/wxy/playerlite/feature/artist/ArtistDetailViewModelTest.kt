@@ -17,7 +17,7 @@ class ArtistDetailViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
-    fun init_shouldPublishHeaderAndHotSongs() = runTest {
+    fun init_shouldPublishHeaderHotSongsAndAlbums() = runTest {
         val repository = FakeArtistDetailRepository(
             detailResult = Result.success(
                 ArtistDetailContent(
@@ -36,7 +36,10 @@ class ArtistDetailViewModelTest {
                         )
                     ),
                     musicCount = 568,
-                    albumCount = 44
+                    albumCount = 44,
+                    isFollowed = true,
+                    videoCount = 27,
+                    fansCount = 1558L
                 )
             ),
             encyclopediaResult = Result.success(
@@ -61,6 +64,24 @@ class ArtistDetailViewModelTest {
                         durationMs = 294600L
                     )
                 )
+            ),
+            albumResultsByOffset = mapOf(
+                0 to Result.success(
+                    ArtistAlbumPage(
+                        items = listOf(
+                            ArtistAlbumRow(
+                                albumId = "274336916",
+                                title = "即兴曲",
+                                artistText = "周杰伦",
+                                coverUrl = "http://example.com/album.jpg",
+                                trackCount = 1,
+                                type = "Single",
+                                publishTimeText = "2025-06-06"
+                            )
+                        ),
+                        hasMore = true
+                    )
+                )
             )
         )
         val playbackGateway = FakeArtistDetailPlaybackGateway()
@@ -76,9 +97,22 @@ class ArtistDetailViewModelTest {
         assertTrue(state.headerState is ArtistDetailHeaderUiState.Content)
         assertTrue(state.encyclopediaState is ArtistEncyclopediaUiState.Content)
         assertTrue(state.hotSongsState is ArtistHotSongsUiState.Content)
+        assertTrue(state.albumsState is ArtistAlbumsUiState.Content)
         assertEquals(
             "周杰伦",
             (state.headerState as ArtistDetailHeaderUiState.Content).content.name
+        )
+        assertEquals(
+            true,
+            (state.headerState as ArtistDetailHeaderUiState.Content).content.isFollowed
+        )
+        assertEquals(
+            27,
+            (state.headerState as ArtistDetailHeaderUiState.Content).content.videoCount
+        )
+        assertEquals(
+            1558L,
+            (state.headerState as ArtistDetailHeaderUiState.Content).content.fansCount
         )
         assertEquals(
             "人物简介",
@@ -87,6 +121,10 @@ class ArtistDetailViewModelTest {
         assertEquals(
             "布拉格广场",
             (state.hotSongsState as ArtistHotSongsUiState.Content).items.single().title
+        )
+        assertEquals(
+            "即兴曲",
+            (state.albumsState as ArtistAlbumsUiState.Content).items.single().title
         )
     }
 
@@ -130,6 +168,55 @@ class ArtistDetailViewModelTest {
             "热门歌曲加载失败",
             (state.hotSongsState as ArtistHotSongsUiState.Error).message
         )
+    }
+
+    @Test
+    fun init_shouldKeepHeaderContentWhenEnhancementFieldsFallbackToDefaults() = runTest {
+        val repository = FakeArtistDetailRepository(
+            detailResult = Result.success(
+                ArtistDetailContent(
+                    artistId = "15396",
+                    name = "田馥甄",
+                    aliases = emptyList(),
+                    identities = emptyList(),
+                    avatarUrl = null,
+                    coverUrl = null,
+                    briefDesc = "简介",
+                    encyclopediaSummary = "",
+                    encyclopediaSections = emptyList(),
+                    musicCount = 120,
+                    albumCount = 14,
+                    isFollowed = null,
+                    videoCount = 0,
+                    fansCount = 0L
+                )
+            ),
+            encyclopediaResult = Result.success(
+                ArtistEncyclopediaContent(
+                    summary = "",
+                    sections = emptyList()
+                )
+            ),
+            hotSongsResult = Result.success(emptyList())
+        )
+        val playbackGateway = FakeArtistDetailPlaybackGateway()
+
+        val viewModel = ArtistDetailViewModel(
+            artistId = "15396",
+            repository = repository,
+            playbackGateway = playbackGateway
+        )
+        advanceUntilIdle()
+
+        val headerState = viewModel.uiStateFlow.value.headerState
+        assertTrue(headerState is ArtistDetailHeaderUiState.Content)
+        assertEquals(
+            "15396",
+            (headerState as ArtistDetailHeaderUiState.Content).content.artistId
+        )
+        assertEquals(null, headerState.content.isFollowed)
+        assertEquals(0, headerState.content.videoCount)
+        assertEquals(0L, headerState.content.fansCount)
     }
 
     @Test
@@ -194,13 +281,88 @@ class ArtistDetailViewModelTest {
         assertEquals("artist", playbackGateway.requests.first().items.first().contextType)
         assertEquals("6452", playbackGateway.requests.first().items.first().contextId)
         assertEquals("周杰伦", playbackGateway.requests.first().items.first().contextTitle)
+        assertEquals("6452", playbackGateway.requests.first().items.first().primaryArtistId)
+        assertEquals("6452", playbackGateway.requests.last().items[1].primaryArtistId)
+    }
+
+    @Test
+    fun loadMoreAlbums_shouldKeepExistingItemsWhenNextPageFails() = runTest {
+        val repository = FakeArtistDetailRepository(
+            detailResult = Result.success(
+                ArtistDetailContent(
+                    artistId = "6452",
+                    name = "周杰伦",
+                    aliases = emptyList(),
+                    identities = emptyList(),
+                    avatarUrl = null,
+                    coverUrl = null,
+                    briefDesc = "简介",
+                    encyclopediaSummary = "",
+                    encyclopediaSections = emptyList(),
+                    musicCount = 568,
+                    albumCount = 44
+                )
+            ),
+            encyclopediaResult = Result.success(
+                ArtistEncyclopediaContent(
+                    summary = "",
+                    sections = emptyList()
+                )
+            ),
+            hotSongsResult = Result.success(emptyList()),
+            albumResultsByOffset = mapOf(
+                0 to Result.success(
+                    ArtistAlbumPage(
+                        items = listOf(
+                            ArtistAlbumRow(
+                                albumId = "274336916",
+                                title = "即兴曲",
+                                artistText = "周杰伦",
+                                coverUrl = "http://example.com/album-1.jpg",
+                                trackCount = 1,
+                                type = "Single",
+                                publishTimeText = "2025-06-06"
+                            )
+                        ),
+                        hasMore = true
+                    )
+                ),
+                DEFAULT_ARTIST_ALBUM_PAGE_SIZE to Result.failure(
+                    IllegalStateException("专辑列表加载失败")
+                )
+            )
+        )
+        val playbackGateway = FakeArtistDetailPlaybackGateway()
+
+        val viewModel = ArtistDetailViewModel(
+            artistId = "6452",
+            repository = repository,
+            playbackGateway = playbackGateway
+        )
+        advanceUntilIdle()
+
+        viewModel.loadMoreAlbums()
+        advanceUntilIdle()
+
+        val albumsState = viewModel.uiStateFlow.value.albumsState as ArtistAlbumsUiState.Content
+        assertEquals(1, albumsState.items.size)
+        assertEquals("即兴曲", albumsState.items.single().title)
+        assertEquals("专辑列表加载失败", albumsState.loadMoreErrorMessage)
     }
 }
 
 private class FakeArtistDetailRepository(
     private val detailResult: Result<ArtistDetailContent>,
     private val encyclopediaResult: Result<ArtistEncyclopediaContent>,
-    private val hotSongsResult: Result<List<ArtistHotSongRow>>
+    private val hotSongsResult: Result<List<ArtistHotSongRow>>,
+    private val albumResultsByOffset: Map<Int, Result<ArtistAlbumPage>> = mapOf(
+        0 to Result.success(
+            ArtistAlbumPage(
+                items = emptyList(),
+                hasMore = false
+            )
+        )
+    )
 ) : ArtistDetailRepository {
     override suspend fun fetchArtistDetail(artistId: String): ArtistDetailContent {
         return detailResult.getOrThrow()
@@ -212,6 +374,14 @@ private class FakeArtistDetailRepository(
 
     override suspend fun fetchArtistHotSongs(artistId: String): List<ArtistHotSongRow> {
         return hotSongsResult.getOrThrow()
+    }
+
+    override suspend fun fetchArtistAlbums(
+        artistId: String,
+        offset: Int,
+        limit: Int
+    ): ArtistAlbumPage {
+        return albumResultsByOffset.getValue(offset).getOrThrow()
     }
 }
 

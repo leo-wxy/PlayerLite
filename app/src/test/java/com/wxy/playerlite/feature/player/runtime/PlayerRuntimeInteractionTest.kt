@@ -126,6 +126,32 @@ class PlayerRuntimeInteractionTest {
     }
 
     @Test
+    fun clearPlaylist_shouldResetSelectionAndDismissPlaylistSurface() {
+        val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
+        val queue = listOf(
+            onlineItem(contextId = "playlist-1", index = 0, songId = "track-1", title = "第一首"),
+            onlineItem(contextId = "playlist-1", index = 1, songId = "track-2", title = "第二首")
+        )
+
+        runtime.applyExternalQueueSelection(
+            items = queue,
+            activeIndex = 0
+        )
+        runtime.onTogglePlaylistSheet()
+        runtime.onShowSongWiki()
+
+        runtime.clearPlaylist()
+
+        val state = runtime.uiStateFlow.value
+        assertTrue(state.playlistItems.isEmpty())
+        assertFalse(state.hasSelection)
+        assertEquals(-1, state.activePlaylistIndex)
+        assertEquals("播放列表已清空", state.statusText)
+        assertFalse(state.showPlaylistSheet)
+        assertFalse(state.showSongWikiSheet)
+    }
+
+    @Test
     fun updatePlaylistItemsMetadata_shouldRefreshActiveArtworkWithoutChangingQueueOrder() {
         val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
         val queue = listOf(

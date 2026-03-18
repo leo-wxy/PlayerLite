@@ -18,7 +18,11 @@
 ## 模块划分
 
 - `:app`
-  - Compose UI、`MainActivity` 主壳、首页/搜索/详情页、用户中心、播放列表业务状态
+  - Compose UI、`MainActivity` 主壳、首页/详情页、用户中心、播放列表业务状态
+- `:feature-search`
+  - 独立搜索页模块，承载搜索首页、结果页、详情路由与搜索状态管理
+- `:design-system`
+  - 共享主题 contract、语义色 token 与首页/搜索/播放器复用的视觉基础
 - `:network-core`
   - `OkHttp + kotlinx.serialization` 网络基础设施、统一错误映射
 - `:user`
@@ -156,6 +160,8 @@ python3 scripts/range_http_server.py --port 18080 --directory .
 ```text
 player-lite/
 ├── app/
+├── feature-search/
+├── design-system/
 ├── network-core/
 ├── user/
 ├── playback-client/

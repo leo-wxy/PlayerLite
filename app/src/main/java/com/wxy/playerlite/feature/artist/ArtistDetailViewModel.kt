@@ -16,7 +16,8 @@ import kotlinx.coroutines.launch
 internal data class ArtistDetailUiState(
     val headerState: ArtistDetailHeaderUiState = ArtistDetailHeaderUiState.Loading,
     val encyclopediaState: ArtistEncyclopediaUiState = ArtistEncyclopediaUiState.Loading,
-    val hotSongsState: ArtistHotSongsUiState = ArtistHotSongsUiState.Loading
+    val hotSongsState: ArtistHotSongsUiState = ArtistHotSongsUiState.Loading,
+    val albumsState: ArtistAlbumsUiState = ArtistAlbumsUiState.Loading
 )
 
 internal sealed interface ArtistDetailHeaderUiState {
@@ -59,6 +60,24 @@ internal sealed interface ArtistHotSongsUiState {
     data object Empty : ArtistHotSongsUiState
 }
 
+internal sealed interface ArtistAlbumsUiState {
+    data object Loading : ArtistAlbumsUiState
+
+    data class Content(
+        val items: List<ArtistAlbumRow>,
+        val hasMore: Boolean,
+        val nextOffset: Int = DEFAULT_ARTIST_ALBUM_PAGE_SIZE,
+        val isLoadingMore: Boolean = false,
+        val loadMoreErrorMessage: String? = null
+    ) : ArtistAlbumsUiState
+
+    data class Error(
+        val message: String
+    ) : ArtistAlbumsUiState
+
+    data object Empty : ArtistAlbumsUiState
+}
+
 internal class ArtistDetailViewModel(
     private val artistId: String,
     private val repository: ArtistDetailRepository,
@@ -71,6 +90,7 @@ internal class ArtistDetailViewModel(
         loadHeader()
         loadEncyclopedia()
         loadHotSongs()
+        loadAlbums()
     }
 
     fun retry() {
@@ -79,6 +99,52 @@ internal class ArtistDetailViewModel(
         }
         loadEncyclopedia()
         loadHotSongs()
+        if (_uiState.value.albumsState !is ArtistAlbumsUiState.Content) {
+            loadAlbums()
+        }
+    }
+
+    fun loadMoreAlbums() {
+        val current = _uiState.value.albumsState as? ArtistAlbumsUiState.Content ?: return
+        if (!current.hasMore || current.isLoadingMore) {
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                albumsState = current.copy(
+                    isLoadingMore = true,
+                    loadMoreErrorMessage = null
+                )
+            )
+            runCatching {
+                repository.fetchArtistAlbums(
+                    artistId = artistId,
+                    offset = current.nextOffset,
+                    limit = DEFAULT_ARTIST_ALBUM_PAGE_SIZE
+                )
+            }.onSuccess { page ->
+                val combinedPage = ArtistAlbumPage(
+                    items = current.items,
+                    hasMore = current.hasMore
+                ).append(page)
+                _uiState.value = _uiState.value.copy(
+                    albumsState = current.copy(
+                        items = combinedPage.items,
+                        hasMore = combinedPage.hasMore,
+                        nextOffset = current.nextOffset + DEFAULT_ARTIST_ALBUM_PAGE_SIZE,
+                        isLoadingMore = false,
+                        loadMoreErrorMessage = null
+                    )
+                )
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    albumsState = current.copy(
+                        isLoadingMore = false,
+                        loadMoreErrorMessage = error.message ?: "专辑列表加载失败"
+                    )
+                )
+            }
+        }
     }
 
     fun playAll(): Boolean {
@@ -174,6 +240,40 @@ internal class ArtistDetailViewModel(
         }
     }
 
+    private fun loadAlbums() {
+        viewModelScope.launch {
+            if (_uiState.value.albumsState !is ArtistAlbumsUiState.Content) {
+                _uiState.value = _uiState.value.copy(
+                    albumsState = ArtistAlbumsUiState.Loading
+                )
+            }
+            runCatching {
+                repository.fetchArtistAlbums(
+                    artistId = artistId,
+                    offset = 0,
+                    limit = DEFAULT_ARTIST_ALBUM_PAGE_SIZE
+                )
+            }.onSuccess { page ->
+                _uiState.value = _uiState.value.copy(
+                    albumsState = if (page.items.isEmpty()) {
+                        ArtistAlbumsUiState.Empty
+                    } else {
+                        ArtistAlbumsUiState.Content(
+                            items = page.items,
+                            hasMore = page.hasMore
+                        )
+                    }
+                )
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    albumsState = ArtistAlbumsUiState.Error(
+                        message = error.message ?: "专辑列表加载失败"
+                    )
+                )
+            }
+        }
+    }
+
     companion object {
         fun factory(
             artistId: String,
@@ -219,6 +319,7 @@ private fun buildArtistPlaybackRequest(
                 songId = trackId,
                 title = track.title,
                 artistText = track.artistText,
+                primaryArtistId = header.artistId,
                 albumTitle = track.albumTitle,
                 coverUrl = track.coverUrl,
                 durationMs = track.durationMs,

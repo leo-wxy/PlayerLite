@@ -265,6 +265,7 @@ class AlbumDetailViewModelTest {
                                     trackId = "track-1",
                                     title = "疯狂的阳光",
                                     artistText = "张悬",
+                                    primaryArtistId = "artist-15396",
                                     albumTitle = "神的游戏",
                                     coverUrl = "http://example.com/track-1.jpg",
                                     durationMs = 235146L
@@ -273,6 +274,7 @@ class AlbumDetailViewModelTest {
                                     trackId = "track-2",
                                     title = "两者",
                                     artistText = "张悬",
+                                    primaryArtistId = "artist-15396",
                                     albumTitle = "神的游戏",
                                     coverUrl = null,
                                     durationMs = 200000L
@@ -306,6 +308,8 @@ class AlbumDetailViewModelTest {
         assertEquals("album", playbackGateway.requests.first().items.first().contextType)
         assertEquals("32311", playbackGateway.requests.first().items.first().contextId)
         assertEquals("神的游戏", playbackGateway.requests.first().items.first().contextTitle)
+        assertEquals("artist-15396", playbackGateway.requests.first().items.first().primaryArtistId)
+        assertEquals("artist-15396", playbackGateway.requests.last().items[1].primaryArtistId)
         assertEquals(
             "http://example.com/album.jpg",
             playbackGateway.requests.last().items[1].coverUrl

@@ -233,6 +233,117 @@ class HomeDiscoveryRepositoryTest {
             (shortcutAction as ContentEntryAction.OpenUri).uri
         )
     }
+
+    @Test
+    fun fetchHomeOverview_shouldMapArtistDetailTargetsFromHomepageBlocksAndResources() = runBlocking {
+        val repository = DefaultHomeDiscoveryRepository(
+            remoteDataSource = FakeHomeDiscoveryRemoteDataSource(
+                homepagePayload = jsonObject(
+                    """
+                    {
+                      "data": {
+                        "blocks": [
+                          {
+                            "blockCode": "HOMEPAGE_BLOCK_ARTIST_RECOMMEND",
+                            "showType": "HOMEPAGE_SLIDE_PLAYLIST",
+                            "uiElement": {
+                              "subTitle": {
+                                "title": "推荐歌手"
+                              }
+                            },
+                            "creatives": [
+                              {
+                                "resources": [
+                                  {
+                                    "resourceId": 6452,
+                                    "uiElement": {
+                                      "mainTitle": {
+                                        "title": "羊文学"
+                                      },
+                                      "subTitle": {
+                                        "title": "另类摇滚"
+                                      },
+                                      "image": {
+                                        "imageUrl": "http://example.com/hitsujibungaku.jpg"
+                                      },
+                                      "labelTexts": ["乐队", "J-Rock"]
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "blockCode": "HOMEPAGE_SHORTCUT",
+                            "showType": "DRAGON_BALL",
+                            "uiElement": {
+                              "subTitle": {
+                                "title": "快捷入口"
+                              }
+                            },
+                            "creatives": [
+                              {
+                                "resources": [
+                                  {
+                                    "resourceId": "2116",
+                                    "resourceType": 100,
+                                    "uiElement": {
+                                      "mainTitle": {
+                                        "title": "RADWIMPS"
+                                      },
+                                      "image": {
+                                        "imageUrl": "http://example.com/radwimps.jpg"
+                                      },
+                                      "labelTexts": ["日本摇滚", "乐队"]
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                    """
+                ),
+                searchDefaultPayload = jsonObject("""{"data":{"showKeyword":"默认热搜"}}""")
+            )
+        )
+
+        val result = repository.fetchHomeOverview()
+
+        assertEquals(2, result.sections.size)
+        assertEquals("推荐歌手", result.sections[0].title)
+        assertEquals(HomeSectionLayout.HORIZONTAL_LIST, result.sections[0].layout)
+        assertEquals("羊文学", result.sections[0].items.single().title)
+        assertEquals("另类摇滚", result.sections[0].items.single().subtitle)
+        assertEquals(
+            "http://example.com/hitsujibungaku.jpg",
+            result.sections[0].items.single().imageUrl
+        )
+        val artistBlockAction = result.sections[0].items.single().action
+        assertTrue(artistBlockAction is ContentEntryAction.OpenDetail)
+        assertEquals(
+            SearchRouteTarget.Artist(artistId = "6452"),
+            (artistBlockAction as ContentEntryAction.OpenDetail).target
+        )
+
+        assertEquals("快捷入口", result.sections[1].title)
+        assertEquals(HomeSectionLayout.ICON_GRID, result.sections[1].layout)
+        assertEquals("RADWIMPS", result.sections[1].items.single().title)
+        assertEquals("日本摇滚 · 乐队", result.sections[1].items.single().subtitle)
+        assertEquals("日本摇滚", result.sections[1].items.single().badge)
+        assertEquals(
+            "http://example.com/radwimps.jpg",
+            result.sections[1].items.single().imageUrl
+        )
+        val artistResourceAction = result.sections[1].items.single().action
+        assertTrue(artistResourceAction is ContentEntryAction.OpenDetail)
+        assertEquals(
+            SearchRouteTarget.Artist(artistId = "2116"),
+            (artistResourceAction as ContentEntryAction.OpenDetail).target
+        )
+    }
 }
 
 private class FakeHomeDiscoveryRemoteDataSource(

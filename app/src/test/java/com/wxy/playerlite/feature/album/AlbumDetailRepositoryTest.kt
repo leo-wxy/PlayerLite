@@ -37,7 +37,7 @@ class AlbumDetailRepositoryTest {
                         {
                           "id": 326696,
                           "name": "疯狂的阳光",
-                          "ar": [{ "name": "张悬" }],
+                          "ar": [{ "id": 15396, "name": "张悬" }],
                           "al": {
                             "name": "神的游戏",
                             "picUrl": "http://example.com/track.jpg"
@@ -66,6 +66,7 @@ class AlbumDetailRepositoryTest {
         assertEquals(9, content.trackCount)
         assertEquals(1, content.tracks.size)
         assertEquals("326696", content.tracks.single().trackId)
+        assertEquals("15396", content.tracks.single().primaryArtistId)
     }
 
     @Test

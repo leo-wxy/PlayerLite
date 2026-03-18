@@ -68,4 +68,15 @@ class MainShellStateTest {
         assertTrue(state.shouldShowBottomBar)
         assertFalse(state.shouldShowPlayerBackButton)
     }
+
+    @Test
+    fun playlistSheetVisible_shouldHideBottomBarEvenInHomeOverview() {
+        val state = MainShellState(
+            selectedTab = MainTab.HOME,
+            homeSurfaceMode = HomeSurfaceMode.OVERVIEW
+        )
+
+        assertFalse(state.shouldRenderBottomBar(isPlaylistSheetVisible = true))
+        assertTrue(state.shouldRenderBottomBar(isPlaylistSheetVisible = false))
+    }
 }

@@ -45,19 +45,19 @@ internal fun resolvePlayerScreenLayoutMetrics(
         max = 22f
     )
     val sectionSpacing = clampDp(
-        value = viewportHeightDp * 0.018f,
-        min = 10f,
-        max = 18f
+        value = viewportHeightDp * 0.015f,
+        min = 8f,
+        max = 16f
     )
     val coverSideInset = clampDp(
-        value = viewportWidthDp * 0.014f,
+        value = viewportWidthDp * 0.01f,
         min = 0f,
-        max = 10f
+        max = 6f
     )
     val coverTopSpacing = clampDp(
-        value = viewportHeightDp * 0.012f,
-        min = 6f,
-        max = 12f
+        value = viewportHeightDp * 0.013f,
+        min = 10f,
+        max = 16f
     )
     val bottomSectionReservedHeight = clampDp(
         value = viewportHeightDp * 0.36f,
@@ -69,17 +69,24 @@ internal fun resolvePlayerScreenLayoutMetrics(
         min = 48f,
         max = 56f
     )
+    val summaryTopPadding = clampDp(
+        value = viewportHeightDp * 0.0035f,
+        min = 2f,
+        max = 6f
+    )
     val maxCoverWidth = viewportWidthDp - ((horizontalPadding.value + coverSideInset.value) * 2f)
     val safeCoverHeight = (
         viewportHeightDp -
             topBarHeight.value -
             coverTopSpacing.value -
             bottomSectionReservedHeight.value -
+            sectionSpacing.value -
+            summaryTopPadding.value -
             24f
         ).coerceAtLeast(148f)
     val coverSize = min(
-        viewportWidthDp * 0.82f,
-        min(viewportHeightDp * 0.34f, min(maxCoverWidth, safeCoverHeight))
+        viewportWidthDp * 0.84f,
+        min(viewportHeightDp * 0.40f, min(maxCoverWidth, safeCoverHeight))
     ).coerceAtMost(352f).dp
     val titleFontSizeSp = clampSp(
         value = viewportWidthDp * 0.082f,
@@ -153,11 +160,7 @@ internal fun resolvePlayerScreenLayoutMetrics(
         progressTimeFontSizeSp = progressTimeFontSizeSp,
         lyricsTopInset = coverTopSpacing,
         lyricsBottomInset = verticalPadding,
-        summaryTopPadding = clampDp(
-            value = viewportHeightDp * 0.006f,
-            min = 4f,
-            max = 8f
-        )
+        summaryTopPadding = summaryTopPadding
     )
 }
 

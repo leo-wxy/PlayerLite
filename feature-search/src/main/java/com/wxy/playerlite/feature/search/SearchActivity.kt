@@ -7,8 +7,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,6 +26,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyListState
@@ -43,8 +42,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,7 +65,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTheme
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 
@@ -100,6 +101,8 @@ class SearchActivity : ComponentActivity() {
                     onQueryChanged = viewModel::onQueryChanged,
                     onSubmitSearch = viewModel::submitSearch,
                     onHistoryKeywordClick = viewModel::submitSearch,
+                    onRemoveHistoryKeyword = viewModel::removeSearchHistory,
+                    onClearHistory = viewModel::clearSearchHistory,
                     onSuggestionClick = viewModel::onSuggestionClick,
                     onHotKeywordClick = viewModel::onHotKeywordClick,
                     onResultTypeSelected = viewModel::onResultTypeSelected,
@@ -126,6 +129,8 @@ internal fun SearchScreen(
     onQueryChanged: (String) -> Unit,
     onSubmitSearch: () -> Unit,
     onHistoryKeywordClick: (String) -> Unit,
+    onRemoveHistoryKeyword: (String) -> Unit,
+    onClearHistory: () -> Unit,
     onSuggestionClick: (SearchSuggestionUiModel) -> Unit,
     onHotKeywordClick: (SearchHotKeywordUiModel) -> Unit,
     onResultTypeSelected: (SearchResultType) -> Unit,
@@ -159,6 +164,8 @@ internal fun SearchScreen(
                 SearchPinnedHistorySection(
                     historyKeywords = state.historyKeywords,
                     onHistoryKeywordClick = onHistoryKeywordClick,
+                    onRemoveHistoryKeyword = onRemoveHistoryKeyword,
+                    onClearHistory = onClearHistory,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(if (usesExpandedTypography) 96.dp else 88.dp)
@@ -187,10 +194,10 @@ internal fun SearchScreen(
 
                     SearchPageMode.RESULT -> {
                         SearchResultContent(
-                            selectedResultState = state.resultState,
                             resultStatesByType = state.resultStatesByType,
                             selectedResultType = state.selectedResultType,
                             availableResultTypes = state.availableResultTypes,
+                            hasSubmittedQuery = state.lastSubmittedQuery.isNotBlank(),
                             onResultTypeSelected = onResultTypeSelected,
                             onResultClick = onResultClick,
                             onRetry = onRetry
@@ -222,7 +229,7 @@ private fun SearchTopBar(
             color = SEARCH_PANEL_COLOR.copy(alpha = 0.9f),
             border = BorderStroke(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
+                color = SEARCH_DIVIDER_COLOR
             )
         ) {
             IconButton(
@@ -250,7 +257,7 @@ private fun SearchTopBar(
             shadowElevation = 1.dp,
             border = BorderStroke(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
+                color = SEARCH_DIVIDER_COLOR
             )
         ) {
             Row(
@@ -313,6 +320,8 @@ private fun SearchTopBar(
 private fun SearchPinnedHistorySection(
     historyKeywords: List<String>,
     onHistoryKeywordClick: (String) -> Unit,
+    onRemoveHistoryKeyword: (String) -> Unit,
+    onClearHistory: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val usesExpandedTypography = usesExpandedSearchTypography()
@@ -330,6 +339,19 @@ private fun SearchPinnedHistorySection(
                     modifier = Modifier.size(17.dp)
                 )
             },
+            action = {
+                Text(
+                    text = "Clear all",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = SEARCH_PRIMARY_RED,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .clickable(onClick = onClearHistory)
+                        .padding(horizontal = 2.dp, vertical = 2.dp)
+                        .testTag("search_history_clear_all")
+                )
+            },
             modifier = Modifier
                 .padding(horizontal = 4.dp)
                 .testTag("search_history_section")
@@ -344,9 +366,11 @@ private fun SearchPinnedHistorySection(
                 key = { _, keyword -> keyword }
             ) { index, keyword ->
                 SearchHistoryChip(
+                    index = index,
                     keyword = keyword,
                     modifier = Modifier.testTag("search_history_chip_$index"),
-                    onClick = { onHistoryKeywordClick(keyword) }
+                    onClick = { onHistoryKeywordClick(keyword) },
+                    onRemove = { onRemoveHistoryKeyword(keyword) }
                 )
             }
         }
@@ -477,10 +501,10 @@ private fun SearchSuggestContent(
 
 @Composable
 private fun SearchResultContent(
-    selectedResultState: SearchResultUiState,
     resultStatesByType: Map<SearchResultType, SearchResultUiState>,
     selectedResultType: SearchResultType,
     availableResultTypes: List<SearchResultType>,
+    hasSubmittedQuery: Boolean,
     onResultTypeSelected: (SearchResultType) -> Unit,
     onResultClick: (SearchRouteTarget) -> Unit,
     onRetry: () -> Unit
@@ -493,13 +517,13 @@ private fun SearchResultContent(
 
     LaunchedEffect(selectedResultType, availableResultTypes) {
         val pageIndex = availableResultTypes.indexOf(selectedResultType)
-        if (pageIndex >= 0 && pagerState.currentPage != pageIndex) {
+        if (pageIndex >= 0 && pagerState.settledPage != pageIndex) {
             pagerState.scrollToPage(pageIndex)
         }
     }
 
     LaunchedEffect(pagerState, availableResultTypes, selectedResultType) {
-        snapshotFlow { pagerState.currentPage }
+        snapshotFlow { pagerState.settledPage }
             .filter { pageIndex -> pageIndex in availableResultTypes.indices }
             .distinctUntilChanged()
             .collect { pageIndex ->
@@ -529,18 +553,31 @@ private fun SearchResultContent(
             beyondViewportPageCount = 1
         ) {
             val pageType = availableResultTypes[it]
-            val pageState = resultStatesByType[pageType]
-                ?: if (pageType == selectedResultType) {
-                    selectedResultState
-                } else {
-                    SearchResultUiState.Idle
-                }
+            val pageState = resolveVisibleSearchResultPageState(
+                pageType = pageType,
+                resultStatesByType = resultStatesByType,
+                selectedResultType = selectedResultType,
+                hasSubmittedQuery = hasSubmittedQuery
+            )
             SearchResultPage(
                 state = pageState,
                 onResultClick = onResultClick,
                 onRetry = onRetry
             )
         }
+    }
+}
+
+private fun resolveVisibleSearchResultPageState(
+    pageType: SearchResultType,
+    resultStatesByType: Map<SearchResultType, SearchResultUiState>,
+    selectedResultType: SearchResultType,
+    hasSubmittedQuery: Boolean
+): SearchResultUiState {
+    return resultStatesByType[pageType] ?: if (pageType == selectedResultType && hasSubmittedQuery) {
+        SearchResultUiState.Loading
+    } else {
+        SearchResultUiState.Idle
     }
 }
 
@@ -621,8 +658,8 @@ private fun SearchResultTypeRow(
             .fillMaxWidth()
             .testTag("search_result_type_row"),
         state = listState,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 4.dp)
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 4.dp, end = 8.dp)
     ) {
         items(
             items = availableResultTypes,
@@ -661,49 +698,47 @@ private fun SearchResultTypeChip(
     onClick: () -> Unit
 ) {
     val usesExpandedTypography = usesExpandedSearchTypography()
-    val scale = animateFloatAsState(
-        targetValue = if (selected) 1f else 0.96f,
-        animationSpec = tween(durationMillis = 180),
-        label = "search_result_type_chip_scale"
-    ).value
     Surface(
         modifier = Modifier
             .testTag("search_result_type_${type.name.lowercase()}")
+            .width(SEARCH_RESULT_TYPE_CHIP_WIDTH)
             .height(SEARCH_RESULT_TYPE_CHIP_HEIGHT)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        color = if (selected) SEARCH_PRIMARY_RED.copy(alpha = 0.14f) else SEARCH_PANEL_COLOR.copy(alpha = 0.92f),
+        shape = RoundedCornerShape(0.dp),
+        color = Color.Transparent,
         tonalElevation = 0.dp,
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (selected) {
-                SEARCH_PRIMARY_RED.copy(alpha = 0.28f)
-            } else {
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
-            }
-        )
+        border = null
     ) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 2.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = type.displayLabel,
                 modifier = Modifier
                     .testTag("search_result_type_label_${type.name.lowercase()}")
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                    }
-                    .padding(horizontal = 14.dp),
+                    .padding(horizontal = 6.dp),
                 style = if (usesExpandedTypography) {
                     MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
                 } else {
                     MaterialTheme.typography.bodySmall
                 },
-                color = if (selected) SEARCH_PRIMARY_RED else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (selected) SEARCH_PRIMARY_RED else SEARCH_TEXT_SECONDARY,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
             )
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 1.dp)
+                        .size(width = 38.dp, height = 3.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(SEARCH_PRIMARY_RED)
+                        .testTag("search_result_type_${type.name.lowercase()}_indicator")
+                )
+            }
         }
     }
 }
@@ -723,7 +758,7 @@ private fun SearchHotBoard(
         shadowElevation = 1.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
+            color = SEARCH_DIVIDER_COLOR
         )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -740,7 +775,7 @@ private fun SearchHotBoard(
                     HorizontalDivider(
                         modifier = Modifier.padding(start = 58.dp, end = 14.dp),
                         thickness = 1.dp,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
+                        color = SEARCH_DIVIDER_COLOR
                     )
                 }
             }
@@ -827,14 +862,16 @@ private fun SearchHotBoardRow(
 
 @Composable
 private fun SearchHistoryChip(
+    index: Int,
     keyword: String,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onRemove: () -> Unit
 ) {
     val usesExpandedTypography = usesExpandedSearchTypography()
     Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
         color = SEARCH_PANEL_COLOR.copy(alpha = 0.92f),
         tonalElevation = 0.dp,
         border = BorderStroke(
@@ -842,18 +879,42 @@ private fun SearchHistoryChip(
             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
         )
     ) {
-        Text(
-            text = keyword,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = if (usesExpandedTypography) {
-                MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
-            } else {
-                MaterialTheme.typography.bodySmall
-            },
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Row(
+            modifier = Modifier.padding(end = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .clickable(onClick = onClick)
+                    .padding(start = 12.dp, top = 8.dp, end = 2.dp, bottom = 8.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    text = keyword,
+                    style = if (usesExpandedTypography) {
+                        MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
+                    } else {
+                        MaterialTheme.typography.bodySmall
+                    },
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier
+                    .size(32.dp)
+                    .testTag("search_history_remove_$index")
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "移除历史记录",
+                    tint = SEARCH_TEXT_SECONDARY,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
     }
 }
 
@@ -861,6 +922,7 @@ private fun SearchHistoryChip(
 private fun SearchSectionTitle(
     title: String,
     icon: @Composable RowScope.() -> Unit,
+    action: (@Composable RowScope.() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val usesExpandedTypography = usesExpandedSearchTypography()
@@ -882,6 +944,8 @@ private fun SearchSectionTitle(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
             fontWeight = FontWeight.SemiBold
         )
+        Spacer(modifier = Modifier.weight(1f))
+        action?.invoke(this)
     }
 }
 
@@ -898,29 +962,26 @@ private fun SearchResultCard(
             .fillMaxWidth()
             .testTag("search_result_card_${item.id}")
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
-        color = SEARCH_PANEL_COLOR.copy(alpha = 0.96f),
+        shape = RoundedCornerShape(16.dp),
+        color = Color.Transparent,
         tonalElevation = 0.dp,
-        shadowElevation = 1.dp,
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
-        )
+        shadowElevation = 0.dp,
+        border = null
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 13.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(11.dp),
+                .padding(horizontal = 4.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (item.coverUrl.isNullOrBlank()) {
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(56.dp)
                         .background(
                             color = SEARCH_PRIMARY_RED.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(14.dp)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
@@ -935,10 +996,10 @@ private fun SearchResultCard(
                     model = item.coverUrl,
                     contentDescription = null,
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(56.dp)
                         .background(
                             color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(14.dp)
                         )
                         .testTag("search_result_cover_${item.id}")
                 )
@@ -981,6 +1042,18 @@ private fun SearchResultCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+            }
+            IconButton(
+                onClick = {},
+                modifier = Modifier
+                    .size(36.dp)
+                    .testTag("search_result_more_${item.id}")
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.MoreVert,
+                    contentDescription = "更多操作",
+                    tint = SEARCH_TEXT_SECONDARY
+                )
             }
         }
     }
@@ -1150,8 +1223,22 @@ private val SEARCH_PAGE_BACKGROUND_BRUSH = Brush.verticalGradient(
 )
 
 internal val SEARCH_RESULT_TYPE_CHIP_HEIGHT = 36.dp
-private val SEARCH_PANEL_COLOR = Color.White
-private val SEARCH_PRIMARY_RED = Color(0xFFD33A31)
+internal val SEARCH_RESULT_TYPE_CHIP_WIDTH = 56.dp
+private val SEARCH_PANEL_COLOR: Color
+    @Composable
+    get() = PlayerLiteVisualTheme.colors.surfacePrimary
+
+private val SEARCH_PRIMARY_RED: Color
+    @Composable
+    get() = PlayerLiteVisualTheme.colors.accentStrong
+
+private val SEARCH_DIVIDER_COLOR: Color
+    @Composable
+    get() = PlayerLiteVisualTheme.colors.dividerSubtle
+
+private val SEARCH_TEXT_SECONDARY: Color
+    @Composable
+    get() = PlayerLiteVisualTheme.colors.textSecondary
 private fun SearchResultUiModel.supportingText(): String {
     return when (this) {
         is SearchResultUiModel.Song -> listOf(artistText, albumTitle)

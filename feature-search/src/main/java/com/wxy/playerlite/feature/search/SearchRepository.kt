@@ -22,6 +22,10 @@ interface SearchRepository {
     fun readSearchHistory(): List<String>
 
     suspend fun recordSearchHistory(keyword: String)
+
+    suspend fun removeSearchHistory(keyword: String)
+
+    suspend fun clearSearchHistory()
 }
 
 object SearchFeatureServiceFactory {
@@ -89,6 +93,20 @@ internal class DefaultSearchRepository(
             }
         }.take(MAX_HISTORY_SIZE)
         historyStorage.write(updated)
+    }
+
+    override suspend fun removeSearchHistory(keyword: String) {
+        val normalized = keyword.trim()
+        if (normalized.isBlank()) {
+            return
+        }
+        historyStorage.write(
+            historyStorage.read().filterNot { it == normalized }
+        )
+    }
+
+    override suspend fun clearSearchHistory() {
+        historyStorage.write(emptyList())
     }
 
     private data class CachedHotKeywords(

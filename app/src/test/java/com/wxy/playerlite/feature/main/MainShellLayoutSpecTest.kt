@@ -6,14 +6,14 @@ import org.junit.Test
 
 class MainShellLayoutSpecTest {
     @Test
-    fun overviewPadding_shouldReserveStableBottomSpaceForTabBar() {
+    fun overviewPadding_shouldKeepScreenFullHeightAndOnlyApplyTopInset() {
         val padding = MainShellLayoutSpec.homeContentPadding(
             mode = HomeSurfaceMode.OVERVIEW,
             topInset = 16.dp
         )
 
         assertEquals(16.dp, padding.calculateTopPadding())
-        assertEquals(92.dp, padding.calculateBottomPadding())
+        assertEquals(0.dp, padding.calculateBottomPadding())
     }
 
     @Test

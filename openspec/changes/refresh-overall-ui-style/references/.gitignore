@@ -1,0 +1,4 @@
+# Local visual reference assets for this change.
+# Keep the folder structure, but do not commit the actual image files.
+assets/*
+!assets/.gitkeep

@@ -44,6 +44,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":design-system"))
     implementation(project(":feature-search"))
     implementation(project(":network-core"))
     implementation(project(":user"))

@@ -3,10 +3,12 @@ package com.wxy.playerlite.feature.search
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -344,6 +346,179 @@ class SearchViewModelTest {
             repository.searchRequests
         )
     }
+
+    @Test
+    fun onResultTypeSelected_shouldNotEmitIdleForNewlySelectedTypeBeforeLoading() = runTest {
+        val repository = FakeSearchRepository().apply {
+            searchResults["周杰伦" to SearchResultType.SONG] = listOf(
+                SearchResultUiModel.Song(
+                    id = "song-1",
+                    title = "晴天",
+                    artistText = "周杰伦",
+                    albumTitle = "叶惠美",
+                    coverUrl = null,
+                    routeTarget = SearchRouteTarget.Song(songId = "song-1")
+                )
+            )
+            searchResults["周杰伦" to SearchResultType.ALBUM] = listOf(
+                SearchResultUiModel.Album(
+                    id = "album-1",
+                    title = "叶惠美",
+                    artistText = "周杰伦",
+                    songCount = 11,
+                    coverUrl = null,
+                    routeTarget = SearchRouteTarget.Album(albumId = "album-1")
+                )
+            )
+            searchDelaysMs["周杰伦" to SearchResultType.ALBUM] = 1_000L
+        }
+
+        val viewModel = SearchViewModel(
+            application = RuntimeEnvironment.getApplication(),
+            repository = repository,
+            suggestDebounceMs = 300L
+        )
+        advanceUntilIdle()
+
+        viewModel.onQueryChanged("周杰伦")
+        viewModel.submitSearch()
+        advanceUntilIdle()
+
+        val observedStates = mutableListOf<SearchUiState>()
+        val collectJob = backgroundScope.launch {
+            viewModel.uiStateFlow.collect { observedStates += it }
+        }
+        runCurrent()
+        observedStates.clear()
+
+        viewModel.onResultTypeSelected(SearchResultType.ALBUM)
+        runCurrent()
+
+        val albumStates = observedStates.filter { it.selectedResultType == SearchResultType.ALBUM }
+        assertTrue(albumStates.isNotEmpty())
+        assertTrue(albumStates.none { it.resultState is SearchResultUiState.Idle })
+        assertTrue(albumStates.first().resultState is SearchResultUiState.Loading)
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun onResultTypeSelected_shouldKeepNewestTabVisibleDuringRapidSwitching() = runTest {
+        val repository = FakeSearchRepository().apply {
+            searchResults["周杰伦" to SearchResultType.SONG] = listOf(
+                SearchResultUiModel.Song(
+                    id = "song-1",
+                    title = "晴天",
+                    artistText = "周杰伦",
+                    albumTitle = "叶惠美",
+                    coverUrl = null,
+                    routeTarget = SearchRouteTarget.Song(songId = "song-1")
+                )
+            )
+            searchResults["周杰伦" to SearchResultType.ALBUM] = listOf(
+                SearchResultUiModel.Album(
+                    id = "album-1",
+                    title = "叶惠美",
+                    artistText = "周杰伦",
+                    songCount = 11,
+                    coverUrl = null,
+                    routeTarget = SearchRouteTarget.Album(albumId = "album-1")
+                )
+            )
+            searchResults["周杰伦" to SearchResultType.ARTIST] = listOf(
+                SearchResultUiModel.Artist(
+                    id = "artist-1",
+                    title = "周杰伦",
+                    coverUrl = null,
+                    albumCount = 15,
+                    routeTarget = SearchRouteTarget.Artist(artistId = "artist-1")
+                )
+            )
+            searchDelaysMs["周杰伦" to SearchResultType.ALBUM] = 1_000L
+            searchDelaysMs["周杰伦" to SearchResultType.ARTIST] = 1_500L
+        }
+
+        val viewModel = SearchViewModel(
+            application = RuntimeEnvironment.getApplication(),
+            repository = repository,
+            suggestDebounceMs = 300L
+        )
+        advanceUntilIdle()
+
+        viewModel.onQueryChanged("周杰伦")
+        viewModel.submitSearch()
+        advanceUntilIdle()
+
+        val observedStates = mutableListOf<SearchUiState>()
+        val collectJob = backgroundScope.launch {
+            viewModel.uiStateFlow.collect { observedStates += it }
+        }
+        runCurrent()
+        observedStates.clear()
+
+        viewModel.onResultTypeSelected(SearchResultType.ALBUM)
+        viewModel.onResultTypeSelected(SearchResultType.ARTIST)
+        runCurrent()
+
+        val artistStates = observedStates.filter { it.selectedResultType == SearchResultType.ARTIST }
+        assertTrue(artistStates.isNotEmpty())
+        assertTrue(artistStates.none { it.resultState is SearchResultUiState.Idle })
+        assertTrue(artistStates.first().resultState is SearchResultUiState.Loading)
+
+        advanceTimeBy(1_500L)
+        advanceUntilIdle()
+
+        val currentState = viewModel.uiStateFlow.value
+        assertEquals(SearchResultType.ARTIST, currentState.selectedResultType)
+        assertTrue(currentState.resultState is SearchResultUiState.Content)
+        assertTrue(
+            (currentState.resultState as SearchResultUiState.Content).items.single() is SearchResultUiModel.Artist
+        )
+        assertTrue(currentState.resultStatesByType[SearchResultType.ALBUM] is SearchResultUiState.Content)
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun removeSearchHistory_shouldRefreshVisibleHistoryKeywords() = runTest {
+        val repository = FakeSearchRepository().apply {
+            historyKeywords = listOf("After Hours", "Lofi Hip Hop", "Jazz Classics")
+        }
+
+        val viewModel = SearchViewModel(
+            application = RuntimeEnvironment.getApplication(),
+            repository = repository,
+            suggestDebounceMs = 300L
+        )
+        advanceUntilIdle()
+
+        viewModel.removeSearchHistory("Lofi Hip Hop")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("After Hours", "Jazz Classics"),
+            viewModel.uiStateFlow.value.historyKeywords
+        )
+    }
+
+    @Test
+    fun clearSearchHistory_shouldClearVisibleHistoryKeywords() = runTest {
+        val repository = FakeSearchRepository().apply {
+            historyKeywords = listOf("After Hours", "Lofi Hip Hop")
+        }
+
+        val viewModel = SearchViewModel(
+            application = RuntimeEnvironment.getApplication(),
+            repository = repository,
+            suggestDebounceMs = 300L
+        )
+        advanceUntilIdle()
+
+        viewModel.clearSearchHistory()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiStateFlow.value.historyKeywords.isEmpty())
+    }
 }
 
 private class FakeSearchRepository : SearchRepository {
@@ -377,5 +552,13 @@ private class FakeSearchRepository : SearchRepository {
 
     override suspend fun recordSearchHistory(keyword: String) {
         historyKeywords = listOf(keyword) + historyKeywords.filterNot { it == keyword }
+    }
+
+    override suspend fun removeSearchHistory(keyword: String) {
+        historyKeywords = historyKeywords.filterNot { it == keyword }
+    }
+
+    override suspend fun clearSearchHistory() {
+        historyKeywords = emptyList()
     }
 }

@@ -22,6 +22,10 @@ internal data class MainShellState(
     val shouldShowPlayerBackButton: Boolean
         get() = selectedTab == MainTab.HOME && homeSurfaceMode == HomeSurfaceMode.PLAYER_EXPANDED
 
+    fun shouldRenderBottomBar(isPlaylistSheetVisible: Boolean): Boolean {
+        return shouldShowBottomBar && !isPlaylistSheetVisible
+    }
+
     fun selectTab(tab: MainTab): MainShellState {
         return if (tab == MainTab.HOME && selectedTab == MainTab.HOME && homeSurfaceMode == HomeSurfaceMode.PLAYER_EXPANDED) {
             copy(homeSurfaceMode = HomeSurfaceMode.OVERVIEW)

@@ -277,6 +277,7 @@ class PlaylistDetailViewModelTest {
                                 trackId = "track-1",
                                 title = "海屿你",
                                 artistText = "马也_Crabbit",
+                                primaryArtistId = "artist-1",
                                 albumTitle = "海屿你",
                                 coverUrl = "http://example.com/song-1.jpg",
                                 durationMs = 295940L
@@ -285,6 +286,7 @@ class PlaylistDetailViewModelTest {
                                 trackId = "track-2",
                                 title = "有你",
                                 artistText = "歌手 B",
+                                primaryArtistId = "artist-2",
                                 albumTitle = "单曲",
                                 coverUrl = "http://example.com/song-2.jpg",
                                 durationMs = 200000L
@@ -319,6 +321,8 @@ class PlaylistDetailViewModelTest {
         assertEquals("playlist", playbackGateway.requests.first().items.first().contextType)
         assertEquals("3778678", playbackGateway.requests.first().items.first().contextId)
         assertEquals("热歌榜", playbackGateway.requests.first().items.first().contextTitle)
+        assertEquals("artist-1", playbackGateway.requests.first().items.first().primaryArtistId)
+        assertEquals("artist-2", playbackGateway.requests.first().items.last().primaryArtistId)
         assertEquals(listOf("3778678"), repository.playCountUpdates)
     }
 }

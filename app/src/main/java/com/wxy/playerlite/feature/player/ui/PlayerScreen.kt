@@ -1,6 +1,9 @@
 package com.wxy.playerlite.feature.player.ui
 
+import android.app.Activity
 import android.graphics.Bitmap
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -31,6 +34,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
@@ -52,10 +56,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
@@ -66,9 +73,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -79,7 +91,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.core.view.WindowInsetsControllerCompat
 import com.wxy.playerlite.core.playlist.PlaylistItem
+import com.wxy.playerlite.designsystem.theme.PlayerLiteThemeContract
+import com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTheme
 import com.wxy.playerlite.feature.player.LyricLine
 import com.wxy.playerlite.feature.player.resolveActiveLyricLineProjection
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
@@ -94,9 +109,13 @@ import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
 import com.wxy.playerlite.playback.model.PlaybackMode
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 
-private val PlayerTabAccentColor = Color(0xFFD48CFF)
-private val PlayerLyricsGlowColor = Color(0xFFC678FF)
+internal val PlayerLyricsFirstVisibleIndexKey =
+    SemanticsPropertyKey<Int>("PlayerLyricsFirstVisibleIndex")
+
+internal var SemanticsPropertyReceiver.playerLyricsFirstVisibleIndex by
+    PlayerLyricsFirstVisibleIndexKey
 
 @Composable
 internal fun PlayerScreen(
@@ -145,6 +164,7 @@ internal fun PlayerScreen(
     onRetryLyrics: () -> Unit = {},
     onSelectTopTab: ((PlayerTopTab) -> Unit)? = null,
     onSelectPlaylistItem: (Int) -> Unit,
+    onClearPlaylist: () -> Unit = {},
     onRemovePlaylistItem: (Int) -> Unit,
     onMovePlaylistItem: (Int, Int) -> Unit,
     onPlay: () -> Unit,
@@ -162,6 +182,7 @@ internal fun PlayerScreen(
     onFavoriteClick: () -> Unit = {},
     onMoreClick: () -> Unit = {}
 ) {
+    val visualTokens = PlayerLiteVisualTheme.colors
     val isPlaying = playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING
     val isPaused = playbackState == AUDIO_TRACK_PLAYSTATE_PAUSED
     val hasPreviousTrack = activePlaylistIndex > 0
@@ -211,6 +232,7 @@ internal fun PlayerScreen(
         animationSpec = tween(durationMillis = 550),
         label = "content_offset"
     )
+    PlayerStatusBarStyleEffect(backdropColor = backdropColor)
 
     PlayerScreenBackground(
         backdropColor = backdropColor,
@@ -269,6 +291,7 @@ internal fun PlayerScreen(
                 onBackdropColorChange = { backdropColor = it },
                 onFavoriteClick = onFavoriteClick,
                 onMoreClick = onMoreClick,
+                visualTokens = visualTokens,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -291,6 +314,7 @@ internal fun PlayerScreen(
                 onDismiss = onDismissPlaylistSheet,
                 onShowOriginalOrderInShuffleChange = onShowOriginalOrderInShuffleChange,
                 onSelect = onSelectPlaylistItem,
+                onClearAll = onClearPlaylist,
                 onRemove = onRemovePlaylistItem,
                 onMove = onMovePlaylistItem,
                 modifier = Modifier.testTag("player_screen_playlist_sheet")
@@ -469,6 +493,30 @@ internal fun extractBackdropColorSafely(bitmap: Bitmap?): Color? {
     }.getOrNull()
 }
 
+internal fun shouldUseLightStatusBarContent(backdropColor: Color): Boolean {
+    return backdropColor.luminance() < 0.45f
+}
+
+@Composable
+private fun PlayerStatusBarStyleEffect(
+    backdropColor: Color
+) {
+    val view = LocalView.current
+    val defaultUseLightStatusBarContent = isSystemInDarkTheme()
+    DisposableEffect(view, backdropColor, defaultUseLightStatusBarContent) {
+        val activity = view.context.findActivity()
+        if (activity == null) {
+            onDispose { }
+        } else {
+            val controller = WindowInsetsControllerCompat(activity.window, view)
+            controller.isAppearanceLightStatusBars = !shouldUseLightStatusBarContent(backdropColor)
+            onDispose {
+                controller.isAppearanceLightStatusBars = !defaultUseLightStatusBarContent
+            }
+        }
+    }
+}
+
 private fun deriveBackdropGradientStop(
     baseColor: Color,
     saturationScale: Float,
@@ -481,6 +529,14 @@ private fun deriveBackdropGradientStop(
     hsv[1] = (hsv[1] * saturationScale).coerceIn(0.08f, 0.42f)
     hsv[2] = (hsv[2] * valueScale).coerceIn(minValue, maxValue)
     return Color(android.graphics.Color.HSVToColor(hsv))
+}
+
+private tailrec fun Context.findActivity(): Activity? {
+    return when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
 }
 
 @Composable
@@ -561,36 +617,63 @@ private fun PlayerTopBarTab(
     horizontalPadding: Dp,
     onClick: () -> Unit
 ) {
+    val visuals = resolvePlayerTopBarTabVisuals(
+        selected = selected,
+        visualTokens = PlayerLiteVisualTheme.colors
+    )
     Column(
         modifier = Modifier
             .testTag(tag)
             .clip(CircleShape)
             .clickable(onClick = onClick)
-            .padding(horizontal = horizontalPadding, vertical = 6.dp),
+            .padding(horizontal = horizontalPadding, vertical = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.titleMedium.copy(fontSize = textSizeSp.sp),
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            color = Color.White.copy(alpha = if (selected) 0.96f else 0.46f),
+            fontWeight = visuals.fontWeight,
+            color = visuals.textColor,
             textAlign = TextAlign.Center
         )
-        if (selected) {
-            Box(
-                modifier = Modifier
-                    .size(width = 34.dp, height = 3.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(
-                        brush = Brush.horizontalGradient(
-                            listOf(PlayerTabAccentColor.copy(alpha = 0.92f), PlayerTabAccentColor)
-                        )
-                    )
-                    .testTag(indicatorTag)
-            )
-        }
+        Box(
+            modifier = Modifier
+                .size(width = 52.dp, height = 3.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(
+                    if (selected) visuals.indicatorColor else Color.Transparent
+                )
+                .let { baseModifier ->
+                    if (selected) {
+                        baseModifier.testTag(indicatorTag)
+                    } else {
+                        baseModifier
+                    }
+                }
+        )
     }
+}
+
+internal data class PlayerTopBarTabVisuals(
+    val textColor: Color,
+    val indicatorColor: Color,
+    val fontWeight: FontWeight
+)
+
+internal fun resolvePlayerTopBarTabVisuals(
+    selected: Boolean,
+    visualTokens: com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTokens
+): PlayerTopBarTabVisuals {
+    return PlayerTopBarTabVisuals(
+        textColor = if (selected) {
+            visualTokens.accentStrong
+        } else {
+            PlayerLiteThemeContract.DefaultBrandPalettes.light.neutral
+        },
+        indicatorColor = visualTokens.accentStrong,
+        fontWeight = FontWeight.Medium
+    )
 }
 
 @Composable
@@ -672,17 +755,18 @@ private fun PlayerToolActionButton(
     iconSize: Dp,
     onClick: () -> Unit
 ) {
+    val visualTokens = PlayerLiteVisualTheme.colors
     Surface(
         modifier = Modifier.testTag(tag),
         shape = RoundedCornerShape(buttonSize / 2),
-        color = Color.White.copy(alpha = 0.04f)
+        color = visualTokens.surfacePrimary.copy(alpha = 0.12f)
     ) {
         IconButton(
             onClick = onClick,
             modifier = Modifier.size(buttonSize),
             colors = IconButtonDefaults.iconButtonColors(
                 containerColor = Color.Transparent,
-                contentColor = Color.White.copy(alpha = 0.86f)
+                contentColor = Color.White.copy(alpha = 0.88f)
             )
         ) {
             Icon(
@@ -698,10 +782,11 @@ private fun PlayerToolActionButton(
 private fun PlayerBufferingIndicator(
     modifier: Modifier = Modifier
 ) {
+    val visualTokens = PlayerLiteVisualTheme.colors
     Surface(
         modifier = modifier.testTag("player_screen_buffering_indicator"),
         shape = RoundedCornerShape(999.dp),
-        color = Color.White.copy(alpha = 0.10f)
+        color = visualTokens.surfacePrimary.copy(alpha = 0.16f)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -711,11 +796,11 @@ private fun PlayerBufferingIndicator(
             CircularProgressIndicator(
                 modifier = Modifier.size(14.dp),
                 strokeWidth = 2.dp,
-                color = Color.White
+                color = visualTokens.accentStrong
             )
             Text(
                 text = "缓冲中...",
-                color = Color.White,
+                color = Color.White.copy(alpha = 0.92f),
                 style = MaterialTheme.typography.labelLarge
             )
         }
@@ -727,15 +812,16 @@ private fun PlayerCoverStatusChip(
     text: String,
     modifier: Modifier = Modifier
 ) {
+    val visualTokens = PlayerLiteVisualTheme.colors
     Surface(
         modifier = modifier.testTag("player_screen_status_chip"),
         shape = RoundedCornerShape(999.dp),
-        color = Color.White.copy(alpha = 0.10f)
+        color = visualTokens.surfacePrimary.copy(alpha = 0.16f)
     ) {
         Text(
             text = text,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-            color = Color.White.copy(alpha = 0.82f),
+            color = Color.White.copy(alpha = 0.84f),
             style = MaterialTheme.typography.labelMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -1057,6 +1143,7 @@ private fun PlayerScreenContent(
     onBackdropColorChange: (Color) -> Unit,
     onFavoriteClick: () -> Unit,
     onMoreClick: () -> Unit,
+    visualTokens: com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTokens,
     modifier: Modifier = Modifier
 ) {
     val trackText = artistText
@@ -1146,19 +1233,12 @@ private fun PlayerScreenContent(
                 when (page.toPlayerTopTab()) {
                     PlayerTopTab.SONG -> {
                         Box(modifier = Modifier.fillMaxSize()) {
-                            Column(
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .fillMaxSize()
-                                    .padding(
-                                        start = layoutMetrics.horizontalPadding,
-                                        top = 0.dp,
-                                        end = layoutMetrics.horizontalPadding,
-                                        bottom = layoutMetrics.bottomSectionReservedHeight
-                                    ),
-                                verticalArrangement = Arrangement.spacedBy(layoutMetrics.sectionSpacing)
+                                    .padding(horizontal = layoutMetrics.horizontalPadding)
+                                    .padding(top = layoutMetrics.coverTopSpacing)
                             ) {
-                                Spacer(modifier = Modifier.height(layoutMetrics.coverTopSpacing))
                                 Spacer(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1168,8 +1248,7 @@ private fun PlayerScreenContent(
 
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f, fill = true),
+                                        .fillMaxWidth(),
                                     contentAlignment = Alignment.TopCenter
                                 ) {
                                     Box(
@@ -1178,19 +1257,13 @@ private fun PlayerScreenContent(
                                             .testTag("player_screen_song_page"),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Surface(
+                                        Box(
                                             modifier = Modifier
                                                 .fillMaxSize()
                                                 .testTag("player_screen_visual_section"),
-                                            shape = RoundedCornerShape(28.dp),
-                                            color = Color.White.copy(alpha = 0.08f),
-                                            tonalElevation = 0.dp,
-                                            shadowElevation = 0.dp
                                         ) {
                                             Box(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(24.dp),
+                                                modifier = Modifier.fillMaxSize(),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 PlayerCoverCard(
@@ -1248,9 +1321,11 @@ private fun PlayerScreenContent(
                                                 style = titleTextStyle,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color.White,
-                                                maxLines = layoutMetrics.titleMaxLines,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.testTag("player_screen_title")
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Clip,
+                                                modifier = Modifier
+                                                    .playerTitleMarquee()
+                                                    .testTag("player_screen_title")
                                             )
                                             Text(
                                                 text = trackText.artist,
@@ -1378,8 +1453,7 @@ private fun PlayerScreenContent(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(horizontal = layoutMetrics.horizontalPadding)
-                                .testTag("player_screen_lyrics_page"),
-                            verticalArrangement = Arrangement.spacedBy(layoutMetrics.sectionSpacing)
+                                .testTag("player_screen_lyrics_page")
                         ) {
                             Spacer(modifier = Modifier.height(layoutMetrics.lyricsTopInset))
                             Box(
@@ -1422,13 +1496,14 @@ private fun Int.toPlayerTopTab(): PlayerTopTab {
 }
 
 @Composable
-private fun PlayerLyricsPage(
+internal fun PlayerLyricsPage(
     lyricUiState: PlayerLyricUiState,
     activeLineIndex: Int,
     isVisible: Boolean,
     onRetryLyrics: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val visualTokens = PlayerLiteVisualTheme.colors
     when (lyricUiState) {
         PlayerLyricUiState.Placeholder -> {
             Box(
@@ -1497,15 +1572,50 @@ private fun PlayerLyricsPage(
 
         is PlayerLyricUiState.Content -> {
             val listState = rememberLazyListState()
-            LaunchedEffect(activeLineIndex, lyricUiState.lyrics.songId, isVisible) {
-                if (isVisible && activeLineIndex >= 0) {
-                    listState.animateScrollToItem((activeLineIndex - 3).coerceAtLeast(0))
-                }
+            val firstVisibleLyricIndex by remember(listState) {
+                derivedStateOf { listState.firstVisibleItemIndex }
+            }
+            val latestActiveLineIndex by rememberUpdatedState(activeLineIndex)
+            val latestIsVisible by rememberUpdatedState(isVisible)
+            var needsInitialPlacement by remember(lyricUiState.lyrics.songId, isVisible) {
+                mutableStateOf(true)
+            }
+            var lastRequestedTargetIndex by remember(lyricUiState.lyrics.songId, isVisible) {
+                mutableStateOf<Int?>(null)
+            }
+            LaunchedEffect(lyricUiState.lyrics.songId) {
+                snapshotFlow { latestActiveLineIndex to latestIsVisible }
+                    .distinctUntilChanged()
+                    .collect { (nextActiveLineIndex, visible) ->
+                        if (!visible) {
+                            return@collect
+                        }
+                        snapshotFlow { listState.layoutInfo.totalItemsCount }
+                            .filter { it > 0 }
+                            .first()
+                        val request = resolveLyricsAutoScrollRequest(
+                            activeLineIndex = nextActiveLineIndex,
+                            firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                            isInitialPlacement = needsInitialPlacement,
+                            lastRequestedTargetIndex = lastRequestedTargetIndex
+                        )
+                        if (request != null) {
+                            lastRequestedTargetIndex = request.targetIndex
+                            when (request.mode) {
+                                LyricsAutoScrollMode.Snap -> listState.scrollToItem(request.targetIndex)
+                                LyricsAutoScrollMode.Animate -> listState.animateScrollToItem(request.targetIndex)
+                            }
+                        }
+                        needsInitialPlacement = false
+                    }
             }
             LazyColumn(
                 state = listState,
                 modifier = modifier
                     .fillMaxSize()
+                    .semantics {
+                        playerLyricsFirstVisibleIndex = firstVisibleLyricIndex
+                    }
                     .testTag("player_screen_lyrics_list"),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     horizontal = 8.dp,
@@ -1535,7 +1645,7 @@ private fun PlayerLyricsPage(
                             lineHeight = 38.sp,
                             shadow = if (isActiveLine) {
                                 Shadow(
-                                    color = PlayerLyricsGlowColor.copy(alpha = visuals.glowAlpha),
+                                    color = visualTokens.accentSupport.copy(alpha = visuals.glowAlpha),
                                     offset = Offset.Zero,
                                     blurRadius = 26f
                                 )
@@ -1647,6 +1757,7 @@ private fun PlayerProgressBarSlider(
     onValueChangeFinished: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val visualTokens = PlayerLiteVisualTheme.colors
     val boundedMax = max.coerceAtLeast(1f)
     val boundedValue = value.coerceIn(0f, boundedMax)
     val progressFraction = (boundedValue / boundedMax).coerceIn(0f, 1f)
@@ -1663,7 +1774,9 @@ private fun PlayerProgressBarSlider(
                 .fillMaxWidth()
                 .height(trackHeight)
                 .clip(RoundedCornerShape(999.dp))
-                .background(Color.White.copy(alpha = if (enabled) 0.18f else 0.10f))
+                .background(
+                    visualTokens.miniPlayerProgressTrack.copy(alpha = if (enabled) 0.30f else 0.18f)
+                )
                 .testTag("player_screen_slider_track")
         ) {
             Box(
@@ -1671,7 +1784,9 @@ private fun PlayerProgressBarSlider(
                     .fillMaxWidth(progressFraction)
                     .fillMaxSize()
                     .clip(RoundedCornerShape(999.dp))
-                    .background(Color.White.copy(alpha = if (enabled) 0.94f else 0.36f))
+                    .background(
+                        visualTokens.miniPlayerProgressFill.copy(alpha = if (enabled) 0.96f else 0.42f)
+                    )
                     .testTag("player_screen_slider_active_track")
             )
         }
@@ -1682,7 +1797,7 @@ private fun PlayerProgressBarSlider(
                 .padding(start = (maxWidth - thumbSize) * progressFraction)
                 .size(thumbSize)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = if (enabled) 1f else 0.42f))
+                .background(Color.White.copy(alpha = if (enabled) 0.96f else 0.44f))
                 .testTag("player_screen_slider_thumb")
         )
 

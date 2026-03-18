@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -62,5 +63,12 @@ class PlayerScreenBackdropColorTest {
         val result = method.invoke(null, bitmap)
 
         assertNull(result)
+    }
+
+    @Test
+    fun shouldUseLightStatusBarContent_shouldSwitchWithBackdropLuminance() {
+        assertTrue(shouldUseLightStatusBarContent(Color(0xFF171A21)))
+        assertTrue(shouldUseLightStatusBarContent(Color(0xFF4A4A4A)))
+        assertFalse(shouldUseLightStatusBarContent(Color(0xFFF3F4F7)))
     }
 }

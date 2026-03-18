@@ -36,6 +36,7 @@ internal data class AlbumTrackRow(
     val trackId: String,
     val title: String,
     val artistText: String,
+    val primaryArtistId: String? = null,
     val albumTitle: String,
     val coverUrl: String?,
     val durationMs: Long
@@ -156,6 +157,11 @@ internal object AlbumDetailJsonMapper {
                         (artist as? JsonObject)?.stringValue("name")
                     }
                     .joinToString(separator = " / "),
+                primaryArtistId = track.arrayValue("ar")
+                    .mapNotNull { artist ->
+                        (artist as? JsonObject)?.stringValue("id")
+                    }
+                    .firstOrNull(),
                 albumTitle = track.objectValue("al").stringValue("name").orEmpty(),
                 coverUrl = track.objectValue("al").stringValue("picUrl"),
                 durationMs = track.longValue("dt")

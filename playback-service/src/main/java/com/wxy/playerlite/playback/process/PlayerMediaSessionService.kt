@@ -15,6 +15,7 @@ import androidx.media3.session.SessionResult
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.wxy.playerlite.playback.service.R
 import com.wxy.playerlite.playback.model.PlaybackLaunchRequest
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
@@ -135,7 +136,7 @@ class PlayerMediaSessionService : MediaSessionService() {
 
     private fun buildNotification(state: PlaybackProcessState, isPlaying: Boolean) =
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(resolveNotificationSmallIcon(applicationInfo.icon))
+            .setSmallIcon(resolveNotificationSmallIcon())
             .setContentTitle(resolveNotificationTitle(state))
             .setContentText(resolveNotificationSubtitle(state))
             .setOngoing(isPlaying)
@@ -292,6 +293,6 @@ class PlayerMediaSessionService : MediaSessionService() {
     }
 }
 
-internal fun resolveNotificationSmallIcon(appIconResId: Int): Int {
-    return appIconResId.takeIf { it != 0 } ?: android.R.drawable.ic_media_play
+internal fun resolveNotificationSmallIcon(): Int {
+    return R.drawable.ic_playerlite_notification_small
 }

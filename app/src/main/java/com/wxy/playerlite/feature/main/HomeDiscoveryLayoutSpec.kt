@@ -6,22 +6,22 @@ import androidx.compose.ui.unit.dp
 
 internal object HomeDiscoveryLayoutSpec {
     val rowContentPadding = PaddingValues(horizontal = 8.dp)
-    val bannerContentPadding = PaddingValues(horizontal = 4.dp)
+    val bannerContentPadding = PaddingValues(horizontal = 0.dp)
 
-    val bannerHeight = 188.dp
-    val discoveryCardWidth = 164.dp
-    val discoveryCardHeight = 236.dp
-    val compactCardWidth = 112.dp
-    val compactCardHeight = 76.dp
+    val bannerHeight = 206.dp
+    val discoveryCardWidth = 152.dp
+    val discoveryCardHeight = 222.dp
+    val compactCardWidth = 172.dp
+    val compactCardHeight = 58.dp
     val compactImageSize = 56.dp
-    val itemSpacing = 12.dp
+    val itemSpacing = 14.dp
 
     const val titleMaxLines = 1
     const val subtitleMaxLines = 1
     const val bannerBadgeUsesTextOnlyStyle = true
     const val bannerImageFillsCard = true
     const val bannerUsesInfiniteLoop = true
-    const val dailyShortcutUsesTextOnlyStyle = true
+    const val dailyShortcutUsesCompactIconStyle = true
     const val discoveryImageUsesFullBleed = true
     const val discoveryImageAspectRatio = 1f
     const val virtualBannerPageCount = 4_000

@@ -98,12 +98,20 @@ internal class SearchViewModel(
             currentState.resultStatesByType
         }
         val existingPageState = baseResultStates[resultType]
+        val shouldReuseExistingState =
+            !forceRefresh && existingPageState != null && existingPageState !is SearchResultUiState.Loading
+        val hasActiveResultJob = !forceRefresh && resultJobsByType[resultType]?.isActive == true
+        val nextResultStates = if (shouldReuseExistingState) {
+            baseResultStates
+        } else {
+            baseResultStates + (resultType to SearchResultUiState.Loading)
+        }
         _uiState.value = currentState.copy(
             query = keyword,
             pageMode = SearchPageMode.RESULT,
             lastSubmittedQuery = keyword,
             selectedResultType = resultType,
-            resultStatesByType = baseResultStates
+            resultStatesByType = nextResultStates
         )
 
         if (recordHistory) {
@@ -115,18 +123,13 @@ internal class SearchViewModel(
             }
         }
 
-        if (!forceRefresh && existingPageState != null && existingPageState !is SearchResultUiState.Loading) {
+        if (shouldReuseExistingState) {
             return
         }
 
-        if (!forceRefresh && resultJobsByType[resultType]?.isActive == true) {
+        if (hasActiveResultJob) {
             return
         }
-
-        val loadingStates = baseResultStates + (resultType to SearchResultUiState.Loading)
-        _uiState.value = _uiState.value.copy(
-            resultStatesByType = loadingStates
-        )
         resultJobsByType[resultType]?.cancel()
         val job = viewModelScope.launch {
             runCatching {
@@ -173,6 +176,24 @@ internal class SearchViewModel(
     fun onHotKeywordClick(item: SearchHotKeywordUiModel) {
         _uiState.value = _uiState.value.copy(query = item.keyword)
         submitSearch(item.keyword)
+    }
+
+    fun removeSearchHistory(keyword: String) {
+        viewModelScope.launch {
+            repository.removeSearchHistory(keyword)
+            _uiState.value = _uiState.value.copy(
+                historyKeywords = repository.readSearchHistory()
+            )
+        }
+    }
+
+    fun clearSearchHistory() {
+        viewModelScope.launch {
+            repository.clearSearchHistory()
+            _uiState.value = _uiState.value.copy(
+                historyKeywords = repository.readSearchHistory()
+            )
+        }
     }
 
     fun onResultTypeSelected(type: SearchResultType) {

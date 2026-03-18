@@ -315,6 +315,7 @@ private fun buildPlaylistPlaybackRequest(
                 songId = trackId,
                 title = track.title,
                 artistText = track.artistText,
+                primaryArtistId = track.primaryArtistId,
                 albumTitle = track.albumTitle,
                 coverUrl = track.coverUrl,
                 durationMs = track.durationMs,

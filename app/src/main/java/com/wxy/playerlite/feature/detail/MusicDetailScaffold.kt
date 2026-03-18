@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,30 +46,40 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-
-internal val DetailHeroBrush = Brush.verticalGradient(
-    colors = listOf(
-        Color(0xFF1A1A2E),
-        Color(0xFF972C3F),
-        Color(0xFFF7E7DA)
-    )
-)
 
 @Composable
 internal fun MusicDetailScaffold(
     heroTestTag: String,
     onBack: () -> Unit,
-    heroBrush: Brush = DetailHeroBrush,
+    listState: LazyListState = rememberLazyListState(),
+    heroBrush: Brush? = null,
+    heroHorizontalPadding: Dp = 20.dp,
+    heroTopPadding: Dp = 72.dp,
+    heroBottomPadding: Dp = 12.dp,
+    drawHeroBehindStatusBar: Boolean = false,
+    showBackButton: Boolean = true,
+    backButtonTint: Color = MaterialTheme.colorScheme.surface,
     heroContent: @Composable ColumnScope.() -> Unit,
     bodyContent: LazyListScope.() -> Unit
 ) {
+    val colorScheme = MaterialTheme.colorScheme
+    val resolvedHeroBrush = heroBrush ?: Brush.verticalGradient(
+        colors = listOf(
+            shiftColor(colorScheme.primary, 0.74f),
+            colorScheme.primary.copy(alpha = 0.96f),
+            shiftColor(colorScheme.secondary, 1.08f)
+        )
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("detail_scaffold_list"),
@@ -76,9 +89,20 @@ internal fun MusicDetailScaffold(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(heroBrush)
-                        .statusBarsPadding()
-                        .padding(start = 20.dp, top = 72.dp, end = 20.dp, bottom = 12.dp)
+                        .background(resolvedHeroBrush)
+                        .then(
+                            if (drawHeroBehindStatusBar) {
+                                Modifier
+                            } else {
+                                Modifier.statusBarsPadding()
+                            }
+                        )
+                        .padding(
+                            start = heroHorizontalPadding,
+                            top = heroTopPadding,
+                            end = heroHorizontalPadding,
+                            bottom = heroBottomPadding
+                        )
                         .testTag(heroTestTag)
                 ) {
                     heroContent()
@@ -87,22 +111,23 @@ internal fun MusicDetailScaffold(
             bodyContent()
         }
 
-        Box(
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(start = 12.dp, top = 8.dp)
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(Color(0xD9121216))
-                .clickable(onClick = onBack)
-                .testTag("detail_back_button"),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                contentDescription = "返回",
-                tint = Color.White
-            )
+        if (showBackButton) {
+            Box(
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .padding(start = 12.dp, top = 8.dp)
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onBack)
+                    .testTag("detail_back_button"),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "返回",
+                    tint = backButtonTint
+                )
+            }
         }
     }
 }
@@ -192,7 +217,7 @@ internal fun DetailMetaPill(
         modifier = modifier,
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color.White.copy(alpha = 0.16f)
+            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
         )
     ) {
         Column(
@@ -202,12 +227,12 @@ internal fun DetailMetaPill(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.72f)
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.72f)
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.titleSmall,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onPrimary,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -266,13 +291,13 @@ internal fun DetailHeroSummaryPreview(
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.70f),
+            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.70f),
             fontWeight = FontWeight.Medium
         )
         Text(
             text = summary,
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.86f),
+            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.86f),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )

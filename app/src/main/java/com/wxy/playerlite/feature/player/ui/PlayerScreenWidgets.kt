@@ -1,6 +1,7 @@
 package com.wxy.playerlite.feature.player.ui
 
 import android.graphics.drawable.BitmapDrawable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.animation.core.LinearEasing
@@ -11,11 +12,14 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.MarqueeSpacing
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.border
@@ -62,6 +66,7 @@ import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
@@ -286,20 +291,11 @@ internal fun PlayerCoverCard(
     onBackdropColorExtracted: (Color) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val active = isPlaying && !isPaused
     val context = LocalContext.current
-    val transition = rememberInfiniteTransition(label = "player_cover_motion")
-    val pulse by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 4200, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "player_cover_pulse"
+    val coverTransform = resolvePlayerCoverCardTransform(
+        isPlaying = isPlaying,
+        isPaused = isPaused
     )
-    val coverScale = if (active) 1f + pulse * 0.01f else 1f
-    val coverTranslationY = if (active) -2.5f * pulse else 0f
     val painter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(context)
             .data(coverUrl)
@@ -320,12 +316,12 @@ internal fun PlayerCoverCard(
         modifier = modifier
             .testTag("player_screen_cover_card")
             .graphicsLayer {
-                scaleX = coverScale
-                scaleY = coverScale
-                translationY = coverTranslationY
+                scaleX = coverTransform.scale
+                scaleY = coverTransform.scale
+                translationY = coverTransform.translationY
             }
             .clip(RoundedCornerShape(14.dp))
-            .background(Color.White.copy(alpha = 0.03f)),
+            .background(Color.Transparent),
         contentAlignment = Alignment.Center
     ) {
         if (!coverUrl.isNullOrBlank()) {
@@ -372,6 +368,21 @@ internal fun PlayerCoverCard(
             )
         }
     }
+}
+
+internal data class PlayerCoverCardTransform(
+    val scale: Float,
+    val translationY: Float
+)
+
+internal fun resolvePlayerCoverCardTransform(
+    isPlaying: Boolean,
+    isPaused: Boolean
+): PlayerCoverCardTransform {
+    return PlayerCoverCardTransform(
+        scale = 1f,
+        translationY = 0f
+    )
 }
 
 @Composable
@@ -506,14 +517,40 @@ internal fun normalizeDeckDiscRotation(value: Float): Float {
     return ((value % 360f) + 360f) % 360f
 }
 
+internal val PlayerTitleMarqueeEnabledKey =
+    SemanticsPropertyKey<Boolean>("PlayerTitleMarqueeEnabled")
+
+internal var SemanticsPropertyReceiver.playerTitleMarqueeEnabled by PlayerTitleMarqueeEnabledKey
+
+internal val PlayerTitleSingleLineKey =
+    SemanticsPropertyKey<Boolean>("PlayerTitleSingleLine")
+
+internal var SemanticsPropertyReceiver.playerTitleSingleLine by PlayerTitleSingleLineKey
+
+@OptIn(ExperimentalFoundationApi::class)
+internal fun Modifier.playerTitleMarquee(): Modifier {
+    return this
+        .fillMaxWidth()
+        .semantics {
+            playerTitleMarqueeEnabled = true
+            playerTitleSingleLine = true
+        }
+        .basicMarquee(
+            iterations = Int.MAX_VALUE,
+            repeatDelayMillis = 1_800,
+            spacing = MarqueeSpacing(28.dp)
+        )
+}
+
 @Composable
 internal fun DeckProgressBar(
     progressPercent: Int,
     modifier: Modifier = Modifier
 ) {
-    val progressTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-    val progressStartColor = MaterialTheme.colorScheme.secondary
-    val progressEndColor = MaterialTheme.colorScheme.primary
+    val visualTokens = PlayerLiteVisualTheme.colors
+    val progressTrackColor = visualTokens.miniPlayerProgressTrack
+    val progressStartColor = visualTokens.accentSupport
+    val progressEndColor = visualTokens.miniPlayerProgressFill
 
     Canvas(modifier = modifier) {
         val ratio = (progressPercent.coerceIn(0, 100) / 100f)
@@ -542,10 +579,11 @@ internal fun StatTile(
     minHeight: Dp = 0.dp,
     valueMaxLines: Int = Int.MAX_VALUE
 ) {
+    val visualTokens = PlayerLiteVisualTheme.colors
     Surface(
         modifier = modifier.defaultMinSize(minHeight = minHeight),
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        color = visualTokens.surfaceMuted.copy(alpha = 0.5f)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),

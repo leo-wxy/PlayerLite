@@ -102,7 +102,9 @@ internal class PlayerViewModel(
                 LyricLoadTarget(
                     songId = state.currentSongId,
                     hasSelection = state.hasSelection,
-                    isPreparing = state.isPreparing
+                    shouldLoad = state.isPreparing ||
+                        state.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING ||
+                        state.playbackState == AUDIO_TRACK_PLAYSTATE_PAUSED
                 )
             }.distinctUntilChanged()
                 .collect(::scheduleLyricsForTarget)
@@ -197,7 +199,7 @@ internal class PlayerViewModel(
     }
 
     fun onPlayerSurfaceVisibilityChanged(isVisible: Boolean) {
-        // Lyrics are now keyed to the playback prepare phase instead of view visibility.
+        // Lyrics follow the active playback state instead of screen visibility.
     }
 
     fun onSeekValueChange(value: Long) {
@@ -271,6 +273,13 @@ internal class PlayerViewModel(
         val shouldContinue = (previous.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING || previous.isPreparing) &&
             index == previous.activePlaylistIndex
         syncQueueToPlaybackProcess(playWhenReady = shouldContinue)
+    }
+
+    fun clearPlaylist() {
+        runtime.clearPlaylist()
+        if (!uiStateFlow.value.hasSelection) {
+            serviceBridge.stop()
+        }
     }
 
     fun movePlaylistItem(fromIndex: Int, toIndex: Int) {
@@ -417,7 +426,7 @@ internal class PlayerViewModel(
             )
             return
         }
-        if (!target.isPreparing) {
+        if (!target.shouldLoad) {
             return
         }
         val currentLyricState = uiStateFlow.value.lyricUiState
@@ -672,7 +681,7 @@ internal class PlayerViewModel(
 private data class LyricLoadTarget(
     val songId: String?,
     val hasSelection: Boolean,
-    val isPreparing: Boolean
+    val shouldLoad: Boolean
 )
 
 private data class DisplayMetadataTarget(

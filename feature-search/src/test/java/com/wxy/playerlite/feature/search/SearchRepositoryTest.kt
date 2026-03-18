@@ -302,6 +302,39 @@ class SearchRepositoryTest {
     }
 
     @Test
+    fun removeSearchHistory_shouldDropOnlyMatchingKeyword() = runBlocking {
+        val historyStorage = InMemorySearchHistoryStorage().apply {
+            write(listOf("After Hours", "Lofi Hip Hop", "Jazz Classics"))
+        }
+        val repository = DefaultSearchRepository(
+            remoteDataSource = FakeSearchRemoteDataSource(),
+            historyStorage = historyStorage
+        )
+
+        repository.removeSearchHistory("Lofi Hip Hop")
+
+        assertEquals(
+            listOf("After Hours", "Jazz Classics"),
+            repository.readSearchHistory()
+        )
+    }
+
+    @Test
+    fun clearSearchHistory_shouldRemoveAllKeywords() = runBlocking {
+        val historyStorage = InMemorySearchHistoryStorage().apply {
+            write(listOf("After Hours", "Lofi Hip Hop"))
+        }
+        val repository = DefaultSearchRepository(
+            remoteDataSource = FakeSearchRemoteDataSource(),
+            historyStorage = historyStorage
+        )
+
+        repository.clearSearchHistory()
+
+        assertTrue(repository.readSearchHistory().isEmpty())
+    }
+
+    @Test
     fun search_shouldMapExtendedTypesIntoStableModels() = runBlocking {
         val repository = DefaultSearchRepository(
             remoteDataSource = FakeSearchRemoteDataSource(

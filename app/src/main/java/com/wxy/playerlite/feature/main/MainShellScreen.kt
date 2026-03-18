@@ -14,7 +14,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -32,13 +31,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
@@ -55,6 +60,7 @@ import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -65,8 +71,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -81,22 +85,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTheme
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
+import com.wxy.playerlite.feature.player.buildSongArtistDisplayText
+import com.wxy.playerlite.feature.player.resolveActiveLyricLineProjection
 import com.wxy.playerlite.feature.player.resolvePlayerDisplayMetadataProjection
 import com.wxy.playerlite.feature.player.ui.PlayerTrackText
 import com.wxy.playerlite.feature.player.ui.resolvePlayerTrackText
+import com.wxy.playerlite.feature.search.SearchRouteTarget
 import com.wxy.playerlite.feature.user.AccountCardSurface
 import com.wxy.playerlite.feature.user.AccountPageBackground
 import com.wxy.playerlite.feature.user.AccountPrimaryButton
@@ -119,22 +125,106 @@ internal fun MainBottomBar(
     onTabSelected: (MainTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    NavigationBar(
-        modifier = modifier,
-        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
+    val visualTokens = PlayerLiteVisualTheme.colors
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(
+                start = HomeChromeLayoutSpec.bottomBarOuterHorizontalPadding,
+                top = HomeChromeLayoutSpec.bottomBarOuterVerticalPadding,
+                end = HomeChromeLayoutSpec.bottomBarOuterHorizontalPadding,
+                bottom = HomeChromeLayoutSpec.bottomBarBottomClearance
+            )
+            .testTag("main_bottom_bar_root"),
+        contentAlignment = Alignment.Center
     ) {
-        NavigationBarItem(
-            selected = selectedTab == MainTab.HOME,
-            onClick = { onTabSelected(MainTab.HOME) },
-            icon = { Icon(Icons.Rounded.Home, contentDescription = null) },
-            label = { Text("首页") }
-        )
-        NavigationBarItem(
-            selected = selectedTab == MainTab.USER_CENTER,
-            onClick = { onTabSelected(MainTab.USER_CENTER) },
-            icon = { Icon(Icons.Rounded.Person, contentDescription = null) },
-            label = { Text("我的") }
-        )
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(HomeChromeLayoutSpec.bottomBarWidthFraction)
+                .widthIn(max = HomeChromeLayoutSpec.bottomBarMaxWidth)
+                .height(HomeChromeLayoutSpec.bottomBarMinHeight)
+                .testTag("main_bottom_bar_container"),
+            shape = RoundedCornerShape(HomeChromeLayoutSpec.bottomBarCornerRadius),
+            color = visualTokens.surfacePrimary.copy(alpha = 0.97f),
+            tonalElevation = 2.dp,
+            shadowElevation = HomeChromeLayoutSpec.bottomBarShadowElevation,
+            border = BorderStroke(
+                width = 1.dp,
+                color = visualTokens.dividerSubtle
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HomeBottomBarItem(
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("main_bottom_bar_home"),
+                    selected = selectedTab == MainTab.HOME,
+                    onClick = { onTabSelected(MainTab.HOME) },
+                    icon = Icons.Rounded.Home,
+                    label = "首页",
+                    accentColor = visualTokens.accentStrong,
+                    unselectedContentColor = visualTokens.textSecondary
+                )
+                HomeBottomBarItem(
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("main_bottom_bar_user"),
+                    selected = selectedTab == MainTab.USER_CENTER,
+                    onClick = { onTabSelected(MainTab.USER_CENTER) },
+                    icon = Icons.Rounded.Person,
+                    label = "我的",
+                    accentColor = visualTokens.accentStrong,
+                    unselectedContentColor = visualTokens.textSecondary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeBottomBarItem(
+    selected: Boolean,
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    accentColor: Color,
+    unselectedContentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(HomeChromeLayoutSpec.bottomBarItemCornerRadius))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 8.dp, top = 4.dp, end = 8.dp, bottom = 5.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (selected) accentColor else unselectedContentColor,
+                modifier = Modifier.size(22.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected) accentColor else unselectedContentColor,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 }
 
@@ -152,6 +242,7 @@ internal fun HomeOverviewScreen(
     onSkipNext: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val navigationBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -167,7 +258,7 @@ internal fun HomeOverviewScreen(
                 start = 20.dp,
                 top = 96.dp,
                 end = 20.dp,
-                bottom = 148.dp
+                bottom = HomeChromeLayoutSpec.homeOverviewScrollBottomPadding + navigationBottomPadding
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -250,7 +341,11 @@ internal fun HomeOverviewScreen(
             onSkipNext = onSkipNext,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(horizontal = 20.dp, vertical = 20.dp)
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = HomeChromeLayoutSpec.homeMiniPlayerBottomSpacing + navigationBottomPadding
+                )
         )
     }
 }
@@ -264,20 +359,20 @@ private fun HomeSearchBox(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .testTag("home_search_box_container")
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(26.dp),
-        color = HOME_PANEL_COLOR.copy(alpha = 0.95f),
+        shape = RoundedCornerShape(28.dp),
+        color = HomePanelColor.copy(alpha = 0.95f),
         tonalElevation = 0.dp,
-        shadowElevation = 10.dp,
+        shadowElevation = 12.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
+            color = HomeDividerColor
         )
     ) {
         Box(
             modifier = Modifier
-                .testTag("home_search_box_container")
-                .padding(horizontal = 18.dp, vertical = 14.dp)
+                .padding(horizontal = 18.dp, vertical = 15.dp)
         ) {
             RowLikeSearchContent(
                 keyword = keyword,
@@ -300,12 +395,12 @@ private fun RowLikeSearchContent(
         Icon(
             imageVector = Icons.Rounded.Search,
             contentDescription = null,
-            tint = HOME_ACCENT_RED.copy(alpha = 0.86f)
+            tint = HomeAccentColor.copy(alpha = 0.86f)
         )
         Text(
             text = keyword,
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f),
+            color = HomeTextSecondary.copy(alpha = 0.88f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -319,12 +414,12 @@ private fun HomeOverviewInlineError(
 ) {
     Surface(
         shape = RoundedCornerShape(20.dp),
-        color = HOME_PANEL_COLOR.copy(alpha = 0.92f),
+        color = HomePanelColor.copy(alpha = 0.92f),
         tonalElevation = 0.dp,
         shadowElevation = 4.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.07f)
+            color = HomeDividerColor
         )
     ) {
         androidx.compose.foundation.layout.Row(
@@ -355,12 +450,12 @@ private fun HomeOverviewStatusCard(
 ) {
     Surface(
         shape = RoundedCornerShape(28.dp),
-        color = HOME_PANEL_COLOR.copy(alpha = 0.95f),
+        color = HomePanelColor.copy(alpha = 0.95f),
         tonalElevation = 0.dp,
         shadowElevation = 8.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.07f)
+            color = HomeDividerColor
         )
     ) {
         Column(
@@ -406,6 +501,18 @@ private fun HomeDiscoverySection(
                 items = section.items,
                 onItemClick = onItemClick
             )
+        } else if (section.usesSongRowLayout()) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                section.items.forEach { item ->
+                    HomeSongRow(
+                        item = item,
+                        onClick = { onItemClick(item.action) }
+                    )
+                }
+            }
         } else {
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
@@ -502,9 +609,9 @@ private fun HomeBannerCarousel(
                             .clip(RoundedCornerShape(50))
                             .background(
                                 if (selectedIndex == index) {
-                                    HOME_ACCENT_RED
+                                    HomeAccentColor
                                 } else {
-                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.32f)
+                                    HomeDividerColor
                                 }
                             )
                     )
@@ -524,12 +631,12 @@ private fun BannerSectionCard(
         onClick = onClick,
         modifier = modifier.testTag("home_banner_card_${item.id}"),
         shape = RoundedCornerShape(26.dp),
-        color = HOME_PANEL_COLOR.copy(alpha = 0.95f),
+        color = HomePanelColor.copy(alpha = 0.95f),
         tonalElevation = 0.dp,
         shadowElevation = 10.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
+            color = HomeDividerColor
         )
     ) {
         Box {
@@ -539,41 +646,58 @@ private fun BannerSectionCard(
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
-            Surface(
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.20f),
+                                Color.Black.copy(alpha = 0.58f)
+                            )
+                        )
+                    )
+            )
+            Column(
                 modifier = Modifier
                     .padding(16.dp)
                     .align(Alignment.BottomStart),
-                shape = RoundedCornerShape(16.dp),
-                color = Color.Black.copy(alpha = 0.42f)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+                if (!item.badge.isNullOrBlank() && item.badge != item.title) {
+                    Surface(
+                        modifier = Modifier.testTag("home_banner_badge_${item.id}"),
+                        shape = RoundedCornerShape(999.dp),
+                        color = HomeAccentColor.copy(alpha = 0.92f)
+                    ) {
+                        Text(
+                            text = item.badge,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = HomeDiscoveryLayoutSpec.titleMaxLines,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (item.subtitle.isNotBlank()) {
                     Text(
-                        text = item.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold
-                        ,
-                        maxLines = HomeDiscoveryLayoutSpec.titleMaxLines,
+                        text = item.subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.84f),
+                        maxLines = HomeDiscoveryLayoutSpec.subtitleMaxLines,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (!item.badge.isNullOrBlank() && item.badge != item.title) {
-                        Surface(
-                            shape = RoundedCornerShape(999.dp),
-                            color = HOME_ACCENT_RED.copy(alpha = 0.18f)
-                        ) {
-                            Text(
-                                text = item.badge,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.92f),
-                                maxLines = HomeDiscoveryLayoutSpec.subtitleMaxLines,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
                 }
             }
         }
@@ -591,13 +715,13 @@ private fun DiscoverySectionCard(
             .testTag("home_discovery_card_${item.id}")
             .width(HomeDiscoveryLayoutSpec.discoveryCardWidth)
             .height(HomeDiscoveryLayoutSpec.discoveryCardHeight),
-        shape = RoundedCornerShape(22.dp),
-        color = HOME_PANEL_COLOR.copy(alpha = 0.96f),
+        shape = RoundedCornerShape(24.dp),
+        color = HomePanelColor.copy(alpha = 0.96f),
         tonalElevation = 0.dp,
-        shadowElevation = 6.dp,
+        shadowElevation = 8.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
+            color = HomeDividerColor
         )
     ) {
         Column(
@@ -611,15 +735,15 @@ private fun DiscoverySectionCard(
                     .aspectRatio(HomeDiscoveryLayoutSpec.discoveryImageAspectRatio)
                     .clip(
                         RoundedCornerShape(
-                            topStart = 22.dp,
-                            topEnd = 22.dp
+                            topStart = 24.dp,
+                            topEnd = 24.dp
                         )
                     ),
                 contentScale = ContentScale.Crop
             )
             Column(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
                     text = item.title,
@@ -650,36 +774,145 @@ private fun CompactSectionCard(
     val backgroundColor = HomeDiscoveryLayoutSpec.dailyShortcutBackgroundColor(
         seed = item.id.ifBlank { item.title }
     )
+    val icon = resolveCompactSectionCardIcon(item)
     Surface(
         onClick = onClick,
         modifier = Modifier
             .testTag("home_compact_card_${item.id}")
             .width(HomeDiscoveryLayoutSpec.compactCardWidth)
             .height(HomeDiscoveryLayoutSpec.compactCardHeight),
-        shape = RoundedCornerShape(20.dp),
-        color = backgroundColor.copy(alpha = 0.88f),
+        shape = RoundedCornerShape(22.dp),
+        color = HomePanelColor.copy(alpha = 0.94f),
         tonalElevation = 0.dp,
-        shadowElevation = 4.dp,
+        shadowElevation = 6.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = Color.White.copy(alpha = 0.55f)
+            color = HomeDividerColor
         )
     ) {
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
-            contentAlignment = Alignment.CenterStart
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            Surface(
+                modifier = Modifier
+                    .size(34.dp)
+                    .testTag("home_compact_card_icon_${item.id}"),
+                shape = RoundedCornerShape(12.dp),
+                color = backgroundColor.copy(alpha = 0.92f)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = HomeAccentColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
             Text(
                 text = item.title,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF4E342E),
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = HomeDiscoveryLayoutSpec.titleMaxLines,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Start
             )
+        }
+    }
+}
+
+@Composable
+private fun HomeSongRow(
+    item: HomeSectionItemUiModel,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("home_song_row_${item.id}"),
+        shape = RoundedCornerShape(20.dp),
+        color = HomePanelColor.copy(alpha = 0.92f),
+        tonalElevation = 0.dp,
+        shadowElevation = 4.dp,
+        border = BorderStroke(
+            width = 1.dp,
+            color = HomeDividerColor
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                modifier = Modifier.size(52.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = HomeAccentColor.copy(alpha = 0.10f)
+            ) {
+                if (!item.imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = item.imageUrl,
+                        contentDescription = item.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.Album,
+                            contentDescription = null,
+                            tint = HomeAccentColor
+                        )
+                    }
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = item.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = HomeTextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = HomeAccentColor.copy(alpha = 0.08f)
+            ) {
+                IconButton(
+                    onClick = {},
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("home_song_more_${item.id}"),
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = Color.Transparent,
+                        contentColor = HomeTextSecondary
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreHoriz,
+                        contentDescription = "更多操作"
+                    )
+                }
+            }
         }
     }
 }
@@ -701,226 +934,250 @@ private fun HomePlayEntryCard(
     val canSkipPrevious = playerState.activePlaylistIndex > 0
     val canSkipNext = playerState.activePlaylistIndex >= 0 &&
         playerState.activePlaylistIndex < playerState.playlistItems.lastIndex
+    val miniPlayerShape = RoundedCornerShape(HomeChromeLayoutSpec.miniPlayerCornerRadius)
     Surface(
         modifier = modifier
-            .fillMaxWidth()
+            .fillMaxWidth(HomeChromeLayoutSpec.miniPlayerWidthFraction)
+            .widthIn(max = HomeChromeLayoutSpec.miniPlayerMaxWidth)
+            .heightIn(min = HomeChromeLayoutSpec.miniPlayerMinHeight)
             .testTag("home_play_entry_card"),
-        shape = RoundedCornerShape(999.dp),
-        color = HOME_PANEL_COLOR.copy(alpha = 0.96f),
+        shape = miniPlayerShape,
+        color = Color.White.copy(alpha = 0.995f),
         tonalElevation = 0.dp,
-        shadowElevation = 10.dp,
+        shadowElevation = HomeChromeLayoutSpec.miniPlayerShadowElevation,
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
+            color = HomeDividerColor.copy(alpha = 0.42f)
         )
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("home_mini_player_bar")
-                .padding(start = 8.dp, top = 8.dp, end = 10.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                .heightIn(min = HomeChromeLayoutSpec.miniPlayerMinHeight)
+                .clip(miniPlayerShape),
+            contentAlignment = Alignment.CenterStart
         ) {
-            Row(
+            Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(18.dp))
-                    .clickable(onClick = onOpenPlayer)
-                    .padding(vertical = 2.dp)
-                    .testTag("home_mini_player_body"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Surface(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .testTag("home_mini_player_artwork"),
-                    shape = RoundedCornerShape(14.dp),
-                    color = HOME_ACCENT_RED.copy(alpha = 0.12f)
-                ) {
-                    if (!miniPlayerState.artworkUrl.isNullOrBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .testTag("home_mini_player_artwork_image")
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = HomeChromeLayoutSpec.miniPlayerProgressTrackHorizontalPadding,
+                        vertical = HomeChromeLayoutSpec.miniPlayerProgressTrackVerticalPadding
+                    )
+                    .height(HomeChromeLayoutSpec.miniPlayerProgressTrackHeight)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        HomeProgressTrackColor.copy(
+                            alpha = HomeChromeLayoutSpec.miniPlayerProgressTrackAlpha
                         )
-                        {
-                            AsyncImage(
-                                model = miniPlayerState.artworkUrl,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                    )
+                    .testTag("home_mini_player_progress_line")
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(miniPlayerState.progress.coerceIn(0f, 1f))
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(HomeProgressFillColor)
+                        .testTag("home_mini_player_progress_fill")
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = HomeChromeLayoutSpec.miniPlayerMinHeight)
+                    .testTag("home_mini_player_bar"),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(HomeChromeLayoutSpec.miniPlayerBodyCornerRadius))
+                        .clickable(onClick = onOpenPlayer)
+                        .testTag("home_mini_player_body"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .size(HomeChromeLayoutSpec.miniPlayerArtworkSize)
+                            .testTag("home_mini_player_artwork"),
+                        shape = RoundedCornerShape(14.dp),
+                        color = HomeTextSecondary.copy(alpha = 0.08f)
+                    ) {
+                        if (!miniPlayerState.artworkUrl.isNullOrBlank()) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            colors = listOf(
-                                                Color.Transparent,
-                                                Color.Black.copy(alpha = 0.12f)
+                                    .testTag("home_mini_player_artwork_image")
+                            ) {
+                                AsyncImage(
+                                    model = miniPlayerState.artworkUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color.Transparent,
+                                                    Color.Black.copy(alpha = 0.12f)
+                                                )
                                             )
                                         )
-                                    )
-                            )
+                                )
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .testTag("home_mini_player_artwork_placeholder"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.AccountCircle,
+                                    contentDescription = null,
+                                    tint = HomeTextSecondary.copy(alpha = 0.42f),
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
                         }
-                    } else {
-                        Box(
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 2.dp)
+                            .testTag("home_mini_player_song_area")
+                            .graphicsLayer {
+                                translationX = swipeOffsetPx.value
+                            }
+                            .pointerInput(canSkipPrevious, canSkipNext, onSkipPrevious, onSkipNext) {
+                                val visualLimitPx = max(
+                                    size.width * HomeMiniPlayerSwipeVisualLimitFraction,
+                                    72.dp.toPx()
+                                )
+                                val swipeThresholdPx = max(
+                                    size.width * HomeMiniPlayerSwipeThresholdFraction,
+                                    56.dp.toPx()
+                                )
+                                detectHorizontalDragGestures(
+                                    onDragStart = {
+                                        coroutineScope.launch {
+                                            swipeOffsetPx.stop()
+                                        }
+                                    },
+                                    onHorizontalDrag = { change, dragAmount ->
+                                        change.consume()
+                                        val nextOffset = (
+                                            swipeOffsetPx.value + dragAmount
+                                            ).coerceIn(-visualLimitPx, visualLimitPx)
+                                        coroutineScope.launch {
+                                            swipeOffsetPx.snapTo(nextOffset)
+                                        }
+                                    },
+                                    onDragCancel = {
+                                        coroutineScope.launch {
+                                            swipeOffsetPx.animateTo(
+                                                targetValue = 0f,
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                )
+                                            )
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        val finalOffset = swipeOffsetPx.value
+                                        val triggerOffset = when {
+                                            finalOffset <= -swipeThresholdPx && canSkipNext -> {
+                                                onSkipNext()
+                                                -visualLimitPx * 0.75f
+                                            }
+
+                                            finalOffset >= swipeThresholdPx && canSkipPrevious -> {
+                                                onSkipPrevious()
+                                                visualLimitPx * 0.75f
+                                            }
+
+                                            else -> null
+                                        }
+                                        coroutineScope.launch {
+                                            if (triggerOffset != null &&
+                                                abs(finalOffset - triggerOffset) > 1f
+                                            ) {
+                                                swipeOffsetPx.animateTo(
+                                                    targetValue = triggerOffset,
+                                                    animationSpec = tween(durationMillis = 90)
+                                                )
+                                            }
+                                            swipeOffsetPx.animateTo(
+                                                targetValue = 0f,
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                )
+                                            )
+                                        }
+                                    }
+                                )
+                            },
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Text(
+                            text = miniPlayerState.contentLine,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Clip,
                             modifier = Modifier
-                                .fillMaxSize()
-                                .testTag("home_mini_player_artwork_placeholder"),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Album,
-                                contentDescription = null,
-                                tint = HOME_ACCENT_RED,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
+                                .fillMaxWidth()
+                                .basicMarquee(
+                                    iterations = Int.MAX_VALUE,
+                                    repeatDelayMillis = 1_000,
+                                    spacing = MarqueeSpacing(24.dp)
+                                )
+                                .testTag("home_mini_player_title")
+                        )
                     }
                 }
 
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("home_mini_player_song_area")
-                        .graphicsLayer {
-                            translationX = swipeOffsetPx.value
-                        }
-                        .pointerInput(canSkipPrevious, canSkipNext, onSkipPrevious, onSkipNext) {
-                            val visualLimitPx = max(
-                                size.width * HomeMiniPlayerSwipeVisualLimitFraction,
-                                72.dp.toPx()
-                            )
-                            val swipeThresholdPx = max(
-                                size.width * HomeMiniPlayerSwipeThresholdFraction,
-                                56.dp.toPx()
-                            )
-                            detectHorizontalDragGestures(
-                                onDragStart = {
-                                    coroutineScope.launch {
-                                        swipeOffsetPx.stop()
-                                    }
-                                },
-                                onHorizontalDrag = { change, dragAmount ->
-                                    change.consume()
-                                    val nextOffset = (
-                                        swipeOffsetPx.value + dragAmount
-                                        ).coerceIn(-visualLimitPx, visualLimitPx)
-                                    coroutineScope.launch {
-                                        swipeOffsetPx.snapTo(nextOffset)
-                                    }
-                                },
-                                onDragCancel = {
-                                    coroutineScope.launch {
-                                        swipeOffsetPx.animateTo(
-                                            targetValue = 0f,
-                                            animationSpec = spring(
-                                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                stiffness = Spring.StiffnessMediumLow
-                                            )
-                                        )
-                                    }
-                                },
-                                onDragEnd = {
-                                    val finalOffset = swipeOffsetPx.value
-                                    val triggerOffset = when {
-                                        finalOffset <= -swipeThresholdPx && canSkipNext -> {
-                                            onSkipNext()
-                                            -visualLimitPx * 0.75f
-                                        }
-
-                                        finalOffset >= swipeThresholdPx && canSkipPrevious -> {
-                                            onSkipPrevious()
-                                            visualLimitPx * 0.75f
-                                        }
-
-                                        else -> null
-                                    }
-                                    coroutineScope.launch {
-                                        if (triggerOffset != null &&
-                                            abs(finalOffset - triggerOffset) > 1f
-                                        ) {
-                                            swipeOffsetPx.animateTo(
-                                                targetValue = triggerOffset,
-                                                animationSpec = tween(durationMillis = 90)
-                                            )
-                                        }
-                                        swipeOffsetPx.animateTo(
-                                            targetValue = 0f,
-                                            animationSpec = spring(
-                                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                stiffness = Spring.StiffnessMediumLow
-                                            )
-                                        )
-                                    }
-                                }
-                            )
-                        },
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = miniPlayerState.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Clip,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .basicMarquee(
-                                iterations = Int.MAX_VALUE,
-                                repeatDelayMillis = 1_000,
-                                spacing = MarqueeSpacing(24.dp)
-                            )
-                            .testTag("home_mini_player_title")
+                    HomeMiniPlayerPrimaryButton(
+                        isPlaying = miniPlayerState.isPlaying,
+                        onClick = onTogglePlayback
                     )
-                    Text(
-                        text = miniPlayerState.artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Clip,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .basicMarquee(
-                                iterations = Int.MAX_VALUE,
-                                repeatDelayMillis = 1_000,
-                                spacing = MarqueeSpacing(20.dp)
-                            )
-                            .testTag("home_mini_player_artist")
-                    )
-                }
-            }
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                HomeMiniPlayerProgressButton(
-                    isPlaying = miniPlayerState.isPlaying,
-                    progress = miniPlayerState.progress,
-                    onClick = onTogglePlayback
-                )
-                Surface(
-                    shape = CircleShape,
-                    color = HOME_ACCENT_RED.copy(alpha = 0.10f)
-                ) {
                     IconButton(
                         onClick = onOpenPlaylist,
                         colors = IconButtonDefaults.iconButtonColors(
                             containerColor = Color.Transparent,
-                            contentColor = MaterialTheme.colorScheme.onSurface
+                            contentColor = HomeTextSecondary
                         ),
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(HomeChromeLayoutSpec.miniPlayerPlaylistButtonSize)
                             .testTag("home_mini_player_playlist_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
-                            contentDescription = "播放列表"
-                        )
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
+                                contentDescription = "播放列表",
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -929,8 +1186,7 @@ private fun HomePlayEntryCard(
 }
 
 private data class HomeMiniPlayerState(
-    val title: String,
-    val artist: String,
+    val contentLine: String,
     val progress: Float,
     val isPlaying: Boolean,
     val artworkUrl: String?
@@ -966,18 +1222,18 @@ private fun resolveHomeMiniPlayerState(playerState: PlayerUiState): HomeMiniPlay
     } else {
         0f
     }
-    val displayMetadata = resolvePlayerDisplayMetadataProjection(
-        baseTitle = trackText?.title,
-        baseArtist = trackText?.artist,
-        lyricUiState = playerState.lyricUiState,
-        currentPositionMs = playerState.displayedSeekMs,
-        emptyTitle = "未选择音频",
+    val songArtistLine = buildSongArtistDisplayText(
+        title = trackText?.title,
+        artist = trackText?.artist,
         emptySubtitle = "点击进入播放页"
+    )
+    val activeLyric = resolveActiveLyricLineProjection(
+        lyricUiState = playerState.lyricUiState,
+        currentPositionMs = playerState.displayedSeekMs
     )
 
     return HomeMiniPlayerState(
-        title = displayMetadata.title,
-        artist = displayMetadata.subtitle,
+        contentLine = activeLyric.activeLineText ?: songArtistLine,
         progress = progress,
         isPlaying = playerState.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING,
         artworkUrl = playerState.currentCoverUrl
@@ -990,54 +1246,57 @@ private fun resolveHomeMiniPlayerState(playerState: PlayerUiState): HomeMiniPlay
 }
 
 @Composable
-private fun HomeMiniPlayerProgressButton(
+private fun HomeMiniPlayerPrimaryButton(
     isPlaying: Boolean,
-    progress: Float,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(
-        modifier = modifier.size(38.dp),
-        contentAlignment = Alignment.Center
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = HomeAccentColor,
+        tonalElevation = 0.dp,
+        shadowElevation = 8.dp
     ) {
-        Canvas(modifier = Modifier.size(38.dp)) {
-            val strokeWidth = 2.5.dp.toPx()
-            drawArc(
-                color = HOME_ACCENT_RED.copy(alpha = 0.14f),
-                startAngle = -90f,
-                sweepAngle = 360f,
-                useCenter = false,
-                style = Stroke(width = strokeWidth)
-            )
-            drawArc(
-                color = HOME_ACCENT_RED,
-                startAngle = -90f,
-                sweepAngle = 360f * progress.coerceIn(0f, 1f),
-                useCenter = false,
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-            )
-        }
-
-        Surface(
-            shape = CircleShape,
-            color = HOME_ACCENT_RED.copy(alpha = 0.10f)
+        IconButton(
+            onClick = onClick,
+            colors = IconButtonDefaults.iconButtonColors(
+                containerColor = Color.Transparent,
+                contentColor = Color.White
+            ),
+            modifier = Modifier
+                .size(HomeChromeLayoutSpec.miniPlayerPrimaryButtonSize)
+                .testTag("home_mini_player_play_pause_button")
         ) {
-            IconButton(
-                onClick = onClick,
-                colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                modifier = Modifier
-                    .size(30.dp)
-                    .testTag("home_mini_player_play_pause_button")
-            ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (isPlaying) "暂停" else "播放"
-                )
-            }
+            Icon(
+                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription = if (isPlaying) "暂停" else "播放",
+                modifier = Modifier.size(HomeChromeLayoutSpec.miniPlayerPrimaryIconSize)
+            )
         }
+    }
+}
+
+private fun HomeSectionUiModel.usesSongRowLayout(): Boolean {
+    if (layout != HomeSectionLayout.HORIZONTAL_LIST || items.isEmpty()) {
+        return false
+    }
+    return items.all { item ->
+        val action = item.action as? ContentEntryAction.OpenDetail ?: return@all false
+        action.target is SearchRouteTarget.Song
+    }
+}
+
+private fun resolveCompactSectionCardIcon(
+    item: HomeSectionItemUiModel
+): androidx.compose.ui.graphics.vector.ImageVector {
+    val normalizedTitle = item.title.lowercase()
+    return when {
+        normalizedTitle.contains("搜索") -> Icons.Rounded.Search
+        normalizedTitle.contains("歌单") -> Icons.Rounded.LibraryMusic
+        normalizedTitle.contains("推荐") || normalizedTitle.contains("私人") -> Icons.Rounded.Home
+        item.id.hashCode().mod(2) == 0 -> Icons.Rounded.LibraryMusic
+        else -> Icons.Rounded.Album
     }
 }
 
@@ -1051,7 +1310,7 @@ private fun HomeSectionTitle(title: String) {
             modifier = Modifier
                 .size(width = 4.dp, height = 18.dp)
                 .clip(RoundedCornerShape(999.dp))
-                .background(HOME_ACCENT_RED)
+                .background(HomeAccentColor)
         )
         Text(
             text = title,
@@ -1161,6 +1420,7 @@ internal fun UserCenterScreen(
     onLogoutClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val navigationBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     AccountPageBackground(modifier = modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier
@@ -1170,7 +1430,7 @@ internal fun UserCenterScreen(
                 .padding(horizontal = UserCenterCompactHorizontalPadding),
             contentPadding = PaddingValues(
                 top = 24.dp,
-                bottom = 28.dp
+                bottom = HomeChromeLayoutSpec.userCenterScrollBottomPadding + navigationBottomPadding
             ),
             verticalArrangement = Arrangement.spacedBy(0.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -1762,8 +2022,29 @@ private val HOME_OVERVIEW_BACKGROUND_BRUSH = Brush.verticalGradient(
     )
 )
 
-private val HOME_PANEL_COLOR = Color.White
-private val HOME_ACCENT_RED = Color(0xFFD33A31)
+private val HomePanelColor: Color
+    @Composable
+    get() = PlayerLiteVisualTheme.colors.surfacePrimary
+
+private val HomeAccentColor: Color
+    @Composable
+    get() = PlayerLiteVisualTheme.colors.accentStrong
+
+private val HomeDividerColor: Color
+    @Composable
+    get() = PlayerLiteVisualTheme.colors.dividerSubtle
+
+private val HomeTextSecondary: Color
+    @Composable
+    get() = PlayerLiteVisualTheme.colors.textSecondary
+
+private val HomeProgressTrackColor: Color
+    @Composable
+    get() = PlayerLiteVisualTheme.colors.miniPlayerProgressTrack
+
+private val HomeProgressFillColor: Color
+    @Composable
+    get() = PlayerLiteVisualTheme.colors.miniPlayerProgressFill
 
 @Composable
 internal fun HomeContent(
