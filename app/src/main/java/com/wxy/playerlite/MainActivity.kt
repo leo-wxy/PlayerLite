@@ -1,16 +1,13 @@
 package com.wxy.playerlite
 
-import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
-import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,6 +16,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -28,35 +26,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Share
-import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.wxy.playerlite.feature.player.PlayerViewModel
-import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
-import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
-import com.wxy.playerlite.feature.main.HomeContent
+import com.wxy.playerlite.feature.local.LocalSongsActivity
 import com.wxy.playerlite.feature.main.ContentEntryAction
-import com.wxy.playerlite.feature.main.HomeSurfaceMode
 import com.wxy.playerlite.feature.main.HomeOverviewScreen
 import com.wxy.playerlite.feature.main.HomeViewModel
 import com.wxy.playerlite.feature.main.MainBottomBar
-import com.wxy.playerlite.feature.main.MainShellLayoutSpec
 import com.wxy.playerlite.feature.main.MainShellState
 import com.wxy.playerlite.feature.main.MainTab
-import com.wxy.playerlite.feature.main.PlayerExpandedScreen
-import com.wxy.playerlite.feature.main.PlayerExpandedTopActionButton
+import com.wxy.playerlite.feature.main.UserCenterScreen
 import com.wxy.playerlite.feature.main.UserCenterViewModel
 import com.wxy.playerlite.feature.main.resolveContentEntryLaunch
-import com.wxy.playerlite.feature.local.LocalSongsActivity
+import com.wxy.playerlite.feature.player.PlayerActivity
+import com.wxy.playerlite.feature.player.PlayerViewModel
+import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
+import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.search.SearchActivity
-import com.wxy.playerlite.feature.artist.ArtistDetailActivity
-import com.wxy.playerlite.feature.main.UserCenterScreen
-import com.wxy.playerlite.feature.player.ui.PlayerSongWikiButton
-import com.wxy.playerlite.feature.player.ui.PlayerScreen
-import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
-import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.user.InitialLoginLaunchGate
 import com.wxy.playerlite.feature.user.LoginActivity
 import com.wxy.playerlite.playback.model.PlaybackLaunchRequest
@@ -67,17 +52,6 @@ class MainActivity : ComponentActivity() {
     private val homeViewModel: HomeViewModel by viewModels()
     private val userCenterViewModel: UserCenterViewModel by viewModels()
     private var shellState by mutableStateOf(MainShellState())
-    private var shouldOpenPlayerFromLocalSongs by mutableStateOf(false)
-    private var shouldStartPlaybackFromLocalSongs by mutableStateOf(false)
-    private var pendingOpenPlayerLaunchRequests by mutableStateOf(0)
-    private var pendingStartPlaybackLaunchRequests by mutableStateOf(0)
-    private var suppressNextHomeSurfaceTransition by mutableStateOf(false)
-
-    private val pickAudioLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        viewModel.onAudioPicked(uri)
-    }
 
     private val loginLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -88,37 +62,29 @@ class MainActivity : ComponentActivity() {
     private val localSongsLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val shouldOpenPlayer = LocalSongsActivity.shouldOpenPlayerFromResult(
-            resultCode = result.resultCode,
-            data = result.data
-        )
-        shouldOpenPlayerFromLocalSongs = shouldOpenPlayer
-        shouldStartPlaybackFromLocalSongs = shouldOpenPlayer
-        if (shouldOpenPlayer) {
-            suppressNextHomeSurfaceTransition = true
-            shellState = shellState.openPlayer()
+        if (
+            LocalSongsActivity.shouldOpenPlayerFromResult(
+                resultCode = result.resultCode,
+                data = result.data
+            )
+        ) {
+            startActivity(
+                PlayerActivity.createIntent(
+                    context = this,
+                    startPlayback = true
+                )
+            )
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         restoreShellState(savedInstanceState)
-        if (shouldOpenPlayerFromIntent(intent)) {
-            pendingOpenPlayerLaunchRequests += 1
-            suppressNextHomeSurfaceTransition = true
-        }
-        if (shouldStartPlaybackFromIntent(intent)) {
-            pendingStartPlaybackLaunchRequests += 1
-            suppressNextHomeSurfaceTransition = true
-        }
-        if (pendingOpenPlayerLaunchRequests > 0 || pendingStartPlaybackLaunchRequests > 0) {
-            shellState = shellState.openPlayer()
-        }
         enableEdgeToEdge()
+        redirectLegacyPlayerLaunchRequest(intent)
 
         setContent {
             val state = viewModel.uiStateFlow.collectAsStateWithLifecycle().value
-            val resolvedCurrentArtistId = resolveCurrentPlayerArtistId(state)
             val userState = viewModel.userSessionUiStateFlow.collectAsStateWithLifecycle().value
             val homeState = homeViewModel.uiStateFlow.collectAsStateWithLifecycle().value
             val userCenterState = userCenterViewModel.uiStateFlow.collectAsStateWithLifecycle().value
@@ -136,46 +102,7 @@ class MainActivity : ComponentActivity() {
                     loginLauncher.launch(LoginActivity.createIntent(this@MainActivity))
                 }
             }
-            LaunchedEffect(
-                shouldOpenPlayerFromLocalSongs,
-                shouldStartPlaybackFromLocalSongs,
-                pendingOpenPlayerLaunchRequests,
-                pendingStartPlaybackLaunchRequests
-            ) {
-                val shouldOpenPlayer = shouldOpenPlayerFromLocalSongs ||
-                    pendingOpenPlayerLaunchRequests > 0
-                val shouldStartPlayback = shouldStartPlaybackFromLocalSongs ||
-                    pendingStartPlaybackLaunchRequests > 0
-                if (shouldOpenPlayer || shouldStartPlayback) {
-                    shellState = shellState.openPlayer()
-                    if (shouldStartPlayback) {
-                        viewModel.playSelectedAudio()
-                    }
-                    shouldOpenPlayerFromLocalSongs = false
-                    shouldStartPlaybackFromLocalSongs = false
-                    pendingOpenPlayerLaunchRequests = 0
-                    pendingStartPlaybackLaunchRequests = 0
-                }
-            }
-            LaunchedEffect(shellState.homeSurfaceMode) {
-                viewModel.onPlayerSurfaceVisibilityChanged(
-                    shellState.homeSurfaceMode == HomeSurfaceMode.PLAYER_EXPANDED
-                )
-            }
-            LaunchedEffect(shellState.homeSurfaceMode, suppressNextHomeSurfaceTransition) {
-                if (
-                    suppressNextHomeSurfaceTransition &&
-                    shellState.homeSurfaceMode == HomeSurfaceMode.PLAYER_EXPANDED
-                ) {
-                    suppressNextHomeSurfaceTransition = false
-                }
-            }
-            BackHandler(
-                enabled = shellState.selectedTab == MainTab.HOME &&
-                    shellState.homeSurfaceMode == HomeSurfaceMode.PLAYER_EXPANDED
-            ) {
-                shellState = shellState.collapsePlayer()
-            }
+
             PlayerLiteTheme {
                 if (
                     !InitialLoginLaunchGate.shouldShowMainContent(
@@ -194,9 +121,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         bottomBar = {
                             AnimatedVisibility(
-                                visible = shellState.shouldRenderBottomBar(
-                                    isPlaylistSheetVisible = state.showPlaylistSheet
-                                ),
+                                visible = true,
                                 enter = fadeIn(animationSpec = tween(durationMillis = 180)) +
                                     slideInVertically(
                                         animationSpec = tween(durationMillis = 220),
@@ -220,146 +145,42 @@ class MainActivity : ComponentActivity() {
                         val topInset = innerPadding.calculateTopPadding()
                         when (shellState.selectedTab) {
                             MainTab.HOME -> {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    HomeContent(
-                                        homeSurfaceMode = shellState.homeSurfaceMode,
-                                        animateTransitions = !suppressNextHomeSurfaceTransition,
-                                        overviewContent = {
-                                            HomeOverviewScreen(
-                                                playerState = state,
-                                                overviewState = homeState,
-                                                onSearchClick = {
-                                                    startActivity(
-                                                        SearchActivity.createIntent(this@MainActivity)
-                                                    )
-                                                },
-                                                onRetry = homeViewModel::refresh,
-                                                onItemClick = ::handleContentEntryAction,
-                                                onOpenPlayer = {
-                                                    shellState = shellState.openPlayer()
-                                                },
-                                                onTogglePlayback = {
-                                                    if (state.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING) {
-                                                        viewModel.pausePlayback()
-                                                    } else if (state.playbackState == AUDIO_TRACK_PLAYSTATE_PAUSED) {
-                                                        viewModel.resumePlayback()
-                                                    } else {
-                                                        viewModel.playSelectedAudio()
-                                                    }
-                                                },
-                                                onOpenPlaylist = viewModel::onTogglePlaylistSheet,
-                                                onSkipPrevious = viewModel::skipToPreviousTrack,
-                                                onSkipNext = viewModel::skipToNextTrack,
-                                                modifier = Modifier.padding(
-                                                    MainShellLayoutSpec.homeContentPadding(
-                                                        mode = HomeSurfaceMode.OVERVIEW,
-                                                        topInset = topInset
-                                                    )
-                                                )
-                                            )
-                                        },
-                                        expandedContent = {
-                                            PlayerExpandedScreen(
-                                                onBack = {
-                                                    shellState = shellState.collapsePlayer()
-                                                },
-                                                modifier = Modifier.fillMaxSize(),
-                                                showTopChrome = false
-                                            ) {
-                                                PlayerScreen(
-                                                    fileName = state.currentTrackTitle,
-                                                    artistText = state.currentTrackArtist,
-                                                    status = state.statusText,
-                                                    hasSelection = state.hasSelection,
-                                                    playlistItems = state.playlistItems,
-                                                    activePlaylistIndex = state.activePlaylistIndex,
-                                                    showPlaylistSheet = false,
-                                                    showSongWikiSheet = state.showSongWikiSheet,
-                                                    songWikiUiState = state.songWikiUiState,
-                                                    lyricUiState = state.lyricUiState,
-                                                    selectedTopTab = state.selectedTopTab,
-                                                    isPreparing = state.isPreparing,
-                                                    playbackState = state.playbackState,
-                                                    isSeekSupported = state.isSeekSupported,
-                                                    playbackMode = state.playbackMode,
-                                                    showOriginalOrderInShuffle = state.showOriginalOrderInShuffle,
-                                                    canReorderPlaylist = state.canReorderPlaylist,
-                                                    seekValueMs = state.displayedSeekMs,
-                                                    currentDurationText = viewModel.formatDuration(state.displayedSeekMs),
-                                                    durationMs = state.durationMs,
-                                                    totalDurationText = viewModel.formatDuration(state.durationMs),
-                                                    currentSongId = state.currentSongId,
-                                                    currentArtistId = resolvedCurrentArtistId,
-                                                    currentCoverUrl = state.currentCoverUrl,
-                                                    showSongWikiInlineButton = true,
-                                                    enableEnterMotion = false,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    onPickAudio = {
-                                                        pickAudioLauncher.launch(arrayOf("audio/*"))
-                                                    },
-                                                    onTogglePlaylistSheet = viewModel::onTogglePlaylistSheet,
-                                                    onDismissPlaylistSheet = viewModel::onDismissPlaylistSheet,
-                                                    onShowSongWiki = viewModel::onShowSongWiki,
-                                                    onDismissSongWiki = viewModel::onDismissSongWiki,
-                                                    onRetrySongWiki = viewModel::onRetrySongWiki,
-                                                    onRetryLyrics = viewModel::onRetryLyrics,
-                                                    onSelectTopTab = viewModel::onSelectTopTab,
-                                                    onSelectPlaylistItem = { index ->
-                                                        viewModel.selectPlaylistItem(index)
-                                                    },
-                                                    onClearPlaylist = viewModel::clearPlaylist,
-                                                    onRemovePlaylistItem = { index ->
-                                                        viewModel.removePlaylistItem(index)
-                                                    },
-                                                    onMovePlaylistItem = viewModel::movePlaylistItem,
-                                                    onPlay = viewModel::playSelectedAudio,
-                                                    onPrevious = viewModel::skipToPreviousTrack,
-                                                    onNext = viewModel::skipToNextTrack,
-                                                    onPause = viewModel::pausePlayback,
-                                                    onResume = viewModel::resumePlayback,
-                                                    onCyclePlaybackMode = viewModel::cyclePlaybackMode,
-                                                    onShowOriginalOrderInShuffleChange = viewModel::setShowOriginalOrderInShuffle,
-                                                    onSeekValueChange = viewModel::onSeekValueChange,
-                                                    onSeekFinished = viewModel::onSeekFinished,
-                                                    onBackClick = {
-                                                        shellState = shellState.collapsePlayer()
-                                                    },
-                                                    onShareClick = viewModel::onShareCurrentTrack,
-                                                    onArtistClick = {
-                                                        resolvedCurrentArtistId
-                                                            ?.takeIf { it.isNotBlank() }
-                                                            ?.let { artistId ->
-                                                                startActivity(
-                                                                    ArtistDetailActivity.createIntent(
-                                                                        context = this@MainActivity,
-                                                                        artistId = artistId
-                                                                    )
-                                                                )
-                                                            }
-                                                    },
-                                                    onFavoriteClick = viewModel::onFavoriteCurrentTrack,
-                                                    onMoreClick = viewModel::onShowPlayerMoreActions
-                                                )
-                                            }
+                                HomeOverviewScreen(
+                                    playerState = state,
+                                    overviewState = homeState,
+                                    onSearchClick = {
+                                        startActivity(
+                                            SearchActivity.createIntent(this@MainActivity)
+                                        )
+                                    },
+                                    onRetry = homeViewModel::refresh,
+                                    onItemClick = ::handleContentEntryAction,
+                                    onOpenPlayer = {
+                                        startActivity(
+                                            PlayerActivity.createIntent(this@MainActivity)
+                                        )
+                                    },
+                                    onTogglePlayback = {
+                                        if (state.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING) {
+                                            viewModel.pausePlayback()
+                                        } else if (state.playbackState == AUDIO_TRACK_PLAYSTATE_PAUSED) {
+                                            viewModel.resumePlayback()
+                                        } else {
+                                            viewModel.playSelectedAudio()
                                         }
-                                    )
-
-                                    PlaylistBottomSheet(
-                                        visible = state.showPlaylistSheet,
-                                        items = state.playlistItems,
-                                        activeIndex = state.activePlaylistIndex,
-                                        playbackMode = state.playbackMode,
-                                        showOriginalOrderInShuffle = state.showOriginalOrderInShuffle,
-                                        canReorder = state.canReorderPlaylist,
-                                        onDismiss = viewModel::onDismissPlaylistSheet,
-                                        onShowOriginalOrderInShuffleChange = viewModel::setShowOriginalOrderInShuffle,
-                                        onSelect = { index -> viewModel.selectPlaylistItem(index) },
-                                        onClearAll = viewModel::clearPlaylist,
-                                        onRemove = { index -> viewModel.removePlaylistItem(index) },
-                                        onMove = viewModel::movePlaylistItem,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
+                                    },
+                                    onOpenPlaylist = {
+                                        startActivity(
+                                            PlayerActivity.createIntent(
+                                                context = this@MainActivity,
+                                                openPlaylist = true
+                                            )
+                                        )
+                                    },
+                                    onSkipPrevious = viewModel::skipToPreviousTrack,
+                                    onSkipNext = viewModel::skipToNextTrack,
+                                    modifier = Modifier.padding(top = topInset)
+                                )
                             }
 
                             MainTab.USER_CENTER -> {
@@ -391,17 +212,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (shouldOpenPlayerFromIntent(intent)) {
-            pendingOpenPlayerLaunchRequests += 1
-            suppressNextHomeSurfaceTransition = true
-        }
-        if (shouldStartPlaybackFromIntent(intent)) {
-            pendingStartPlaybackLaunchRequests += 1
-            suppressNextHomeSurfaceTransition = true
-        }
-        if (pendingOpenPlayerLaunchRequests > 0 || pendingStartPlaybackLaunchRequests > 0) {
-            shellState = shellState.openPlayer()
-        }
+        redirectLegacyPlayerLaunchRequest(intent)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -412,6 +223,17 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         viewModel.onHostStop()
         super.onStop()
+    }
+
+    private fun redirectLegacyPlayerLaunchRequest(intent: Intent?) {
+        val redirectIntent = resolveLegacyPlayerLaunchRedirectIntent(
+            sourceIntent = intent,
+            context = this
+        ) ?: return
+        startActivity(redirectIntent)
+        intent?.let {
+            setIntent(Intent(it).replaceExtras(Bundle()))
+        }
     }
 
     private fun handleContentEntryAction(action: ContentEntryAction) {
@@ -447,36 +269,24 @@ class MainActivity : ComponentActivity() {
         shellState = restored ?: MainShellState()
     }
 
-    companion object {
+    private companion object {
         private const val STATE_SHELL_STATE = "main_shell_state"
-
-        fun createIntent(
-            context: Context,
-            openPlayer: Boolean = false,
-            startPlayback: Boolean = false
-        ): Intent {
-            return PlaybackLaunchRequest.createMainActivityIntent(
-                context = context,
-                openPlayer = openPlayer,
-                startPlayback = startPlayback
-            )
-        }
-
-        fun shouldOpenPlayerFromIntent(intent: Intent?): Boolean {
-            return PlaybackLaunchRequest.shouldOpenPlayer(intent)
-        }
-
-        fun shouldStartPlaybackFromIntent(intent: Intent?): Boolean {
-            return PlaybackLaunchRequest.shouldStartPlayback(intent)
-        }
     }
 }
 
-internal fun resolveCurrentPlayerArtistId(state: PlayerUiState): String? {
-    return state.currentArtistId
-        ?.takeIf { it.isNotBlank() }
-        ?: state.playlistItems
-            .getOrNull(state.activePlaylistIndex)
-            ?.primaryArtistId
-            ?.takeIf { it.isNotBlank() }
+internal fun resolveLegacyPlayerLaunchRedirectIntent(
+    sourceIntent: Intent?,
+    context: android.content.Context
+): Intent? {
+    val shouldOpenPlayer = PlaybackLaunchRequest.shouldOpenPlayer(sourceIntent)
+    val shouldStartPlayback = PlaybackLaunchRequest.shouldStartPlayback(sourceIntent)
+    val shouldOpenPlaylist = PlaybackLaunchRequest.shouldOpenPlaylist(sourceIntent)
+    if (!shouldOpenPlayer && !shouldStartPlayback && !shouldOpenPlaylist) {
+        return null
+    }
+    return PlayerActivity.createIntent(
+        context = context,
+        openPlaylist = shouldOpenPlaylist,
+        startPlayback = shouldStartPlayback
+    )
 }

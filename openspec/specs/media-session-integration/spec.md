@@ -27,7 +27,7 @@
 - **THEN** 服务执行对应切歌命令并切换到正确的队列项
 
 ### Requirement: MediaSession 状态与元数据保持同步
-系统 MUST 在播放状态、当前媒体项变化或当前歌词命中行变化时同步更新 `MediaSession` 的 `PlaybackState` 与 `MediaMetadata`，确保系统通知、锁屏卡片和其他媒体入口看到的当前播放标题与应用内当前歌词展示一致。
+系统 MUST 在播放状态、当前媒体项变化或当前歌词命中行变化时同步更新 `MediaSession` 的 `PlaybackState` 与 `MediaMetadata`，确保系统通知、锁屏卡片和其他媒体入口看到的当前播放标题，与首页 mini player、详情页 mini player 和独立播放器页中复用的歌词摘要语义保持一致。
 
 #### Scenario: 当前媒体项变化同步元数据
 - **WHEN** 当前播放媒体切换到新条目

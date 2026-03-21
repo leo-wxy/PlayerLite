@@ -619,25 +619,14 @@ internal class PlayerViewModel(
         if (!state.hasSelection) {
             return null
         }
-        val baseTitle = state.currentTrackTitle
-            .takeIf { it.isNotBlank() && it != "No audio selected" }
-        val baseArtist = state.currentTrackArtist
-            ?.takeIf { it.isNotBlank() }
-            ?: state.playlistItems
-                .getOrNull(state.activePlaylistIndex)
-                ?.artistText
-                ?.takeIf { it.isNotBlank() }
-        val projection = resolvePlayerDisplayMetadataProjection(
-            baseTitle = baseTitle,
-            baseArtist = baseArtist,
-            lyricUiState = state.lyricUiState,
-            currentPositionMs = state.displayedSeekMs,
+        val projection = resolvePlayerDisplayContentProjection(
+            playerState = state,
             emptyTitle = "",
             emptySubtitle = ""
         )
         return DisplayMetadataTarget(
-            title = projection.title.takeIf { it.isNotBlank() },
-            subtitle = projection.subtitle.takeIf { it.isNotBlank() }
+            title = projection.displayMetadataTitle.takeIf { it.isNotBlank() },
+            subtitle = projection.songArtistLine.takeIf { it.isNotBlank() }
         )
     }
 

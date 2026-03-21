@@ -1,7 +1,13 @@
 package com.wxy.playerlite
 
 import android.content.Context
+import android.content.Intent
+import com.wxy.playerlite.feature.player.PlayerActivity
+import com.wxy.playerlite.playback.model.PlaybackLaunchRequest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -13,36 +19,49 @@ class MainActivityLaunchRequestTest {
     private val context: Context = RuntimeEnvironment.getApplication()
 
     @Test
-    fun createIntentWithOpenPlayerFlag_shouldMarkLaunchRequest() {
-        val intent = MainActivity.createIntent(
-            context = context,
-            openPlayer = true
+    fun resolveLegacyPlayerLaunchRedirectIntent_withoutPlaybackLaunchExtras_shouldReturnNull() {
+        val redirectIntent = resolveLegacyPlayerLaunchRedirectIntent(
+            sourceIntent = Intent(context, MainActivity::class.java),
+            context = context
         )
 
-        assertTrue(MainActivity.shouldOpenPlayerFromIntent(intent))
-        assertFalse(MainActivity.shouldStartPlaybackFromIntent(intent))
+        assertNull(redirectIntent)
     }
 
     @Test
-    fun createIntentWithoutOpenPlayerFlag_shouldNotMarkLaunchRequest() {
-        val intent = MainActivity.createIntent(
+    fun resolveLegacyPlayerLaunchRedirectIntent_withStartPlaybackFlag_shouldTargetPlayerActivity() {
+        val sourceIntent = PlaybackLaunchRequest.createPlayerActivityIntent(
             context = context,
-            openPlayer = false
-        )
-
-        assertFalse(MainActivity.shouldOpenPlayerFromIntent(intent))
-        assertFalse(MainActivity.shouldStartPlaybackFromIntent(intent))
-    }
-
-    @Test
-    fun createIntentWithStartPlaybackFlag_shouldMarkPlaybackStartRequest() {
-        val intent = MainActivity.createIntent(
-            context = context,
-            openPlayer = true,
             startPlayback = true
         )
 
-        assertTrue(MainActivity.shouldOpenPlayerFromIntent(intent))
-        assertTrue(MainActivity.shouldStartPlaybackFromIntent(intent))
+        val redirectIntent = resolveLegacyPlayerLaunchRedirectIntent(
+            sourceIntent = sourceIntent,
+            context = context
+        )
+
+        assertNotNull(redirectIntent)
+        assertEquals(PlayerActivity::class.java.name, redirectIntent?.component?.className)
+        assertTrue(PlayerActivity.shouldStartPlaybackFromIntent(redirectIntent))
+        assertFalse(PlayerActivity.shouldOpenPlaylistFromIntent(redirectIntent))
+    }
+
+    @Test
+    fun resolveLegacyPlayerLaunchRedirectIntent_withPlaylistFlag_shouldPreservePlaylistLaunch() {
+        val sourceIntent = PlaybackLaunchRequest.createPlayerActivityIntent(
+            context = context,
+            openPlaylist = true
+        )
+
+        val redirectIntent = resolveLegacyPlayerLaunchRedirectIntent(
+            sourceIntent = sourceIntent,
+            context = context
+        )
+
+        assertNotNull(redirectIntent)
+        assertEquals(PlayerActivity::class.java.name, redirectIntent?.component?.className)
+        assertTrue(PlayerActivity.shouldOpenPlayerFromIntent(redirectIntent))
+        assertTrue(PlayerActivity.shouldOpenPlaylistFromIntent(redirectIntent))
+        assertFalse(PlayerActivity.shouldStartPlaybackFromIntent(redirectIntent))
     }
 }

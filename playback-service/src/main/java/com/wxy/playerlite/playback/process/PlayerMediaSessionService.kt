@@ -137,7 +137,7 @@ class PlayerMediaSessionService : MediaSessionService() {
     private fun buildNotification(state: PlaybackProcessState, isPlaying: Boolean) =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(resolveNotificationSmallIcon())
-            .setContentTitle(resolveNotificationTitle(state))
+            .setContentTitle(resolveNotificationTitle(state, packageName))
             .setContentText(resolveNotificationSubtitle(state))
             .setOngoing(isPlaying)
             .setOnlyAlertOnce(true)
@@ -145,38 +145,8 @@ class PlayerMediaSessionService : MediaSessionService() {
             .setContentIntent(buildContentIntent())
             .build()
 
-    private fun resolveNotificationTitle(state: PlaybackProcessState): String {
-        return state.displayTitleOverride
-            ?.takeIf { it.isNotBlank() }
-            ?: state.currentTrack?.displayName?.ifBlank { packageName }
-            ?: packageName
-    }
-
-    private fun resolveNotificationSubtitle(state: PlaybackProcessState): String {
-        return state.displaySubtitleOverride
-            ?.takeIf { it.isNotBlank() }
-            ?: buildSongArtistSubtitle(state.currentTrack)
-            ?: state.statusText
-    }
-
-    private fun buildSongArtistSubtitle(track: PlaybackTrack?): String? {
-        val title = track?.displayName?.takeIf { it.isNotBlank() }
-        val artist = track?.artistText?.takeIf { it.isNotBlank() }
-        return when {
-            title != null && artist != null -> "$title - $artist"
-            title != null -> title
-            artist != null -> artist
-            else -> null
-        }
-    }
-
     private fun buildContentIntent(): PendingIntent? {
-        val launchIntent = PlaybackLaunchRequest.createMainActivityIntent(
-            context = this,
-            openPlayer = true
-        ).apply {
-            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        }
+        val launchIntent = PlaybackLaunchRequest.createPlayerActivityIntent(context = this)
         return PendingIntent.getActivity(
             this,
             1001,
@@ -290,6 +260,34 @@ class PlayerMediaSessionService : MediaSessionService() {
                 else -> super.onCustomCommand(session, controller, customCommand, args)
             }
         }
+    }
+}
+
+internal fun resolveNotificationTitle(
+    state: PlaybackProcessState,
+    fallbackPackageName: String
+): String {
+    return state.displayTitleOverride
+        ?.takeIf { it.isNotBlank() }
+        ?: state.currentTrack?.displayName?.ifBlank { fallbackPackageName }
+        ?: fallbackPackageName
+}
+
+internal fun resolveNotificationSubtitle(state: PlaybackProcessState): String {
+    return state.displaySubtitleOverride
+        ?.takeIf { it.isNotBlank() }
+        ?: buildSongArtistSubtitle(state.currentTrack)
+        ?: state.statusText
+}
+
+internal fun buildSongArtistSubtitle(track: PlaybackTrack?): String? {
+    val title = track?.displayName?.takeIf { it.isNotBlank() }
+    val artist = track?.artistText?.takeIf { it.isNotBlank() }
+    return when {
+        title != null && artist != null -> "$title - $artist"
+        title != null -> title
+        artist != null -> artist
+        else -> null
     }
 }
 

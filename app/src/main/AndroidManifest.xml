@@ -57,6 +57,13 @@
             android:theme="@style/Theme.PlayerLite" />
 
         <activity
+            android:name=".feature.player.PlayerActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.PlayerLite" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"

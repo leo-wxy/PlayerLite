@@ -97,11 +97,7 @@ import coil.compose.AsyncImage
 import com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTheme
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
-import com.wxy.playerlite.feature.player.buildSongArtistDisplayText
-import com.wxy.playerlite.feature.player.resolveActiveLyricLineProjection
-import com.wxy.playerlite.feature.player.resolvePlayerDisplayMetadataProjection
-import com.wxy.playerlite.feature.player.ui.PlayerTrackText
-import com.wxy.playerlite.feature.player.ui.resolvePlayerTrackText
+import com.wxy.playerlite.feature.player.resolvePlayerDisplayContentProjection
 import com.wxy.playerlite.feature.search.SearchRouteTarget
 import com.wxy.playerlite.feature.user.AccountCardSurface
 import com.wxy.playerlite.feature.user.AccountPageBackground
@@ -1193,47 +1189,15 @@ private data class HomeMiniPlayerState(
 )
 
 private fun resolveHomeMiniPlayerState(playerState: PlayerUiState): HomeMiniPlayerState {
-    val fallbackTrackText = if (
-        playerState.selectedFileName.isNotBlank() &&
-        playerState.selectedFileName != "No audio selected"
-    ) {
-        resolvePlayerTrackText(playerState.selectedFileName)
-    } else {
-        null
-    }
-    val runtimeTitle = playerState.currentTrackTitle
-        .takeIf { it.isNotBlank() && it != "No audio selected" }
-    val runtimeArtist = playerState.currentTrackArtist
-        ?.takeIf { it.isNotBlank() }
-        ?: playerState.playlistItems
-            .getOrNull(playerState.activePlaylistIndex)
-            ?.artistText
-            ?.takeIf { it.isNotBlank() }
-    val trackText = when {
-        runtimeTitle != null -> PlayerTrackText(
-            title = runtimeTitle,
-            artist = runtimeArtist ?: fallbackTrackText?.artist ?: "点击进入播放页"
-        )
-
-        else -> fallbackTrackText
-    }
+    val displayProjection = resolvePlayerDisplayContentProjection(playerState)
     val progress = if (playerState.durationMs > 0L) {
         (playerState.displayedSeekMs.toFloat() / playerState.durationMs.toFloat()).coerceIn(0f, 1f)
     } else {
         0f
     }
-    val songArtistLine = buildSongArtistDisplayText(
-        title = trackText?.title,
-        artist = trackText?.artist,
-        emptySubtitle = "点击进入播放页"
-    )
-    val activeLyric = resolveActiveLyricLineProjection(
-        lyricUiState = playerState.lyricUiState,
-        currentPositionMs = playerState.displayedSeekMs
-    )
 
     return HomeMiniPlayerState(
-        contentLine = activeLyric.activeLineText ?: songArtistLine,
+        contentLine = displayProjection.miniPlayerContentLine,
         progress = progress,
         isPlaying = playerState.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING,
         artworkUrl = playerState.currentCoverUrl
@@ -1317,93 +1281,6 @@ private fun HomeSectionTitle(title: String) {
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold
         )
-    }
-}
-
-@Composable
-internal fun PlayerExpandedScreen(
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-    showTopChrome: Boolean = true,
-    topEndContent: @Composable () -> Unit = {},
-    content: @Composable () -> Unit
-) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = modifier.fillMaxSize()
-        ) {
-            content()
-        }
-
-        if (showTopChrome) {
-            AnimatedVisibility(
-                visible = true,
-                enter = fadeIn(
-                    animationSpec = tween(
-                        durationMillis = 220,
-                        delayMillis = 90,
-                        easing = LinearOutSlowInEasing
-                    )
-                ) + scaleIn(
-                    initialScale = 0.92f,
-                    animationSpec = tween(durationMillis = 220, delayMillis = 90)
-                ),
-                exit = fadeOut(animationSpec = tween(durationMillis = 120))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                ) {
-                    PlayerExpandedTopActionButton(
-                        modifier = Modifier
-                            .padding(start = 12.dp)
-                            .testTag("player_expanded_back_button"),
-                        icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = "返回首页",
-                        onClick = onBack
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(end = 12.dp)
-                    ) {
-                        topEndContent()
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun PlayerExpandedTopActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier,
-        shape = CircleShape,
-        color = Color.White.copy(alpha = 0.07f),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
-    ) {
-        IconButton(
-            onClick = onClick,
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = Color.Transparent,
-                contentColor = Color.White.copy(alpha = 0.92f)
-            )
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription
-            )
-        }
     }
 }
 
@@ -2045,106 +1922,3 @@ private val HomeProgressTrackColor: Color
 private val HomeProgressFillColor: Color
     @Composable
     get() = PlayerLiteVisualTheme.colors.miniPlayerProgressFill
-
-@Composable
-internal fun HomeContent(
-    homeSurfaceMode: HomeSurfaceMode,
-    animateTransitions: Boolean = true,
-    overviewContent: @Composable () -> Unit,
-    expandedContent: @Composable () -> Unit
-) {
-    if (!animateTransitions) {
-        when (homeSurfaceMode) {
-            HomeSurfaceMode.OVERVIEW -> overviewContent()
-            HomeSurfaceMode.PLAYER_EXPANDED -> expandedContent()
-        }
-        return
-    }
-
-    AnimatedContent(
-        targetState = homeSurfaceMode,
-        transitionSpec = {
-            val enteringScale = if (targetState == HomeSurfaceMode.PLAYER_EXPANDED) {
-                HomeSurfaceMotionSpec.targetsFor(HomeSurfaceMode.OVERVIEW).playerScale
-            } else {
-                HomeSurfaceMotionSpec.targetsFor(HomeSurfaceMode.PLAYER_EXPANDED).overviewScale
-            }
-            val enteringOffsetFraction = if (targetState == HomeSurfaceMode.PLAYER_EXPANDED) {
-                HomeSurfaceMotionSpec.targetsFor(HomeSurfaceMode.OVERVIEW).playerOffsetFraction
-            } else {
-                HomeSurfaceMotionSpec.targetsFor(HomeSurfaceMode.PLAYER_EXPANDED).overviewOffsetFraction
-            }
-            val exitingScale = if (targetState == HomeSurfaceMode.PLAYER_EXPANDED) {
-                HomeSurfaceMotionSpec.targetsFor(HomeSurfaceMode.PLAYER_EXPANDED).overviewScale
-            } else {
-                HomeSurfaceMotionSpec.targetsFor(HomeSurfaceMode.OVERVIEW).playerScale
-            }
-            val exitingOffsetFraction = if (targetState == HomeSurfaceMode.PLAYER_EXPANDED) {
-                HomeSurfaceMotionSpec.targetsFor(HomeSurfaceMode.PLAYER_EXPANDED).overviewOffsetFraction
-            } else {
-                HomeSurfaceMotionSpec.targetsFor(HomeSurfaceMode.OVERVIEW).playerOffsetFraction
-            }
-            (
-                fadeIn(
-                    animationSpec = tween(
-                        durationMillis = 380,
-                        delayMillis = 40,
-                        easing = LinearOutSlowInEasing
-                    )
-                ) + scaleIn(
-                    initialScale = enteringScale,
-                    animationSpec = tween(durationMillis = 420, easing = LinearOutSlowInEasing)
-                ) + slideInVertically(
-                    initialOffsetY = { fullHeight ->
-                        (fullHeight * enteringOffsetFraction).toInt()
-                    },
-                    animationSpec = tween(durationMillis = 420, easing = LinearOutSlowInEasing)
-                )
-                ) togetherWith (
-                fadeOut(
-                    animationSpec = tween(
-                        durationMillis = 180,
-                        easing = FastOutLinearInEasing
-                    )
-                ) + scaleOut(
-                    targetScale = exitingScale,
-                    animationSpec = tween(durationMillis = 240, easing = FastOutLinearInEasing)
-                ) + slideOutVertically(
-                    targetOffsetY = { fullHeight ->
-                        (fullHeight * exitingOffsetFraction).toInt()
-                    },
-                    animationSpec = tween(durationMillis = 240, easing = FastOutLinearInEasing)
-                )
-                )
-        },
-        label = "home_surface_mode"
-    ) { mode ->
-        when (mode) {
-            HomeSurfaceMode.OVERVIEW -> {
-                val targets = HomeSurfaceMotionSpec.targetsFor(mode)
-                Box(
-                    modifier = Modifier.graphicsLayer {
-                        alpha = targets.overviewAlpha
-                        scaleX = targets.overviewScale
-                        scaleY = targets.overviewScale
-                    }
-                ) {
-                    overviewContent()
-                }
-            }
-
-            HomeSurfaceMode.PLAYER_EXPANDED -> {
-                val targets = HomeSurfaceMotionSpec.targetsFor(mode)
-                Box(
-                    modifier = Modifier.graphicsLayer {
-                        alpha = targets.playerAlpha
-                        scaleX = targets.playerScale
-                        scaleY = targets.playerScale
-                    }
-                ) {
-                    expandedContent()
-                }
-            }
-        }
-    }
-}

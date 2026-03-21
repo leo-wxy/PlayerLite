@@ -1,42 +1,57 @@
 package com.wxy.playerlite.feature.player
 
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
+import com.wxy.playerlite.feature.player.model.PlayerUiState
+import com.wxy.playerlite.feature.player.ui.resolvePlayerTrackText
 
 internal data class ActiveLyricLineProjection(
     val activeLineIndex: Int,
     val activeLineText: String?
 )
 
-internal data class PlayerDisplayMetadataProjection(
-    val title: String,
-    val subtitle: String,
+internal data class PlayerDisplayContentProjection(
+    val resolvedTitle: String?,
+    val resolvedArtist: String?,
+    val songArtistLine: String,
+    val miniPlayerContentLine: String,
+    val displayMetadataTitle: String,
     val activeLineIndex: Int,
     val activeLineText: String?
 )
 
-internal fun resolvePlayerDisplayMetadataProjection(
-    baseTitle: String?,
-    baseArtist: String?,
-    lyricUiState: PlayerLyricUiState,
-    currentPositionMs: Long,
+internal fun resolvePlayerDisplayContentProjection(
+    playerState: PlayerUiState,
     emptyTitle: String = "未选择音频",
     emptySubtitle: String = "点击进入播放页"
-): PlayerDisplayMetadataProjection {
-    val normalizedTitle = baseTitle?.takeIf { it.isNotBlank() }
-    val normalizedArtist = baseArtist?.takeIf { it.isNotBlank() }
+): PlayerDisplayContentProjection {
+    val fallbackTrackText = playerState.selectedFileName
+        .takeIf { it.isNotBlank() && it != "No audio selected" }
+        ?.let(::resolvePlayerTrackText)
+    val resolvedTitle = playerState.currentTrackTitle
+        .takeIf { it.isNotBlank() && it != "No audio selected" }
+        ?: fallbackTrackText?.title
+    val resolvedArtist = playerState.currentTrackArtist
+        ?.takeIf { it.isNotBlank() }
+        ?: playerState.playlistItems
+            .getOrNull(playerState.activePlaylistIndex)
+            ?.artistText
+            ?.takeIf { it.isNotBlank() }
+        ?: fallbackTrackText?.artist
     val activeLyric = resolveActiveLyricLineProjection(
-        lyricUiState = lyricUiState,
-        currentPositionMs = currentPositionMs
+        lyricUiState = playerState.lyricUiState,
+        currentPositionMs = playerState.displayedSeekMs
     )
-    val displayTitle = activeLyric.activeLineText ?: normalizedTitle ?: emptyTitle
-    val displaySubtitle = buildSongArtistDisplayText(
-        title = normalizedTitle,
-        artist = normalizedArtist,
+    val songArtistLine = buildSongArtistDisplayText(
+        title = resolvedTitle,
+        artist = resolvedArtist,
         emptySubtitle = emptySubtitle
     )
-    return PlayerDisplayMetadataProjection(
-        title = displayTitle,
-        subtitle = displaySubtitle,
+    return PlayerDisplayContentProjection(
+        resolvedTitle = resolvedTitle,
+        resolvedArtist = resolvedArtist,
+        songArtistLine = songArtistLine,
+        miniPlayerContentLine = activeLyric.activeLineText ?: songArtistLine,
+        displayMetadataTitle = activeLyric.activeLineText ?: resolvedTitle ?: emptyTitle,
         activeLineIndex = activeLyric.activeLineIndex,
         activeLineText = activeLyric.activeLineText
     )

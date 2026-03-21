@@ -3,10 +3,7 @@ package com.wxy.playerlite.feature.album
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -39,6 +36,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -50,17 +48,17 @@ import com.wxy.playerlite.feature.detail.DetailMetaPill
 import com.wxy.playerlite.feature.detail.DetailPagingFooter
 import com.wxy.playerlite.feature.detail.DetailSectionPlayAllButton
 import com.wxy.playerlite.feature.detail.DetailTextDialog
+import com.wxy.playerlite.feature.detail.BasePlaybackDetailActivity
 import com.wxy.playerlite.feature.detail.createOpenPlayerAfterQueueReplacementIntent
 import com.wxy.playerlite.feature.detail.MusicDetailScaffold
 import com.wxy.playerlite.feature.detail.formatTrackDuration
 import com.wxy.playerlite.feature.detail.previewSummaryText
 import com.wxy.playerlite.feature.detail.rememberDynamicHeroBrush
 import com.wxy.playerlite.feature.player.runtime.RuntimeDetailPlaybackGateway
-import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 internal const val EXTRA_ALBUM_ID = "album_id"
 
-class AlbumDetailActivity : ComponentActivity() {
+class AlbumDetailActivity : BasePlaybackDetailActivity() {
     private val viewModel: AlbumDetailViewModel by viewModels {
         AlbumDetailViewModel.factory(
             albumId = albumIdFrom(intent),
@@ -71,28 +69,26 @@ class AlbumDetailActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        setContent {
-            PlayerLiteTheme {
-                val state = viewModel.uiStateFlow.collectAsStateWithLifecycle().value
-                BackHandler(onBack = ::finish)
-                AlbumDetailScreen(
-                    state = state,
-                    onBack = ::finish,
-                    onRetry = viewModel::retry,
-                    onLoadMore = viewModel::loadMoreTracks,
-                    onPlayAll = {
-                        if (viewModel.playAll()) {
-                            startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
-                        }
-                    },
-                    onTrackClick = { index ->
-                        if (viewModel.playTrack(index)) {
-                            startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
-                        }
+        setPlaybackDetailContent { bottomOverlayPadding ->
+            val state = viewModel.uiStateFlow.collectAsStateWithLifecycle().value
+            BackHandler(onBack = ::finish)
+            AlbumDetailScreen(
+                state = state,
+                onBack = ::finish,
+                onRetry = viewModel::retry,
+                onLoadMore = viewModel::loadMoreTracks,
+                onPlayAll = {
+                    if (viewModel.playAll()) {
+                        startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
                     }
-                )
-            }
+                },
+                onTrackClick = { index ->
+                    if (viewModel.playTrack(index)) {
+                        startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
+                    }
+                },
+                bottomOverlayPadding = bottomOverlayPadding
+            )
         }
     }
 
@@ -120,7 +116,8 @@ internal fun AlbumDetailScreen(
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
     onPlayAll: () -> Unit,
-    onTrackClick: (Int) -> Unit
+    onTrackClick: (Int) -> Unit,
+    bottomOverlayPadding: Dp = 0.dp
 ) {
     var isDescriptionVisible by rememberSaveable { mutableStateOf(false) }
 
@@ -145,6 +142,7 @@ internal fun AlbumDetailScreen(
             MusicDetailScaffold(
                 heroTestTag = "album_detail_hero_panel",
                 onBack = onBack,
+                bottomOverlayPadding = bottomOverlayPadding,
                 heroBrush = rememberDynamicHeroBrush(
                     imageUrl = contentState.content.coverUrl
                 ),

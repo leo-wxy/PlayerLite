@@ -1,6 +1,7 @@
 package com.wxy.playerlite.feature.artist
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,7 +36,8 @@ import com.wxy.playerlite.feature.detail.DetailLoadingCard
 internal fun LazyListScope.artistAlbumsTabPanel(
     albumsState: ArtistAlbumsUiState,
     onRetry: () -> Unit,
-    onLoadMoreAlbums: () -> Unit
+    onLoadMoreAlbums: () -> Unit,
+    onAlbumClick: (String) -> Unit
 ) {
     when (albumsState) {
         ArtistAlbumsUiState.Loading -> {
@@ -66,7 +68,10 @@ internal fun LazyListScope.artistAlbumsTabPanel(
                 count = albumsState.items.size,
                 key = { index -> albumsState.items[index].albumId }
             ) { index ->
-                ArtistAlbumsTabAlbumCard(item = albumsState.items[index])
+                ArtistAlbumsTabAlbumCard(
+                    item = albumsState.items[index],
+                    onAlbumClick = onAlbumClick
+                )
             }
             when {
                 albumsState.loadMoreErrorMessage != null -> {
@@ -107,7 +112,10 @@ internal fun ArtistAlbumsTabPlaceholderCard(text: String) {
 }
 
 @Composable
-internal fun ArtistAlbumsTabAlbumCard(item: ArtistAlbumRow) {
+internal fun ArtistAlbumsTabAlbumCard(
+    item: ArtistAlbumRow,
+    onAlbumClick: (String) -> Unit
+) {
     val meta = listOfNotNull(
         item.artistText.takeIf { it.isNotBlank() },
         item.type.takeIf { it.isNotBlank() },
@@ -119,6 +127,7 @@ internal fun ArtistAlbumsTabAlbumCard(item: ArtistAlbumRow) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clickable { onAlbumClick(item.albumId) }
             .testTag("artist_album_${item.albumId}"),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(

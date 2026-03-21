@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 internal fun MusicDetailScaffold(
     heroTestTag: String,
     onBack: () -> Unit,
+    bottomOverlayPadding: Dp = 0.dp,
     listState: LazyListState = rememberLazyListState(),
     heroBrush: Brush? = null,
     heroHorizontalPadding: Dp = 20.dp,
@@ -83,7 +84,7 @@ internal fun MusicDetailScaffold(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("detail_scaffold_list"),
-            contentPadding = PaddingValues(bottom = 28.dp)
+            contentPadding = PaddingValues(bottom = 28.dp + bottomOverlayPadding)
         ) {
             item {
                 Column(
