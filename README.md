@@ -9,10 +9,12 @@
 - 播放列表管理与持久化恢复，支持删除、激活切换、拖拽排序
 - 播放模式：列表循环、单曲循环、随机播放
 - 网络音源 Range 播放、边播边缓存、缓存清理
+- 共享 `design-system` 主题 token，统一首页、搜索、播放器展开页、播放列表与 `minibar` 的主强调色、次级信息和容器层级
 - 独立 `PlayerActivity` 作为完整播放器唯一宿主，首页和详情页通过 `minibar` 进入播放器
 - 播放展开页支持“歌曲 / 歌词”双页面切换、当前歌词摘要、完整歌词自动滚动与高亮
 - 首页 `minibar` 可直接打开独立播放器页或以已展开状态进入播放列表
 - 专辑 / 歌手 / 歌单详情页共享底部 `minibar` chrome，主体点击进入独立播放器页，播放列表按钮在当前页打开本地列表 sheet
+- 歌手 / 专辑详情页采用 `header + sticky tabs + HorizontalPager` 结构，支持头部与当前 tab 列表之间的连续纵向滚动接力
 - 首页 `minibar`、详情页 `minibar` 与系统 `MediaSession` 可随播放进度动态展示当前歌词摘要，并稳定回退为 `歌名 - 歌手`
 - 首页发现流、悬浮搜索入口、搜索结果页
 - 歌手详情、歌单详情、专辑详情，以及首页/搜索/个人中心到详情页的跳转闭环
@@ -56,6 +58,15 @@
 HomeOverviewScreen / DetailMiniPlayerBar / MediaSession content intent
   -> PlayerActivity
   -> PlayerScreen
+```
+
+详情页滚动与播放入口链路：
+
+```text
+ArtistDetailActivity / AlbumDetailActivity / PlaylistDetailActivity
+  -> MusicDetailScaffold / DetailVerticalScrollHandoff
+  -> DetailMiniPlayerBar
+  -> PlayerActivity / PlaylistBottomSheet
 ```
 
 播放器运行时链路：

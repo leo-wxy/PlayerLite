@@ -4,11 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,6 +51,9 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+private const val DetailBottomScrimCoverage = 0.6f
+private val DetailBottomScrimColor = Color.Black.copy(alpha = 0.6f)
+
 @Composable
 internal fun MusicDetailScaffold(
     heroTestTag: String,
@@ -56,6 +61,7 @@ internal fun MusicDetailScaffold(
     bottomOverlayPadding: Dp = 0.dp,
     listState: LazyListState = rememberLazyListState(),
     heroBrush: Brush? = null,
+    drawHeroBackground: Boolean = true,
     heroHorizontalPadding: Dp = 20.dp,
     heroTopPadding: Dp = 72.dp,
     heroBottomPadding: Dp = 12.dp,
@@ -66,6 +72,11 @@ internal fun MusicDetailScaffold(
     bodyContent: LazyListScope.() -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
+    val contentBottomPadding = if (bottomOverlayPadding > 0.dp) {
+        bottomOverlayPadding
+    } else {
+        28.dp
+    }
     val resolvedHeroBrush = heroBrush ?: Brush.verticalGradient(
         colors = listOf(
             shiftColor(colorScheme.primary, 0.74f),
@@ -84,13 +95,19 @@ internal fun MusicDetailScaffold(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("detail_scaffold_list"),
-            contentPadding = PaddingValues(bottom = 28.dp + bottomOverlayPadding)
+            contentPadding = PaddingValues(bottom = contentBottomPadding)
         ) {
             item {
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(resolvedHeroBrush)
+                        .then(
+                            if (drawHeroBackground) {
+                                Modifier.background(resolvedHeroBrush)
+                            } else {
+                                Modifier
+                            }
+                        )
                         .then(
                             if (drawHeroBehindStatusBar) {
                                 Modifier
@@ -106,7 +123,11 @@ internal fun MusicDetailScaffold(
                         )
                         .testTag(heroTestTag)
                 ) {
-                    heroContent()
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        heroContent()
+                    }
                 }
             }
             bodyContent()
@@ -131,6 +152,24 @@ internal fun MusicDetailScaffold(
             }
         }
     }
+}
+
+@Composable
+internal fun BoxScope.DetailBottomScrim() {
+    Box(
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .fillMaxHeight(fraction = DetailBottomScrimCoverage)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        DetailBottomScrimColor
+                    )
+                )
+            )
+    )
 }
 
 @Composable

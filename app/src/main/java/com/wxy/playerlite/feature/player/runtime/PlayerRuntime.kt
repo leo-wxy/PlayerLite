@@ -558,6 +558,15 @@ internal class PlayerRuntime(
             ?.id
         val activeChanged = previousActiveId != activeItem?.id
         val shouldRefreshActiveMetadata = activeChanged || forceRefreshActiveMetadata
+        val previousSongId = uiState.currentSongId?.takeIf { it.isNotBlank() }
+        val nextSongIdOverride = if (shouldRefreshActiveMetadata) {
+            activeItem?.songId
+        } else {
+            uiState.currentSongIdOverride
+        }
+        val nextSongId = nextSongIdOverride?.takeIf { it.isNotBlank() }
+            ?: activeItem?.songId?.takeIf { it.isNotBlank() }
+        val songChanged = previousSongId != nextSongId
         val canShowSongWiki = !activeItem?.songId.isNullOrBlank()
         uiState = uiState.copy(
             selectedFileName = if (shouldRefreshActiveMetadata) {
@@ -594,17 +603,17 @@ internal class PlayerRuntime(
                 uiState.currentSongIdOverride
             },
             showPlaylistSheet = if (playlistSession.items.isEmpty()) false else uiState.showPlaylistSheet,
-            showSongWikiSheet = if (activeChanged) {
+            showSongWikiSheet = if (songChanged) {
                 false
             } else {
                 uiState.showSongWikiSheet && canShowSongWiki
             },
-            songWikiUiState = if (activeChanged || !canShowSongWiki) {
+            songWikiUiState = if (songChanged || !canShowSongWiki) {
                 com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Placeholder
             } else {
                 uiState.songWikiUiState
             },
-            lyricUiState = if (activeChanged) {
+            lyricUiState = if (songChanged) {
                 PlayerLyricUiState.Placeholder
             } else {
                 uiState.lyricUiState

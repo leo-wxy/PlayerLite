@@ -2,6 +2,17 @@
 
 Guidelines for coding agents working in this repository.
 
+## Core Principles
+
+- On any problem report, the first step is to listen to the user's current symptoms, reproduction path, constraints, and requested handling mode before touching code.
+- For playback, state-machine, network, device-only, or hard-to-reproduce issues, collect现场证据 first and analyze it before making code changes.
+- If the user asks to抓日志 / review / discuss first, do that first; do not silently switch into implementation.
+- Do not keep patching once the现场 is no longer reproducible. Stop, preserve evidence, and wait for the next reproducible occurrence.
+- Treat reproduction evidence as more authoritative than assumptions, screenshots in isolation, or inferred state from code.
+- Avoid broad speculative fixes. After evidence is collected, change one root-cause link at a time.
+- Before modifying any file, first list the planned file changes and the specific intended edits in a user-visible update.
+- For config-related changes, list the target files, expected behavioral impact, and rollback surface before editing. This applies especially to build files, workflow files, env handling, manifests, permissions, and tool configuration.
+
 ## Project Overview
 
 - Android audio player built with FFmpeg + JNI + Media3.
@@ -44,6 +55,7 @@ Run these after meaningful behavior changes:
 ```
 
 - If native C++ is touched, `:app:assembleDebug` is mandatory.
+- For playback-state or device-only issues, do not start with these validations. Start with reproducing and capturing logs first, then validate after the fix.
 
 ## Coding Rules
 

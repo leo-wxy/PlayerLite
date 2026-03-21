@@ -446,6 +446,7 @@ internal class PlayerViewModel(
                 runtime.updateLyricUiState(PlayerLyricUiState.Content(cached))
                 return@launch
             }
+            runtime.updateLyricUiState(PlayerLyricUiState.Loading)
             loadLyricsInternal(songId = songId, showLoading = false)
         }
     }

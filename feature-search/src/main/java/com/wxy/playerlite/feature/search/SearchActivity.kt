@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -698,6 +699,7 @@ private fun SearchResultTypeChip(
     onClick: () -> Unit
 ) {
     val usesExpandedTypography = usesExpandedSearchTypography()
+    val labelOpticalOffsetY = resolveSearchResultTypeLabelOpticalOffset(type)
     Surface(
         modifier = Modifier
             .testTag("search_result_type_${type.name.lowercase()}")
@@ -718,6 +720,7 @@ private fun SearchResultTypeChip(
             Text(
                 text = type.displayLabel,
                 modifier = Modifier
+                    .offset(y = labelOpticalOffsetY)
                     .testTag("search_result_type_label_${type.name.lowercase()}")
                     .padding(horizontal = 6.dp),
                 style = if (usesExpandedTypography) {
@@ -742,6 +745,13 @@ private fun SearchResultTypeChip(
         }
     }
 }
+
+private fun resolveSearchResultTypeLabelOpticalOffset(type: SearchResultType) =
+    if (type.displayLabel.all { it.code < 128 && it.isLetter() }) {
+        1.dp
+    } else {
+        0.dp
+    }
 
 @Composable
 private fun SearchHotBoard(

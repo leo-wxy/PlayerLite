@@ -131,6 +131,9 @@ class PlayerServiceBridge(
                 runCatching { activeController.release() }
                 controller = null
             }
+            // A newer queue sync supersedes stale transport commands that were queued
+            // against an older controller or queue generation.
+            pendingActions.clear()
             pendingQueueSyncRequest = request
             connectIfNeeded()
             safeLogD("Controller unavailable; queue sync deferred")
@@ -184,7 +187,7 @@ class PlayerServiceBridge(
                 }
             }
 
-            shouldReplaceQueue -> {
+            shouldReplaceQueue || activeController.isPlaying || activeController.playWhenReady -> {
                 activeController.pause()
             }
         }
@@ -370,6 +373,9 @@ class PlayerServiceBridge(
 
     fun currentSnapshot(): RemotePlaybackSnapshot? {
         val activeController = controller ?: return null
+        if (!isConnected(activeController)) {
+            return null
+        }
         val sessionExtras = activeController.sessionExtras
         val currentMetadata = activeController.currentMediaItem?.mediaMetadata
         val currentMetadataExtras = currentMetadata?.extras

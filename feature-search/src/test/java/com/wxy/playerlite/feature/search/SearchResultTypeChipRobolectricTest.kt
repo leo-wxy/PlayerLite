@@ -176,4 +176,103 @@ class SearchResultTypeChipRobolectricTest {
             abs(mvBounds.width - songBounds.width) < 1f
         )
     }
+
+    @Test
+    fun resultMode_shouldKeepMvLabelBottomAlignedWithChineseTypeChips() {
+        composeRule.setContent {
+            SearchFeatureTheme {
+                SearchScreen(
+                    state = SearchUiState(
+                        query = "周杰伦",
+                        pageMode = SearchPageMode.RESULT,
+                        selectedResultType = SearchResultType.SONG,
+                        availableResultTypes = listOf(
+                            SearchResultType.SONG,
+                            SearchResultType.MV,
+                            SearchResultType.ALBUM
+                        ),
+                        resultStatesByType = mapOf(
+                            SearchResultType.SONG to SearchResultUiState.Empty
+                        )
+                    ),
+                    onBack = {},
+                    onQueryChanged = {},
+                    onSubmitSearch = {},
+                    onHistoryKeywordClick = {},
+                    onRemoveHistoryKeyword = {},
+                    onClearHistory = {},
+                    onSuggestionClick = {},
+                    onHotKeywordClick = {},
+                    onResultTypeSelected = {},
+                    onResultClick = {},
+                    onRetry = {}
+                )
+            }
+        }
+
+        val mvLabelBounds = composeRule
+            .onNodeWithTag("search_result_type_label_mv", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val albumLabelBounds = composeRule
+            .onNodeWithTag("search_result_type_label_album", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        assertTrue(
+            "Expected MV label bottom to align with Chinese labels, but bottoms were ${mvLabelBounds.bottom} vs ${albumLabelBounds.bottom}",
+            abs(mvLabelBounds.bottom - albumLabelBounds.bottom) < 1f
+        )
+    }
+
+    @Test
+    fun resultMode_shouldApplySmallOpticalDropToAsciiTypeLabels() {
+        composeRule.setContent {
+            SearchFeatureTheme {
+                SearchScreen(
+                    state = SearchUiState(
+                        query = "周杰伦",
+                        pageMode = SearchPageMode.RESULT,
+                        selectedResultType = SearchResultType.SONG,
+                        availableResultTypes = listOf(
+                            SearchResultType.SONG,
+                            SearchResultType.MV,
+                            SearchResultType.ALBUM
+                        ),
+                        resultStatesByType = mapOf(
+                            SearchResultType.SONG to SearchResultUiState.Empty
+                        )
+                    ),
+                    onBack = {},
+                    onQueryChanged = {},
+                    onSubmitSearch = {},
+                    onHistoryKeywordClick = {},
+                    onRemoveHistoryKeyword = {},
+                    onClearHistory = {},
+                    onSuggestionClick = {},
+                    onHotKeywordClick = {},
+                    onResultTypeSelected = {},
+                    onResultClick = {},
+                    onRetry = {}
+                )
+            }
+        }
+
+        val mvLabelBounds = composeRule
+            .onNodeWithTag("search_result_type_label_mv", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val albumLabelBounds = composeRule
+            .onNodeWithTag("search_result_type_label_album", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        val mvCenterY = (mvLabelBounds.top + mvLabelBounds.bottom) / 2f
+        val albumCenterY = (albumLabelBounds.top + albumLabelBounds.bottom) / 2f
+
+        assertTrue(
+            "Expected MV label to sit slightly lower for optical baseline alignment, but centers were $mvCenterY vs $albumCenterY",
+            mvCenterY - albumCenterY >= 0.5f
+        )
+    }
 }

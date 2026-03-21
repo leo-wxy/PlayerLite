@@ -17,3 +17,10 @@
 local.properties
 /.opencode/
 /.worktrees/
+
+# Local tooling and scratch files
+/.codex/
+/.kotlin/
+/MEMORY.md
+/aa.html
+/docs/superpowers/plans/

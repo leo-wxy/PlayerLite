@@ -30,11 +30,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -56,9 +58,9 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,6 +70,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -86,12 +89,13 @@ import com.wxy.playerlite.core.AppContainer
 import com.wxy.playerlite.feature.album.AlbumDetailActivity
 import com.wxy.playerlite.feature.detail.DetailErrorCard
 import com.wxy.playerlite.feature.detail.DetailLoadingCard
-import com.wxy.playerlite.feature.detail.DetailTextDialog
 import com.wxy.playerlite.feature.detail.BasePlaybackDetailActivity
+import com.wxy.playerlite.feature.detail.DetailBottomScrim
+import com.wxy.playerlite.feature.detail.rememberDetailVerticalScrollHandoffConnection
 import com.wxy.playerlite.feature.detail.MusicDetailScaffold
-import com.wxy.playerlite.feature.detail.createOpenPlayerAfterQueueReplacementIntent
 import com.wxy.playerlite.feature.detail.rememberDynamicHeroAccentColor
 import com.wxy.playerlite.feature.detail.rememberDynamicHeroBrush
+import com.wxy.playerlite.feature.detail.shouldUseLightStatusBarContent
 import com.wxy.playerlite.feature.player.runtime.RuntimeDetailPlaybackGateway
 import java.util.Locale
 import kotlin.math.max
@@ -109,8 +113,7 @@ private enum class ArtistDetailTab(
     ENCYCLOPEDIA("百科", "artist_tab_encyclopedia")
 }
 
-private const val ARTIST_DESCRIPTION_CARD_LIST_INDEX = 1
-private const val ARTIST_STICKY_TABS_LIST_INDEX = ARTIST_DESCRIPTION_CARD_LIST_INDEX + 1
+private const val ARTIST_HERO_LIST_INDEX = 0
 private val ARTIST_COMPACT_TOP_BAR_CONTENT_HEIGHT = 56.dp
 
 internal fun formatArtistFansCount(fansCount: Long): String {
@@ -149,16 +152,16 @@ class ArtistDetailActivity : BasePlaybackDetailActivity() {
                 stop = MaterialTheme.colorScheme.background,
                 fraction = headerChromeProgressState.floatValue.coerceIn(0f, 1f)
             )
-            val useDarkStatusBarContent = statusBarBlendColor.luminance() > 0.58f
-            val topBarContentColor = if (useDarkStatusBarContent) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
+            val useLightStatusBarContent = shouldUseLightStatusBarContent(statusBarBlendColor)
+            val topBarContentColor = if (useLightStatusBarContent) {
                 MaterialTheme.colorScheme.surface
+            } else {
+                MaterialTheme.colorScheme.onSurface
             }
             SideEffect {
                 window.statusBarColor = AndroidColor.TRANSPARENT
                 WindowCompat.getInsetsController(window, window.decorView)
-                    .isAppearanceLightStatusBars = useDarkStatusBarContent
+                    .isAppearanceLightStatusBars = !useLightStatusBarContent
             }
             BackHandler(onBack = ::finish)
             ArtistDetailScreen(
@@ -172,12 +175,12 @@ class ArtistDetailActivity : BasePlaybackDetailActivity() {
                 },
                 onPlayAll = {
                     if (viewModel.playAll()) {
-                        startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
+                        openPlayerAfterQueueReplacement()
                     }
                 },
                 onTrackClick = { index ->
                     if (viewModel.playTrack(index)) {
-                        startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
+                        openPlayerAfterQueueReplacement()
                     }
                 },
                 onAlbumClick = { albumId ->
@@ -221,7 +224,6 @@ internal fun ArtistDetailScreen(
     onLoadMoreAlbums: () -> Unit = {},
     bottomOverlayPadding: Dp = 0.dp
 ) {
-    val isDescriptionVisibleState = rememberSaveable { mutableStateOf(false) }
     val isAvatarPreviewVisibleState = rememberSaveable { mutableStateOf(false) }
     val selectedTabIndexState = rememberSaveable { mutableIntStateOf(ArtistDetailTab.HOT_SONGS.ordinal) }
     val bodyListState = rememberLazyListState()
@@ -241,10 +243,10 @@ internal fun ArtistDetailScreen(
     val heroHeightPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
     val headerCollapseProgress by remember(bodyListState, heroHeightPx) {
         derivedStateOf {
-            when {
-                bodyListState.firstVisibleItemIndex > 0 -> 1f
-                heroHeightPx <= 0f -> 0f
-                else -> (bodyListState.firstVisibleItemScrollOffset / (heroHeightPx * 0.72f))
+            if (heroHeightPx <= 0f) {
+                0f
+            } else {
+                (bodyListState.artistHeaderConsumedHeightPx() / (heroHeightPx * 0.72f))
                     .coerceIn(0f, 1f)
             }
         }
@@ -258,24 +260,11 @@ internal fun ArtistDetailScreen(
     val compactTopBarHeightPx = with(density) { compactTopBarHeight.toPx() }
     val stickyHeaderTopInsetPx by remember(bodyListState, compactTopBarHeightPx) {
         derivedStateOf {
-            when {
-                compactTopBarHeightPx <= 0f -> 0f
-                bodyListState.firstVisibleItemIndex > ARTIST_DESCRIPTION_CARD_LIST_INDEX -> {
-                    compactTopBarHeightPx
-                }
-
-                else -> {
-                    val descriptionCardInfo = bodyListState.layoutInfo.visibleItemsInfo
-                        .firstOrNull { it.index == ARTIST_DESCRIPTION_CARD_LIST_INDEX }
-                    if (descriptionCardInfo == null) {
-                        0f
-                    } else {
-                        val descriptionCardBottomPx =
-                            descriptionCardInfo.offset + descriptionCardInfo.size
-                        (compactTopBarHeightPx - descriptionCardBottomPx)
-                            .coerceIn(0f, compactTopBarHeightPx)
-                    }
-                }
+            if (compactTopBarHeightPx <= 0f) {
+                0f
+            } else {
+                (compactTopBarHeightPx - bodyListState.artistHeroBottomPx())
+                    .coerceIn(0f, compactTopBarHeightPx)
             }
         }
     }
@@ -335,10 +324,6 @@ internal fun ArtistDetailScreen(
 
         is ArtistDetailHeaderUiState.Content -> {
             val content = headerState.content
-            val descriptionSummary = ArtistDetailEncyclopediaTab.artistDescriptionSummary(
-                content = content,
-                encyclopediaState = state.encyclopediaState
-            )
             val descriptionBody = ArtistDetailEncyclopediaTab.artistDescriptionBody(
                 content = content,
                 encyclopediaState = state.encyclopediaState
@@ -380,17 +365,14 @@ internal fun ArtistDetailScreen(
                     stickyHeaderTopInset = stickyHeaderTopInset,
                     selectedTab = selectedTab,
                     pagerState = pagerState,
+                    outerListState = bodyListState,
                     hotSongsListState = hotSongsListState,
                     albumsListState = albumsListState,
                     encyclopediaListState = encyclopediaListState,
-                    descriptionSummary = descriptionSummary,
                     descriptionBody = descriptionBody,
                     hotSongsState = state.hotSongsState,
                     albumsState = state.albumsState,
                     bottomOverlayPadding = bottomOverlayPadding,
-                    onDescriptionClick = {
-                        isDescriptionVisibleState.value = true
-                    },
                     onTabSelected = { tab ->
                         if (selectedTab != tab) {
                             coroutineScope.launch {
@@ -403,17 +385,6 @@ internal fun ArtistDetailScreen(
                     onTrackClick = onTrackClick,
                     onAlbumClick = onAlbumClick,
                     onLoadMoreAlbums = onLoadMoreAlbums
-                )
-            }
-
-            if (isDescriptionVisibleState.value) {
-                DetailTextDialog(
-                    dialogTag = "artist_description_sheet",
-                    title = "歌手简介",
-                    body = descriptionBody,
-                    onDismiss = {
-                        isDescriptionVisibleState.value = false
-                    }
                 )
             }
 
@@ -449,6 +420,7 @@ private fun ArtistDetailShell(
             bottomOverlayPadding = bottomOverlayPadding,
             listState = listState,
             heroBrush = heroBrush,
+            drawHeroBackground = false,
             heroHorizontalPadding = 0.dp,
             heroTopPadding = 0.dp,
             heroBottomPadding = 0.dp,
@@ -468,15 +440,14 @@ private fun LazyListScope.artistDetailBodyContent(
     stickyHeaderTopInset: Dp,
     selectedTab: ArtistDetailTab,
     pagerState: PagerState,
+    outerListState: LazyListState,
     hotSongsListState: LazyListState,
     albumsListState: LazyListState,
     encyclopediaListState: LazyListState,
-    descriptionSummary: String,
     descriptionBody: String,
     hotSongsState: ArtistHotSongsUiState,
     albumsState: ArtistAlbumsUiState,
     bottomOverlayPadding: Dp,
-    onDescriptionClick: () -> Unit,
     onTabSelected: (ArtistDetailTab) -> Unit,
     onRetry: () -> Unit,
     onPlayAll: () -> Unit,
@@ -484,12 +455,6 @@ private fun LazyListScope.artistDetailBodyContent(
     onAlbumClick: (String) -> Unit,
     onLoadMoreAlbums: () -> Unit
 ) {
-    item {
-        ArtistDetailEncyclopediaTab.ArtistDescriptionCard(
-            summary = descriptionSummary,
-            onClick = onDescriptionClick
-        )
-    }
     stickyHeader {
         ArtistDetailStickyTabsHeader(
             stickyHeaderInsetProgress = stickyHeaderInsetProgress,
@@ -502,6 +467,7 @@ private fun LazyListScope.artistDetailBodyContent(
         ArtistDetailTabPager(
             modifier = Modifier.fillParentMaxHeight(),
             pagerState = pagerState,
+            outerListState = outerListState,
             hotSongsListState = hotSongsListState,
             albumsListState = albumsListState,
             encyclopediaListState = encyclopediaListState,
@@ -522,6 +488,7 @@ private fun LazyListScope.artistDetailBodyContent(
 private fun ArtistDetailTabPager(
     modifier: Modifier = Modifier,
     pagerState: PagerState,
+    outerListState: LazyListState,
     hotSongsListState: LazyListState,
     albumsListState: LazyListState,
     encyclopediaListState: LazyListState,
@@ -536,6 +503,10 @@ private fun ArtistDetailTabPager(
 ) {
     HorizontalPager(
         state = pagerState,
+        pageNestedScrollConnection = PagerDefaults.pageNestedScrollConnection(
+            state = pagerState,
+            orientation = Orientation.Horizontal
+        ),
         modifier = modifier
             .fillMaxWidth()
             .testTag("artist_tab_pager")
@@ -543,6 +514,7 @@ private fun ArtistDetailTabPager(
         when (ArtistDetailTab.entries[page]) {
             ArtistDetailTab.HOT_SONGS -> {
                 ArtistHotSongsTabPage(
+                    outerListState = outerListState,
                     listState = hotSongsListState,
                     hotSongsState = hotSongsState,
                     bottomOverlayPadding = bottomOverlayPadding,
@@ -553,6 +525,7 @@ private fun ArtistDetailTabPager(
 
             ArtistDetailTab.ALBUMS -> {
                 ArtistAlbumsTabPage(
+                    outerListState = outerListState,
                     listState = albumsListState,
                     albumsState = albumsState,
                     bottomOverlayPadding = bottomOverlayPadding,
@@ -564,6 +537,7 @@ private fun ArtistDetailTabPager(
 
             ArtistDetailTab.ENCYCLOPEDIA -> {
                 ArtistEncyclopediaTabPage(
+                    outerListState = outerListState,
                     listState = encyclopediaListState,
                     descriptionBody = descriptionBody,
                     bottomOverlayPadding = bottomOverlayPadding
@@ -575,18 +549,32 @@ private fun ArtistDetailTabPager(
 
 @Composable
 private fun ArtistHotSongsTabPage(
+    outerListState: LazyListState,
     listState: LazyListState,
     hotSongsState: ArtistHotSongsUiState,
     bottomOverlayPadding: Dp,
     onRetry: () -> Unit,
     onTrackClick: (Int) -> Unit
 ) {
+    val contentBottomPadding = if (bottomOverlayPadding > 0.dp) {
+        bottomOverlayPadding
+    } else {
+        28.dp
+    }
+    val nestedScrollConnection = rememberDetailVerticalScrollHandoffConnection(
+        outerScrollableState = outerListState,
+        innerScrollableState = listState,
+        canOuterConsumeUpward = outerListState::canArtistHeaderConsumeUpward,
+        canOuterConsumeDownward = outerListState::canArtistHeaderConsumeDownward,
+        remainingOuterUpwardDistancePx = outerListState::artistHeaderRemainingUpwardScrollPx
+    )
     LazyColumn(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
+            .nestedScroll(nestedScrollConnection)
             .testTag("artist_hot_songs_list"),
-        contentPadding = PaddingValues(bottom = 28.dp + bottomOverlayPadding)
+        contentPadding = PaddingValues(bottom = contentBottomPadding)
     ) {
         artistHotSongsTabPanel(
             hotSongsState = hotSongsState,
@@ -598,6 +586,7 @@ private fun ArtistHotSongsTabPage(
 
 @Composable
 private fun ArtistAlbumsTabPage(
+    outerListState: LazyListState,
     listState: LazyListState,
     albumsState: ArtistAlbumsUiState,
     bottomOverlayPadding: Dp,
@@ -605,12 +594,25 @@ private fun ArtistAlbumsTabPage(
     onLoadMoreAlbums: () -> Unit,
     onAlbumClick: (String) -> Unit
 ) {
+    val contentBottomPadding = if (bottomOverlayPadding > 0.dp) {
+        bottomOverlayPadding
+    } else {
+        28.dp
+    }
+    val nestedScrollConnection = rememberDetailVerticalScrollHandoffConnection(
+        outerScrollableState = outerListState,
+        innerScrollableState = listState,
+        canOuterConsumeUpward = outerListState::canArtistHeaderConsumeUpward,
+        canOuterConsumeDownward = outerListState::canArtistHeaderConsumeDownward,
+        remainingOuterUpwardDistancePx = outerListState::artistHeaderRemainingUpwardScrollPx
+    )
     LazyColumn(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
+            .nestedScroll(nestedScrollConnection)
             .testTag("artist_albums_list"),
-        contentPadding = PaddingValues(bottom = 28.dp + bottomOverlayPadding)
+        contentPadding = PaddingValues(bottom = contentBottomPadding)
     ) {
         artistAlbumsTabPanel(
             albumsState = albumsState,
@@ -623,16 +625,30 @@ private fun ArtistAlbumsTabPage(
 
 @Composable
 private fun ArtistEncyclopediaTabPage(
+    outerListState: LazyListState,
     listState: LazyListState,
     descriptionBody: String,
     bottomOverlayPadding: Dp
 ) {
+    val contentBottomPadding = if (bottomOverlayPadding > 0.dp) {
+        bottomOverlayPadding
+    } else {
+        28.dp
+    }
+    val nestedScrollConnection = rememberDetailVerticalScrollHandoffConnection(
+        outerScrollableState = outerListState,
+        innerScrollableState = listState,
+        canOuterConsumeUpward = outerListState::canArtistHeaderConsumeUpward,
+        canOuterConsumeDownward = outerListState::canArtistHeaderConsumeDownward,
+        remainingOuterUpwardDistancePx = outerListState::artistHeaderRemainingUpwardScrollPx
+    )
     LazyColumn(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
+            .nestedScroll(nestedScrollConnection)
             .testTag("artist_encyclopedia_list"),
-        contentPadding = PaddingValues(bottom = 28.dp + bottomOverlayPadding)
+        contentPadding = PaddingValues(bottom = contentBottomPadding)
     ) {
         item {
             ArtistDetailEncyclopediaTab.ArtistEncyclopediaCard(
@@ -640,6 +656,35 @@ private fun ArtistEncyclopediaTabPage(
             )
         }
     }
+}
+
+private fun LazyListState.artistHeroBottomPx(): Float {
+    val heroItemInfo = layoutInfo.visibleItemsInfo
+        .firstOrNull { it.index == ARTIST_HERO_LIST_INDEX }
+        ?: return 0f
+    return (heroItemInfo.offset + heroItemInfo.size).toFloat()
+}
+
+private fun LazyListState.artistHeaderConsumedHeightPx(): Float {
+    val heroItemInfo = layoutInfo.visibleItemsInfo
+        .firstOrNull { it.index == ARTIST_HERO_LIST_INDEX }
+    return if (heroItemInfo == null) {
+        layoutInfo.viewportSize.height.toFloat()
+    } else {
+        (-heroItemInfo.offset).coerceAtLeast(0).toFloat()
+    }
+}
+
+private fun LazyListState.artistHeaderRemainingUpwardScrollPx(): Float {
+    return artistHeroBottomPx().coerceAtLeast(0f)
+}
+
+private fun LazyListState.canArtistHeaderConsumeUpward(): Boolean {
+    return artistHeaderRemainingUpwardScrollPx() > 0.5f
+}
+
+private fun LazyListState.canArtistHeaderConsumeDownward(): Boolean {
+    return firstVisibleItemIndex > 0 || firstVisibleItemScrollOffset > 0
 }
 
 @Composable
@@ -657,9 +702,8 @@ private fun ArtistDetailHero(
         add("${content.musicCount} 首歌曲")
         add("${content.albumCount} 张专辑")
     }.joinToString(separator = " · ")
-    val bottomTextColor = MaterialTheme.colorScheme.onSurface
-    val secondaryTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-    val overlayAccentColor = accentColor.copy(alpha = 0.38f)
+    val bottomTextColor = Color.White
+    val secondaryTextColor = Color.White.copy(alpha = 0.78f)
     val followButtonLabel = if (content.isFollowed == true) "已关注" else "关注"
     val heroIdentityFadeProgress = ((collapseProgress - 0.04f) / 0.56f).coerceIn(0f, 1f)
     val collapsingContentAlpha = 1f - heroIdentityFadeProgress
@@ -688,20 +732,7 @@ private fun ArtistDetailHero(
                 imageUrl = content.coverUrl ?: content.avatarUrl,
                 name = content.name
             )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                overlayAccentColor.copy(alpha = 0.12f),
-                                overlayAccentColor,
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
-                            )
-                        )
-                )
-            )
+            DetailBottomScrim()
         }
         Column(
             modifier = Modifier
@@ -845,7 +876,7 @@ private fun ArtistDetailStickyTabsHeader(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 ArtistDetailTab.entries.forEach { tab ->
@@ -858,7 +889,7 @@ private fun ArtistDetailStickyTabsHeader(
                             }
                             .testTag(tab.testTag),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
                             text = tab.title,

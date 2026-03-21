@@ -52,7 +52,6 @@ import com.wxy.playerlite.feature.detail.DetailPagingFooter
 import com.wxy.playerlite.feature.detail.DetailSectionPlayAllButton
 import com.wxy.playerlite.feature.detail.DetailTextDialog
 import com.wxy.playerlite.feature.detail.BasePlaybackDetailActivity
-import com.wxy.playerlite.feature.detail.createOpenPlayerAfterQueueReplacementIntent
 import com.wxy.playerlite.feature.detail.MusicDetailScaffold
 import com.wxy.playerlite.feature.detail.formatTrackDuration
 import com.wxy.playerlite.feature.detail.previewSummaryText
@@ -82,12 +81,12 @@ class PlaylistDetailActivity : BasePlaybackDetailActivity() {
                 onLoadMore = viewModel::loadMoreTracks,
                 onPlayAll = {
                     if (viewModel.playAll()) {
-                        startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
+                        openPlayerAfterQueueReplacement()
                     }
                 },
                 onTrackClick = { index ->
                     if (viewModel.playTrack(index)) {
-                        startActivity(createOpenPlayerAfterQueueReplacementIntent(this))
+                        openPlayerAfterQueueReplacement()
                     }
                 },
                 bottomOverlayPadding = bottomOverlayPadding

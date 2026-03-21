@@ -198,23 +198,12 @@ internal class PlayerSessionPlayer(
         seekCommand: Int
     ): ListenableFuture<*> {
         return runSerializedCommand {
-            val currentState = runtime.state.value
-            val shouldPlay = PlayerSessionMapping.shouldContinuePlaybackOnManualSkip(
-                nativePlaybackState = currentState.playbackState,
-                playWhenReady = currentState.playWhenReady,
-                isPreparing = currentState.isPreparing
-            )
-
             when (seekCommand) {
                 Player.COMMAND_SEEK_TO_NEXT,
                 Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
                     if (runtime.moveToNext()) {
-                        if (shouldPlay) {
-                            runtime.setPlayWhenReady(true)
-                            runtime.playCurrent()
-                        } else {
-                            runtime.prepareCurrent()
-                        }
+                        runtime.setPlayWhenReady(true)
+                        runtime.playCurrent()
                     }
                     return@runSerializedCommand
                 }
@@ -222,24 +211,16 @@ internal class PlayerSessionPlayer(
                 Player.COMMAND_SEEK_TO_PREVIOUS,
                 Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
                     if (runtime.moveToPrevious()) {
-                        if (shouldPlay) {
-                            runtime.setPlayWhenReady(true)
-                            runtime.playCurrent()
-                        } else {
-                            runtime.prepareCurrent()
-                        }
+                        runtime.setPlayWhenReady(true)
+                        runtime.playCurrent()
                     }
                     return@runSerializedCommand
                 }
             }
 
             if (mediaItemIndex != C.INDEX_UNSET && runtime.setActiveIndex(mediaItemIndex)) {
-                if (shouldPlay) {
-                    runtime.setPlayWhenReady(true)
-                    runtime.playCurrent()
-                } else {
-                    runtime.prepareCurrent()
-                }
+                runtime.setPlayWhenReady(true)
+                runtime.playCurrent()
             }
 
             if (positionMs != C.TIME_UNSET) {

@@ -65,7 +65,6 @@ internal class PlaybackCoordinator(
 
     fun stopPlayback() {
         player.stop()
-        player.resume()
         playJob?.cancel()
         playJob = null
     }

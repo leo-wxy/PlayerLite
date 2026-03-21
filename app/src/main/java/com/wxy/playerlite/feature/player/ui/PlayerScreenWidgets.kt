@@ -40,7 +40,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -296,11 +298,26 @@ internal fun PlayerCoverCard(
         isPlaying = isPlaying,
         isPaused = isPaused
     )
+    var lastSuccessfulPainter by remember { mutableStateOf<androidx.compose.ui.graphics.painter.Painter?>(null) }
     val painter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(context)
             .data(coverUrl)
             .allowHardware(false)
-            .build()
+            .build(),
+        transform = { state ->
+            val cachedPainter = lastSuccessfulPainter
+            when {
+                coverUrl.isNullOrBlank() -> state
+                cachedPainter == null -> state
+                state is AsyncImagePainter.State.Loading -> state.copy(painter = cachedPainter)
+                state is AsyncImagePainter.State.Error -> state.copy(painter = cachedPainter)
+                else -> state
+            }
+        },
+        onState = { state ->
+            val successState = state as? AsyncImagePainter.State.Success ?: return@rememberAsyncImagePainter
+            lastSuccessfulPainter = successState.painter
+        }
     )
 
     LaunchedEffect(painter.state, coverUrl) {

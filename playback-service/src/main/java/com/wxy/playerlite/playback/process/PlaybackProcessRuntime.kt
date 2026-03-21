@@ -109,6 +109,15 @@ internal class PlaybackProcessRuntime(
             if (base.isPreparing) {
                 return@setProgressListener
             }
+            if (
+                base.playWhenReady &&
+                base.playbackState == PLAYBACK_STATE_PLAYING &&
+                pendingSeek == null &&
+                bounded < base.positionMs &&
+                base.positionMs - bounded > STALE_PROGRESS_REGRESSION_TOLERANCE_MS
+            ) {
+                return@setProgressListener
+            }
             _state.value = base.copy(positionMs = bounded)
         }
 
@@ -123,6 +132,9 @@ internal class PlaybackProcessRuntime(
                         statusText = "Paused"
                     )
                 }
+                return@startPlaybackStateObserver
+            }
+            if (base.playWhenReady && playState == PLAYBACK_STATE_PAUSED) {
                 return@startPlaybackStateObserver
             }
             _state.value = base.copy(playbackState = playState)
@@ -584,13 +596,14 @@ internal class PlaybackProcessRuntime(
         _state.value = previous.copy(
             tracks = tracks,
             activeIndex = nextIndex,
-            playWhenReady = if (changedTrack) false else previous.playWhenReady,
+            playWhenReady = previous.playWhenReady,
             playbackOutputInfo = if (changedTrack) null else previous.playbackOutputInfo,
             isSeekSupported = if (changedTrack) false else previous.isSeekSupported,
             positionMs = if (changedTrack) 0L else previous.positionMs,
             durationMs = if (changedTrack) 0L else previous.durationMs,
             audioMeta = if (changedTrack) null else previous.audioMeta,
             isPreparing = false,
+            playbackState = if (changedTrack) PLAYBACK_STATE_STOPPED else previous.playbackState,
             statusText = statusText,
             displayTitleOverride = if (changedTrack) null else previous.displayTitleOverride,
             displaySubtitleOverride = if (changedTrack) null else previous.displaySubtitleOverride
@@ -612,6 +625,7 @@ internal class PlaybackProcessRuntime(
     private companion object {
         private const val TAG = "PlaybackProcessRuntime"
         private const val API_BASE_URL = "http://139.9.223.233:3000"
+        private const val STALE_PROGRESS_REGRESSION_TOLERANCE_MS = 300L
     }
 
     private fun safeLogI(message: String) {

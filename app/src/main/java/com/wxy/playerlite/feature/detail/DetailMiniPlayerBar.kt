@@ -62,9 +62,8 @@ import kotlinx.coroutines.launch
 private const val DetailMiniPlayerSwipeThresholdFraction = 0.3f
 private const val DetailMiniPlayerSwipeVisualLimitFraction = 0.42f
 
-internal val DetailMiniPlayerBottomPadding = 12.dp
-internal val DetailMiniPlayerContentPadding =
-    HomeChromeLayoutSpec.miniPlayerMinHeight + DetailMiniPlayerBottomPadding + 4.dp
+internal val DetailMiniPlayerBottomPadding = 0.dp
+internal val DetailMiniPlayerContentPadding = HomeChromeLayoutSpec.miniPlayerMinHeight
 
 private data class DetailMiniPlayerState(
     val contentLine: String,
@@ -81,7 +80,7 @@ internal fun BoxScope.DetailMiniPlayerHost(
     content(
         Modifier
             .align(Alignment.BottomCenter)
-            .padding(horizontal = 20.dp, vertical = bottomPadding)
+            .padding(start = 20.dp, end = 20.dp, bottom = bottomPadding)
     )
 }
 

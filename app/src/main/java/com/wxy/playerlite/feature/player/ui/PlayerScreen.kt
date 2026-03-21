@@ -4,6 +4,7 @@ import android.app.Activity
 import android.graphics.Bitmap
 import android.content.Context
 import android.content.ContextWrapper
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -74,8 +75,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsPropertyKey
@@ -91,6 +94,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.request.ImageRequest
 import androidx.core.view.WindowInsetsControllerCompat
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.designsystem.theme.PlayerLiteThemeContract
@@ -197,9 +202,19 @@ internal fun PlayerScreen(
     }
     val sliderValue = seekValueMs.coerceIn(0L, sliderMax.toLong()).toFloat()
     val seekEnabled = isSeekSupported && (isPlaying || isPaused)
-    var backdropColor by remember(resolvedCoverUrl) {
+    var backdropColor by remember {
         mutableStateOf(Color(0xFF171A21))
     }
+    LaunchedEffect(currentSongId, resolvedCoverUrl) {
+        if (currentSongId == null) {
+            backdropColor = Color(0xFF171A21)
+        }
+    }
+    val animatedBackdropColor by animateColorAsState(
+        targetValue = backdropColor,
+        animationSpec = tween(durationMillis = 300),
+        label = "player_backdrop_color"
+    )
     var localSelectedTopTab by rememberSaveable { mutableStateOf(selectedTopTab) }
     val effectiveSelectedTopTab = if (onSelectTopTab != null) {
         selectedTopTab
@@ -235,7 +250,7 @@ internal fun PlayerScreen(
     PlayerStatusBarStyleEffect(backdropColor = backdropColor)
 
     PlayerScreenBackground(
-        backdropColor = backdropColor,
+        backdropColor = animatedBackdropColor,
         coverUrl = resolvedCoverUrl,
         modifier = modifier
             .fillMaxSize()
@@ -357,6 +372,8 @@ private fun PlayerScreenBackground(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
+    val context = LocalContext.current
+    var lastSuccessfulBackdropPainter by remember { mutableStateOf<Painter?>(null) }
     val middleTone = remember(backdropColor) {
         deriveBackdropGradientStop(
             baseColor = backdropColor,
@@ -394,7 +411,24 @@ private fun PlayerScreenBackground(
         )
         if (!coverUrl.isNullOrBlank()) {
             AsyncImage(
-                model = coverUrl,
+                model = ImageRequest.Builder(context)
+                    .data(coverUrl)
+                    .allowHardware(false)
+                    .build(),
+                transform = { state ->
+                    val cachedPainter = lastSuccessfulBackdropPainter
+                    when {
+                        coverUrl.isNullOrBlank() -> state
+                        cachedPainter == null -> state
+                        state is AsyncImagePainter.State.Loading -> state.copy(painter = cachedPainter)
+                        state is AsyncImagePainter.State.Error -> state.copy(painter = cachedPainter)
+                        else -> state
+                    }
+                },
+                onState = { state ->
+                    val successState = state as? AsyncImagePainter.State.Success ?: return@AsyncImage
+                    lastSuccessfulBackdropPainter = successState.painter
+                },
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()

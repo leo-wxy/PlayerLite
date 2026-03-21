@@ -75,6 +75,11 @@ abstract class BasePlaybackDetailActivity : ComponentActivity() {
     private fun openPlayerFromDetail() {
         startActivity(createOpenPlayerIntent(this))
     }
+
+    protected fun openPlayerAfterQueueReplacement() {
+        playerViewModel.playSelectedAudio()
+        startActivity(createOpenPlayerIntent(this))
+    }
 }
 
 @Composable

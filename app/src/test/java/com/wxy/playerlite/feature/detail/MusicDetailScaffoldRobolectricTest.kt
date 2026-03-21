@@ -133,6 +133,54 @@ class MusicDetailScaffoldRobolectricTest {
     }
 
     @Test
+    fun detailMiniPlayerBar_shouldFloatAboveBottomEdge() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.fillMaxSize().testTag("detail_mini_player_root")) {
+                    DetailMiniPlayerHost(bottomPadding = DetailMiniPlayerBottomPadding) { hostModifier ->
+                        DetailMiniPlayerBar(
+                            playerState = PlayerUiState(
+                                hasSelection = true,
+                                currentTrackTitle = "先知",
+                                currentTrackArtist = "田馥甄",
+                                playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING
+                            ),
+                            onOpenPlayer = {},
+                            onTogglePlayback = {},
+                            onOpenPlaylist = {},
+                            onSkipPrevious = {},
+                            onSkipNext = {},
+                            modifier = hostModifier
+                        )
+                    }
+                }
+            }
+        }
+
+        val rootBounds = composeRule
+            .onNodeWithTag("detail_mini_player_root")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val cardBounds = composeRule
+            .onNodeWithTag("detail_mini_player_card")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        val bottomInsetDp = with(composeRule.density) {
+            (rootBounds.bottom - cardBounds.bottom).toDp()
+        }
+
+        assertTrue(
+            "Expected detail mini player to float above the bottom edge, but inset was $bottomInsetDp",
+            bottomInsetDp >= 18.dp
+        )
+        assertTrue(
+            "Expected detail mini player card to stay narrower than the root width, root=$rootBounds card=$cardBounds",
+            cardBounds.width < rootBounds.width
+        )
+    }
+
+    @Test
     fun detailMiniPlayerBar_clickCard_shouldDispatchOpenPlayer() {
         var openPlayerCount = 0
 
