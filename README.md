@@ -1,6 +1,6 @@
 # PlayerLite
 
-一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手/歌单/专辑详情、登录与用户中心等核心能力，并补齐了播放页歌词、首页 minibar 歌词摘要以及系统 `MediaSession` 动态展示链路。
+一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手/歌单/专辑详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要以及系统 `MediaSession` 动态展示链路。
 
 ## 主要能力
 
@@ -9,8 +9,11 @@
 - 播放列表管理与持久化恢复，支持删除、激活切换、拖拽排序
 - 播放模式：列表循环、单曲循环、随机播放
 - 网络音源 Range 播放、边播边缓存、缓存清理
+- 独立 `PlayerActivity` 作为完整播放器唯一宿主，首页和详情页通过 `minibar` 进入播放器
 - 播放展开页支持“歌曲 / 歌词”双页面切换、当前歌词摘要、完整歌词自动滚动与高亮
-- 首页 `minibar` 与系统 `MediaSession` 可随播放进度动态展示当前歌词摘要，并稳定回退为 `歌名 - 歌手`
+- 首页 `minibar` 可直接打开独立播放器页或以已展开状态进入播放列表
+- 专辑 / 歌手 / 歌单详情页共享底部 `minibar` chrome，主体点击进入独立播放器页，播放列表按钮在当前页打开本地列表 sheet
+- 首页 `minibar`、详情页 `minibar` 与系统 `MediaSession` 可随播放进度动态展示当前歌词摘要，并稳定回退为 `歌名 - 歌手`
 - 首页发现流、悬浮搜索入口、搜索结果页
 - 歌手详情、歌单详情、专辑详情，以及首页/搜索/个人中心到详情页的跳转闭环
 - 手机号/邮箱登录、用户会话恢复、个人中心基础承载
@@ -18,7 +21,7 @@
 ## 模块划分
 
 - `:app`
-  - Compose UI、`MainActivity` 主壳、首页/详情页、用户中心、播放列表业务状态
+  - Compose UI、`MainActivity` 主壳、独立 `PlayerActivity`、首页 / 详情页 `minibar` chrome、用户中心、播放列表业务状态
 - `:feature-search`
   - 独立搜索页模块，承载搜索首页、结果页、详情路由与搜索状态管理
 - `:design-system`
@@ -47,10 +50,18 @@
 
 ## 关键链路
 
-播放器主链路：
+播放器 UI 入口链路：
 
 ```text
-MainActivity
+HomeOverviewScreen / DetailMiniPlayerBar / MediaSession content intent
+  -> PlayerActivity
+  -> PlayerScreen
+```
+
+播放器运行时链路：
+
+```text
+MainActivity / PlayerActivity / BasePlaybackDetailActivity
   -> PlayerViewModel / HomeViewModel
   -> PlayerRuntime
   -> PlayerServiceBridge
