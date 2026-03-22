@@ -1,11 +1,9 @@
 package com.wxy.playerlite.feature.artist
 
-import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -30,7 +28,7 @@ class ArtistDetailScreenRobolectricTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun contentState_shouldShowCoverBioCardStickyTabsAndHotSongsActions() {
+    fun contentState_shouldShowHeroStickyTabsAndHotSongsActions() {
         composeRule.setContent {
             PlayerLiteTheme {
                 ArtistDetailScreen(
@@ -52,7 +50,6 @@ class ArtistDetailScreenRobolectricTest {
         composeRule.onNodeWithTag("detail_back_button").assertIsDisplayed()
         composeRule.onNodeWithTag("artist_detail_hero_panel").assertIsDisplayed()
         composeRule.onNodeWithTag("artist_detail_cover").assertIsDisplayed()
-        composeRule.onNodeWithTag("artist_description_card").assertIsDisplayed()
         scrollOuterToTag("artist_sticky_tabs_header")
         composeRule.onNodeWithTag("artist_sticky_tabs_header").assertIsDisplayed()
         composeRule.onNodeWithTag("artist_tab_hot_songs").assertIsDisplayed()
@@ -65,128 +62,7 @@ class ArtistDetailScreenRobolectricTest {
     }
 
     @Test
-    fun selectingTabs_shouldSwitchBetweenShellPanelsWithoutNeedingAlbumData() {
-        composeRule.setContent {
-            PlayerLiteTheme {
-                ArtistDetailScreen(
-                    state = contentState(
-                        hotSongs = List(12) { index ->
-                            hotSong(
-                                trackId = "track-$index",
-                                title = "热门歌曲 $index"
-                            )
-                        },
-                        albums = List(12) { index ->
-                            album(
-                                albumId = "album-$index",
-                                title = "专辑 $index"
-                            )
-                        },
-                        encyclopediaState = ArtistEncyclopediaUiState.Content(
-                            ArtistEncyclopediaContent(
-                                summary = "周杰伦，华语流行歌手。",
-                                sections = listOf(
-                                    ArtistEncyclopediaSection(
-                                        title = "人物经历",
-                                        body = "这里是歌手百科正文。"
-                                    )
-                                )
-                            )
-                        )
-                    ),
-                    heroAccentColor = MaterialTheme.colorScheme.primary,
-                    topBarContentColor = MaterialTheme.colorScheme.surface,
-                    onBack = {},
-                    onRetry = {},
-                    onPlayAll = {},
-                    onTrackClick = {}
-                )
-            }
-        }
-
-        scrollOuterToTag("artist_tab_pager")
-        scrollHotSongsToTag("artist_hot_song_track-4")
-        composeRule.onNodeWithTag("artist_hot_song_track-4").assertIsDisplayed()
-
-        composeRule.onNodeWithTag("artist_tab_albums", useUnmergedTree = true)
-            .performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("artist_album_album-0").assertIsDisplayed()
-        composeRule.onAllNodesWithTag("artist_hot_song_track-4").assertCountEquals(0)
-
-        composeRule.onNodeWithTag("artist_tab_encyclopedia", useUnmergedTree = true)
-            .performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("artist_encyclopedia_panel").assertIsDisplayed()
-        composeRule.onNodeWithText("这里是歌手百科正文。", substring = true).assertIsDisplayed()
-        composeRule.onAllNodesWithTag("artist_album_album-0").assertCountEquals(0)
-
-        composeRule.onNodeWithTag("artist_tab_hot_songs", useUnmergedTree = true)
-            .performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("artist_hot_song_track-0").assertIsDisplayed()
-        composeRule.onAllNodesWithTag("artist_encyclopedia_panel").assertCountEquals(0)
-    }
-
-    @Test
-    fun swipingTabPager_shouldSwitchBetweenArtistPanels() {
-        composeRule.setContent {
-            PlayerLiteTheme {
-                ArtistDetailScreen(
-                    state = contentState(
-                        hotSongs = List(12) { index ->
-                            hotSong(
-                                trackId = "track-$index",
-                                title = "热门歌曲 $index"
-                            )
-                        },
-                        albums = List(12) { index ->
-                            album(
-                                albumId = "album-$index",
-                                title = "专辑 $index"
-                            )
-                        },
-                        encyclopediaState = ArtistEncyclopediaUiState.Content(
-                            ArtistEncyclopediaContent(
-                                summary = "周杰伦，华语流行歌手。",
-                                sections = listOf(
-                                    ArtistEncyclopediaSection(
-                                        title = "人物经历",
-                                        body = "这里是歌手百科正文。"
-                                    )
-                                )
-                            )
-                        )
-                    ),
-                    heroAccentColor = MaterialTheme.colorScheme.primary,
-                    topBarContentColor = MaterialTheme.colorScheme.surface,
-                    onBack = {},
-                    onRetry = {},
-                    onPlayAll = {},
-                    onTrackClick = {}
-                )
-            }
-        }
-
-        scrollOuterToTag("artist_tab_pager")
-        composeRule.onNodeWithTag("artist_hot_song_track-0").assertIsDisplayed()
-
-        composeRule.onNodeWithTag("artist_tab_pager").performTouchInput { swipeLeft() }
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("artist_album_album-0").assertIsDisplayed()
-
-        composeRule.onNodeWithTag("artist_tab_pager").performTouchInput { swipeLeft() }
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("artist_encyclopedia_panel").assertIsDisplayed()
-        composeRule.onNodeWithText("这里是歌手百科正文。", substring = true).assertIsDisplayed()
-
-        composeRule.onNodeWithTag("artist_tab_pager").performTouchInput { swipeRight() }
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("artist_album_album-0").assertIsDisplayed()
-    }
-
-    @Test
-    fun switchingTabs_afterScrollingHotSongs_shouldResetToAlbumsTop() {
+    fun swipingToAlbums_afterScrollingHotSongs_shouldShowAlbumsPanel() {
         composeRule.setContent {
             PlayerLiteTheme {
                 ArtistDetailScreen(
@@ -218,12 +94,10 @@ class ArtistDetailScreenRobolectricTest {
         scrollHotSongsToTag("artist_hot_song_track-4")
         composeRule.onNodeWithTag("artist_hot_song_track-4").assertIsDisplayed()
 
-        composeRule.onNodeWithTag("artist_tab_albums", useUnmergedTree = true)
-            .performClick()
+        composeRule.onNodeWithTag("artist_tab_pager").performTouchInput { swipeLeft() }
         composeRule.waitForIdle()
 
         composeRule.onNodeWithTag("artist_album_album-0").assertIsDisplayed()
-        composeRule.onAllNodesWithTag("artist_hot_song_track-4").assertCountEquals(0)
     }
 
     @Test
@@ -257,15 +131,25 @@ class ArtistDetailScreenRobolectricTest {
 
         composeRule.onNodeWithTag("detail_scaffold_list")
             .performScrollToNode(hasTestTag("artist_tab_albums"))
-        composeRule.onNodeWithTag("artist_description_card").assertIsDisplayed()
+        val heroBoundsBeforeClick = composeRule
+            .onNodeWithTag("artist_detail_hero_panel")
+            .fetchSemanticsNode()
+            .boundsInRoot
 
-        composeRule.onNodeWithTag("artist_tab_albums", useUnmergedTree = true)
+        composeRule.onNodeWithTag("artist_tab_albums")
             .performClick()
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithTag("artist_description_card").assertIsDisplayed()
+        val heroBoundsAfterClick = composeRule
+            .onNodeWithTag("artist_detail_hero_panel")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        assertTrue(
+            "Expected selecting albums tab before sticky header pins to keep outer page offset stable, before=$heroBoundsBeforeClick after=$heroBoundsAfterClick",
+            abs(heroBoundsBeforeClick.top - heroBoundsAfterClick.top) < 1f
+        )
         composeRule.onNodeWithTag("artist_album_album-0").assertIsDisplayed()
-        composeRule.onAllNodesWithTag("artist_hot_song_track-0").assertCountEquals(0)
     }
 
     @Test
@@ -374,7 +258,7 @@ class ArtistDetailScreenRobolectricTest {
     }
 
     @Test
-    fun clickingHeroDescriptionPreview_shouldShowFullDescriptionSheet() {
+    fun selectingEncyclopediaTab_shouldShowFullDescriptionPanel() {
         val longDescription = "周杰伦简介第一段。周杰伦简介第二段。周杰伦简介第三段。"
 
         composeRule.setContent {
@@ -394,11 +278,14 @@ class ArtistDetailScreenRobolectricTest {
             }
         }
 
-        composeRule.onNodeWithTag("artist_description_preview").assertIsDisplayed().performClick()
-        composeRule.onNodeWithTag("artist_description_card").assertIsDisplayed()
+        scrollOuterToTag("artist_sticky_tabs_header")
+        composeRule.onNodeWithTag("artist_tab_encyclopedia")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.waitForIdle()
 
-        composeRule.onNodeWithTag("artist_description_sheet").assertIsDisplayed()
-        composeRule.onNodeWithTag("artist_description_sheet_scroll").assertIsDisplayed()
+        composeRule.onNodeWithTag("artist_encyclopedia_list").assertIsDisplayed()
+        composeRule.onNodeWithTag("artist_encyclopedia_panel").assertIsDisplayed()
         composeRule.onNodeWithText(longDescription).assertIsDisplayed()
     }
 
@@ -565,4 +452,5 @@ class ArtistDetailScreenRobolectricTest {
         composeRule.onNodeWithTag("artist_hot_songs_list")
             .performScrollToNode(hasTestTag(tag))
     }
+
 }

@@ -1,11 +1,11 @@
 # PlayerLite
 
-一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手/歌单/专辑详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要以及系统 `MediaSession` 动态展示链路。
+一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要以及系统 `MediaSession` 动态展示链路。近期还完成了 detail 页面模块化、播放服务边界收口和共享 Gradle convention 治理。
 
 ## 主要能力
 
 - 本地音频播放，支持 `content://`、`file://`、`http://`、`https://`
-- 独立 `:playback` 进程后台播放，接入 `MediaSessionService`、系统通知、锁屏控制和外部控制器
+- 独立 `:playback-service` 进程后台播放，接入 `MediaSessionService`、系统通知、锁屏控制和外部控制器
 - 播放列表管理与持久化恢复，支持删除、激活切换、拖拽排序
 - 播放模式：列表循环、单曲循环、随机播放
 - 网络音源 Range 播放、边播边缓存、缓存清理
@@ -14,7 +14,7 @@
 - 播放展开页支持“歌曲 / 歌词”双页面切换、当前歌词摘要、完整歌词自动滚动与高亮
 - 首页 `minibar` 可直接打开独立播放器页或以已展开状态进入播放列表
 - 专辑 / 歌手 / 歌单详情页共享底部 `minibar` chrome，主体点击进入独立播放器页，播放列表按钮在当前页打开本地列表 sheet
-- 歌手 / 专辑详情页采用 `header + sticky tabs + HorizontalPager` 结构，支持头部与当前 tab 列表之间的连续纵向滚动接力
+- 歌手 / 专辑 / 歌单详情页采用 `hero + sticky tabs + HorizontalPager` 结构，支持头部与当前 tab 列表之间的连续纵向滚动接力
 - 首页 `minibar`、详情页 `minibar` 与系统 `MediaSession` 可随播放进度动态展示当前歌词摘要，并稳定回退为 `歌名 - 歌手`
 - 首页发现流、悬浮搜索入口、搜索结果页
 - 歌手详情、歌单详情、专辑详情，以及首页/搜索/个人中心到详情页的跳转闭环
@@ -23,7 +23,17 @@
 ## 模块划分
 
 - `:app`
-  - Compose UI、`MainActivity` 主壳、独立 `PlayerActivity`、首页 / 详情页 `minibar` chrome、用户中心、播放列表业务状态
+  - 应用壳层、`Application`、`MainActivity` 主壳、独立 `PlayerActivity`、跨 feature 路由、Activity 适配器与 composition root
+- `build-logic`
+  - 共享 Gradle convention plugin，集中治理 Android application / library / Compose 构建约束
+- `:feature-detail-support`
+  - 详情页共享 UI 支撑：`MusicDetailScaffold`、paging footer、vertical scroll handoff、hero brush、状态卡与 detail chrome 基础能力
+- `:feature-playlist-detail`
+  - 歌单详情页 feature：repository、mapper、UI state、ViewModel、screen composable
+- `:feature-album-detail`
+  - 专辑详情页 feature：repository、mapper、UI state、ViewModel、screen composable
+- `:feature-artist-detail`
+  - 艺人详情页 feature：repository、mapper、UI state、ViewModel、screen composable
 - `:feature-search`
   - 独立搜索页模块，承载搜索首页、结果页、详情路由与搜索状态管理
 - `:design-system`
@@ -31,13 +41,13 @@
 - `:network-core`
   - `OkHttp + kotlinx.serialization` 网络基础设施、统一错误映射
 - `:user`
-  - 登录、用户资料、会话持久化与恢复
+  - 登录、用户资料、会话持久化与恢复等账户 / 会话能力
 - `:playback-client`
-  - 前台到播放服务的 `MediaController` 桥接
+  - 前台到播放服务的 `MediaController` 桥接与稳定播放客户端边界
 - `:playback-contract`
-  - 跨模块共享的播放协议、DTO、Session command
+  - 跨模块共享的播放协议、DTO、Session command、队列元数据模型
 - `:playback-service`
-  - 独立播放进程、`MediaSessionService`、播放运行时
+  - 独立播放进程、`MediaSessionService`、播放运行时与后台播放宿主实现
 - `:player`
   - Kotlin 播放器 API 与 JNI 桥接，驱动 Native C++ + FFmpeg
 - `:cache-core`
@@ -64,6 +74,7 @@ HomeOverviewScreen / DetailMiniPlayerBar / MediaSession content intent
 
 ```text
 ArtistDetailActivity / AlbumDetailActivity / PlaylistDetailActivity
+  -> feature-artist-detail / feature-album-detail / feature-playlist-detail
   -> MusicDetailScaffold / DetailVerticalScrollHandoff
   -> DetailMiniPlayerBar
   -> PlayerActivity / PlaylistBottomSheet
@@ -76,7 +87,7 @@ MainActivity / PlayerActivity / BasePlaybackDetailActivity
   -> PlayerViewModel / HomeViewModel
   -> PlayerRuntime
   -> PlayerServiceBridge
-  -> PlayerMediaSessionService (:playback)
+  -> PlayerMediaSessionService (:playback-service)
   -> PlaybackProcessRuntime
   -> NativePlayer
   -> JNI / FFmpeg / AudioTrack
@@ -136,6 +147,13 @@ OpenSpec 主 spec 校验：
 PATH=/Users/wxy/.nvm/versions/node/v20.20.0/bin:$PATH openspec validate --specs
 ```
 
+## 架构说明
+
+- `app` 已收口为宿主壳层，不再作为详情类 feature 的默认实现落点。
+- 歌单 / 专辑 / 艺人详情页已拆分到各自独立模块，共享的 detail shell 能力收敛到 `:feature-detail-support`。
+- 播放服务实现细节收口在播放层，宿主通过 `:playback-client` / `:playback-contract` 接入，不直接依赖后台服务实现类。
+- 共享 Android 构建约束由 `build-logic` 提供，模块脚本主要保留命名空间、依赖和 native 等差异配置。
+
 ## GitHub 发布
 
 仓库已预埋基于 GitHub Actions 的 tag 发布流程：
@@ -182,6 +200,11 @@ python3 scripts/range_http_server.py --port 18080 --directory .
 ```text
 player-lite/
 ├── app/
+├── build-logic/
+├── feature-detail-support/
+├── feature-playlist-detail/
+├── feature-album-detail/
+├── feature-artist-detail/
 ├── feature-search/
 ├── design-system/
 ├── network-core/

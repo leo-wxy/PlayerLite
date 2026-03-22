@@ -2,22 +2,10 @@ package com.wxy.playerlite.feature.player.runtime
 
 import android.content.Context
 import com.wxy.playerlite.core.AppContainer
-import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playback.SongDetailRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-
-internal data class DetailPlaybackRequest(
-    val items: List<PlaylistItem>,
-    val activeIndex: Int
-)
-
-internal interface DetailPlaybackGateway : AutoCloseable {
-    fun play(request: DetailPlaybackRequest): Boolean
-
-    override fun close() = Unit
-}
 
 internal class RuntimeDetailPlaybackGateway(
     private val runtime: PlayerRuntime,

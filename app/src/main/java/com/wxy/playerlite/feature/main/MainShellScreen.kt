@@ -24,6 +24,7 @@ import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -92,6 +93,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTheme
@@ -236,9 +238,15 @@ internal fun HomeOverviewScreen(
     onOpenPlaylist: () -> Unit = {},
     onSkipPrevious: () -> Unit = {},
     onSkipNext: () -> Unit = {},
+    showInlineMiniPlayer: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val navigationBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val contentBottomPadding = if (showInlineMiniPlayer || playerState.hasSelection) {
+        HomeChromeLayoutSpec.homeOverviewScrollBottomPadding
+    } else {
+        HomeChromeLayoutSpec.userCenterScrollBottomPadding
+    }
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -254,7 +262,7 @@ internal fun HomeOverviewScreen(
                 start = 20.dp,
                 top = 96.dp,
                 end = 20.dp,
-                bottom = HomeChromeLayoutSpec.homeOverviewScrollBottomPadding + navigationBottomPadding
+                bottom = contentBottomPadding + navigationBottomPadding
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -328,22 +336,54 @@ internal fun HomeOverviewScreen(
                 .padding(horizontal = 20.dp, vertical = 14.dp)
         )
 
-        HomePlayEntryCard(
-            playerState = playerState,
-            onOpenPlayer = onOpenPlayer,
-            onTogglePlayback = onTogglePlayback,
-            onOpenPlaylist = onOpenPlaylist,
-            onSkipPrevious = onSkipPrevious,
-            onSkipNext = onSkipNext,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(
-                    start = 16.dp,
-                    end = 16.dp,
-                    bottom = HomeChromeLayoutSpec.homeMiniPlayerBottomSpacing + navigationBottomPadding
-                )
-        )
+        if (showInlineMiniPlayer) {
+            HomePlayEntryCard(
+                playerState = playerState,
+                onOpenPlayer = onOpenPlayer,
+                onTogglePlayback = onTogglePlayback,
+                onOpenPlaylist = onOpenPlaylist,
+                onSkipPrevious = onSkipPrevious,
+                onSkipNext = onSkipNext,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(
+                        start = 16.dp,
+                        end = 16.dp,
+                        bottom = HomeChromeLayoutSpec.homeMiniPlayerBottomSpacing + navigationBottomPadding
+                    )
+            )
+        }
     }
+}
+
+@Composable
+internal fun BoxScope.MainShellMiniPlayerOverlay(
+    playerState: PlayerUiState,
+    onOpenPlayer: () -> Unit,
+    onTogglePlayback: () -> Unit,
+    onOpenPlaylist: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    onSkipNext: () -> Unit
+) {
+    if (!playerState.hasSelection) {
+        return
+    }
+    val navigationBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    HomePlayEntryCard(
+        playerState = playerState,
+        onOpenPlayer = onOpenPlayer,
+        onTogglePlayback = onTogglePlayback,
+        onOpenPlaylist = onOpenPlaylist,
+        onSkipPrevious = onSkipPrevious,
+        onSkipNext = onSkipNext,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(
+                start = 16.dp,
+                end = 16.dp,
+                bottom = HomeChromeLayoutSpec.homeMiniPlayerBottomSpacing + navigationBottomPadding
+            )
+    )
 }
 
 @Composable
@@ -1295,6 +1335,7 @@ internal fun UserCenterScreen(
     onOpenLocalSongs: () -> Unit = {},
     onLoginClick: () -> Unit,
     onLogoutClick: () -> Unit,
+    bottomContentPadding: Dp = HomeChromeLayoutSpec.userCenterScrollBottomPadding,
     modifier: Modifier = Modifier
 ) {
     val navigationBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -1307,7 +1348,7 @@ internal fun UserCenterScreen(
                 .padding(horizontal = UserCenterCompactHorizontalPadding),
             contentPadding = PaddingValues(
                 top = 24.dp,
-                bottom = HomeChromeLayoutSpec.userCenterScrollBottomPadding + navigationBottomPadding
+                bottom = bottomContentPadding + navigationBottomPadding
             ),
             verticalArrangement = Arrangement.spacedBy(0.dp),
             horizontalAlignment = Alignment.CenterHorizontally

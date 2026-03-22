@@ -23,7 +23,6 @@ import com.wxy.playerlite.playback.client.PlayerServiceBridge
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.LocalMusicInfo
 import com.wxy.playerlite.playback.model.PlaybackMode
-import com.wxy.playerlite.playback.process.PlayerMediaSessionService
 import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.user.model.LoginState
 import com.wxy.playerlite.user.model.toAuthHeaders
@@ -704,15 +703,14 @@ internal interface PlayerControlBridge {
     fun release()
 }
 
-private class MediaControllerPlayerControlBridge(
-    context: android.content.Context,
-    onControllerError: (String) -> Unit
-) : PlayerControlBridge {
-    private val delegate = PlayerServiceBridge(
-        context = context,
-        serviceClass = PlayerMediaSessionService::class.java,
-        onControllerError = onControllerError
-    )
+    private class MediaControllerPlayerControlBridge(
+        context: android.content.Context,
+        onControllerError: (String) -> Unit
+    ) : PlayerControlBridge {
+        private val delegate = PlayerServiceBridge(
+            context = context,
+            onControllerError = onControllerError
+        )
 
     override fun prewarmConnection() = delegate.prewarmConnection()
 

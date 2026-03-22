@@ -14,6 +14,7 @@
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="com.wxy.playerlite.playback.PLAYBACK_MEDIA_SESSION_SERVICE" />
             </intent-filter>
         </service>
     </application>

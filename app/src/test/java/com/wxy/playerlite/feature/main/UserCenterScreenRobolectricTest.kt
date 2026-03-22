@@ -1,5 +1,7 @@
 package com.wxy.playerlite.feature.main
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertCountEquals
@@ -10,6 +12,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.Modifier
+import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.user.model.UserSessionUiState
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 import org.junit.Assert.assertEquals
@@ -69,6 +73,46 @@ class UserCenterScreenRobolectricTest {
         composeRule.onNodeWithTag("user_center_content_item_artist-1").assertHasClickAction()
         composeRule.onNodeWithTag("user_center_scroll_content").performTouchInput { swipeUp() }
         composeRule.onNodeWithTag("user_center_secondary_action").assertIsDisplayed()
+    }
+
+    @Test
+    fun userCenterScreen_withGlobalMiniPlayerOverlay_shouldKeepMiniPlayerVisible() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    UserCenterScreen(
+                        userState = UserSessionUiState(
+                            isLoggedIn = true,
+                            title = "Wucy",
+                            summary = "在线账户 · Lv.10"
+                        ),
+                        contentState = UserCenterUiState(),
+                        onTabSelected = {},
+                        onRetryCurrentTab = {},
+                        onContentClick = {},
+                        onLoginClick = {},
+                        onLogoutClick = {},
+                        bottomContentPadding = HomeChromeLayoutSpec.homeOverviewScrollBottomPadding
+                    )
+                    MainShellMiniPlayerOverlay(
+                        playerState = PlayerUiState(
+                            hasSelection = true,
+                            selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
+                            statusText = "正在播放"
+                        ),
+                        onOpenPlayer = {},
+                        onTogglePlayback = {},
+                        onOpenPlaylist = {},
+                        onSkipPrevious = {},
+                        onSkipNext = {}
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("user_center_profile_header").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_play_entry_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_mini_player_bar").assertIsDisplayed()
     }
 
     @Test

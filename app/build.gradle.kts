@@ -1,25 +1,24 @@
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.compose)
+    id("playerlite.android.application")
+    id("playerlite.android.compose")
 }
+
+val apiBaseUrl = providers.gradleProperty("playerlite.apiBaseUrl")
+    .orElse("http://139.9.223.233:3000")
+    .get()
 
 android {
     namespace = "com.wxy.playerlite"
     ndkVersion = "27.0.12077973"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
+    buildFeatures {
+        buildConfig = true
     }
 
     defaultConfig {
         applicationId = "com.wxy.playerlite"
-        minSdk = 24
-        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
     buildTypes {
@@ -31,21 +30,15 @@ android {
             )
         }
     }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-    buildFeatures {
-        compose = true
-    }
-    testOptions {
-        unitTests.isIncludeAndroidResources = true
-    }
 }
 
 dependencies {
     implementation(project(":design-system"))
+    implementation(project(":feature-detail-support"))
     implementation(project(":feature-search"))
+    implementation(project(":feature-playlist-detail"))
+    implementation(project(":feature-album-detail"))
+    implementation(project(":feature-artist-detail"))
     implementation(project(":network-core"))
     implementation(project(":user"))
     implementation(project(":playback-client"))

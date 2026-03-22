@@ -133,11 +133,13 @@ class MusicDetailScaffoldRobolectricTest {
     }
 
     @Test
-    fun detailMiniPlayerBar_shouldFloatAboveBottomEdge() {
+    fun detailMiniPlayerBar_shouldHonorConfiguredBottomPadding() {
+        val expectedBottomPadding = 18.dp
+
         composeRule.setContent {
             PlayerLiteTheme {
                 Box(modifier = Modifier.fillMaxSize().testTag("detail_mini_player_root")) {
-                    DetailMiniPlayerHost(bottomPadding = DetailMiniPlayerBottomPadding) { hostModifier ->
+                    DetailMiniPlayerHost(bottomPadding = expectedBottomPadding) { hostModifier ->
                         DetailMiniPlayerBar(
                             playerState = PlayerUiState(
                                 hasSelection = true,
@@ -171,8 +173,8 @@ class MusicDetailScaffoldRobolectricTest {
         }
 
         assertTrue(
-            "Expected detail mini player to float above the bottom edge, but inset was $bottomInsetDp",
-            bottomInsetDp >= 18.dp
+            "Expected detail mini player bottom inset to match configured padding, expected=$expectedBottomPadding actual=$bottomInsetDp",
+            abs((bottomInsetDp - expectedBottomPadding).value) < 1f
         )
         assertTrue(
             "Expected detail mini player card to stay narrower than the root width, root=$rootBounds card=$cardBounds",

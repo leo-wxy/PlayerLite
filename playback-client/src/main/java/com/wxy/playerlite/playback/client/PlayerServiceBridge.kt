@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
@@ -13,6 +14,7 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
+import com.wxy.playerlite.playback.contract.PlaybackServiceContract
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
@@ -22,7 +24,6 @@ import com.wxy.playerlite.playback.model.PlaybackSessionCommands
 @UnstableApi
 class PlayerServiceBridge(
     context: Context,
-    private val serviceClass: Class<*>,
     private val onControllerError: (String) -> Unit
 ) {
     private val appContext = context.applicationContext
@@ -41,7 +42,12 @@ class PlayerServiceBridge(
     }
 
     fun ensurePlaybackServiceStartedForPlayback() {
-        val intent = Intent(appContext, serviceClass)
+        val componentName = resolvePlaybackServiceComponent() ?: run {
+            onControllerError("Playback service component resolve failed")
+            return
+        }
+        val intent = Intent(PlaybackServiceContract.ACTION_PLAYBACK_MEDIA_SESSION_SERVICE)
+            .setComponent(componentName)
         runCatching {
             ContextCompat.startForegroundService(appContext, intent)
         }.onFailure {
@@ -66,10 +72,11 @@ class PlayerServiceBridge(
             return
         }
 
-        val token = SessionToken(
-            appContext,
-            ComponentName(appContext, serviceClass)
-        )
+        val componentName = resolvePlaybackServiceComponent() ?: run {
+            onControllerError("Playback service component resolve failed")
+            return
+        }
+        val token = SessionToken(appContext, componentName)
         val future = MediaController.Builder(appContext, token).buildAsync()
         controllerFuture = future
 
@@ -108,6 +115,29 @@ class PlayerServiceBridge(
             },
             mainExecutor
         )
+    }
+
+    private fun resolvePlaybackServiceComponent(): ComponentName? {
+        val intent = Intent(PlaybackServiceContract.ACTION_PLAYBACK_MEDIA_SESSION_SERVICE)
+            .setPackage(appContext.packageName)
+        val services = runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                appContext.packageManager.queryIntentServices(
+                    intent,
+                    PackageManager.ResolveInfoFlags.of(0)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                appContext.packageManager.queryIntentServices(intent, 0)
+            }
+        }.getOrElse { error ->
+            safeLogW(
+                "Playback service query failed: ${error.message ?: error::class.java.simpleName}"
+            )
+            return null
+        }
+        val serviceInfo = services.firstOrNull()?.serviceInfo ?: return null
+        return ComponentName(serviceInfo.packageName, serviceInfo.name)
     }
 
     fun syncQueue(

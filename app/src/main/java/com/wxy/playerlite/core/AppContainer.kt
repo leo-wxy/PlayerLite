@@ -37,7 +37,6 @@ import com.wxy.playerlite.user.remote.NeteaseUserRemoteDataSource
 import com.wxy.playerlite.user.storage.SharedPreferencesUserSessionStorage
 
 internal object AppContainer {
-    private const val API_BASE_URL = "http://139.9.223.233:3000"
     private const val USER_SESSION_PREFS = "user_session"
     private const val SEARCH_HISTORY_PREFS = "search_history"
 
@@ -103,7 +102,7 @@ internal object AppContainer {
             storage.read()?.toAuthHeaders() ?: emptyMap()
         }
         val httpClient = JsonHttpClient(
-            baseUrl = API_BASE_URL,
+            baseUrl = AppEnvironmentConfig.apiBaseUrl,
             authHeaderProvider = authHeaderProvider
         )
         val remoteDataSource = NeteaseUserRemoteDataSource(httpClient)

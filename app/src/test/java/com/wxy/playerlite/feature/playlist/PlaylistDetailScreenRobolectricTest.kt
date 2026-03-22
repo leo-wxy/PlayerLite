@@ -76,15 +76,17 @@ class PlaylistDetailScreenRobolectricTest {
         composeRule.onNodeWithTag("playlist_creator_meta").assertIsDisplayed()
         composeRule.onNodeWithTag("playlist_track_count_meta").assertIsDisplayed()
         composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("playlist_tracks_list"))
+        composeRule.onNodeWithTag("playlist_tracks_list")
             .performScrollToNode(hasTestTag("playlist_tracks_section"))
         composeRule.onNodeWithTag("playlist_tracks_section").assertIsDisplayed()
-        composeRule.onNodeWithTag("detail_scaffold_list")
+        composeRule.onNodeWithTag("playlist_tracks_list")
             .performScrollToNode(hasTestTag("playlist_track_1973665667"))
         composeRule.onNodeWithTag("playlist_track_1973665667").assertIsDisplayed()
     }
 
     @Test
-    fun clickingHeroDescriptionPreview_shouldShowFullDescriptionSheet() {
+    fun headerShouldNotShowDescriptionPreview_andDescriptionTabShouldBeAvailable() {
         val longDescription = "热歌榜简介第一段。热歌榜简介第二段。热歌榜简介第三段。"
 
         composeRule.setContent {
@@ -114,12 +116,89 @@ class PlaylistDetailScreenRobolectricTest {
             }
         }
 
-        composeRule.onNodeWithTag("playlist_description_preview").assertIsDisplayed().performClick()
-        composeRule.onAllNodesWithTag("playlist_description_card").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("playlist_description_preview").assertCountEquals(0)
+        composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("playlist_tab_description"))
+        composeRule.onNodeWithTag("playlist_tab_description").assertIsDisplayed()
+    }
 
-        composeRule.onNodeWithTag("playlist_description_sheet").assertIsDisplayed()
-        composeRule.onNodeWithTag("playlist_description_sheet_scroll").assertIsDisplayed()
-        composeRule.onNodeWithText(longDescription).assertIsDisplayed()
+    @Test
+    fun tabsHeader_shouldShowTracksAndDescriptionTabs() {
+        val longDescription = "热歌榜简介第一段。热歌榜简介第二段。热歌榜简介第三段。"
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlaylistDetailScreen(
+                    state = PlaylistDetailUiState(
+                        headerState = PlaylistHeaderUiState.Content(
+                            PlaylistHeaderContent(
+                                playlistId = "3778678",
+                                title = "热歌榜",
+                                creatorName = "网易云音乐",
+                                description = longDescription,
+                                coverUrl = null,
+                                trackCount = 200,
+                                playCount = 13755319296L,
+                                subscribedCount = 12882840L
+                            )
+                        ),
+                        tracksState = PlaylistTracksUiState.Empty
+                    ),
+                    onBack = {},
+                    onRetry = {},
+                    onLoadMore = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("playlist_sticky_tabs_header"))
+        composeRule.onNodeWithTag("playlist_sticky_tabs_header").assertIsDisplayed()
+        composeRule.onNodeWithTag("playlist_tab_tracks").assertIsDisplayed()
+        composeRule.onNodeWithTag("playlist_tab_description").assertIsDisplayed()
+    }
+
+    @Test
+    fun dynamicMeta_shouldFormatPlayCountWithWRule() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlaylistDetailScreen(
+                    state = PlaylistDetailUiState(
+                        headerState = PlaylistHeaderUiState.Content(
+                            PlaylistHeaderContent(
+                                playlistId = "3778678",
+                                title = "热歌榜",
+                                creatorName = "网易云音乐",
+                                description = "云音乐热歌榜",
+                                coverUrl = null,
+                                trackCount = 200,
+                                playCount = 13755319296L,
+                                subscribedCount = 12882840L
+                            )
+                        ),
+                        dynamicState = PlaylistDynamicUiState.Content(
+                            PlaylistDynamicInfo(
+                                commentCount = 9527,
+                                isSubscribed = true,
+                                playCount = 22334455L
+                            )
+                        ),
+                        tracksState = PlaylistTracksUiState.Empty
+                    ),
+                    onBack = {},
+                    onRetry = {},
+                    onLoadMore = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("playlist_dynamic_meta_section").assertIsDisplayed()
+        composeRule.onNodeWithText("9527").assertIsDisplayed()
+        composeRule.onNodeWithText("2233.4w").assertIsDisplayed()
     }
 
     @Test
@@ -153,6 +232,8 @@ class PlaylistDetailScreenRobolectricTest {
 
         composeRule.onNodeWithTag("playlist_detail_hero_panel").assertIsDisplayed()
         composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("playlist_tracks_list"))
+        composeRule.onNodeWithTag("playlist_tracks_list")
             .performScrollToNode(hasTestTag("playlist_tracks_error"))
         composeRule.onNodeWithTag("playlist_tracks_error").assertIsDisplayed()
         composeRule.onNodeWithText("重试").assertIsDisplayed()
@@ -200,6 +281,8 @@ class PlaylistDetailScreenRobolectricTest {
         }
 
         composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("playlist_tracks_list"))
+        composeRule.onNodeWithTag("playlist_tracks_list")
             .performScrollToNode(hasTestTag("playlist_tracks_load_more_loading"))
         composeRule.onNodeWithTag("playlist_tracks_load_more_loading").assertIsDisplayed()
     }
@@ -246,8 +329,58 @@ class PlaylistDetailScreenRobolectricTest {
         }
 
         composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("playlist_tracks_list"))
+        composeRule.onNodeWithTag("playlist_tracks_list")
             .performScrollToNode(hasTestTag("playlist_tracks_load_more_error"))
         composeRule.onNodeWithTag("playlist_tracks_load_more_error").assertIsDisplayed()
+    }
+
+    @Test
+    fun endReached_shouldShowPagingEndFooter() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlaylistDetailScreen(
+                    state = PlaylistDetailUiState(
+                        headerState = PlaylistHeaderUiState.Content(
+                            PlaylistHeaderContent(
+                                playlistId = "3778678",
+                                title = "热歌榜",
+                                creatorName = "网易云音乐",
+                                description = "云音乐热歌榜",
+                                coverUrl = null,
+                                trackCount = 1,
+                                playCount = 13755319296L,
+                                subscribedCount = 12882840L
+                            )
+                        ),
+                        tracksState = PlaylistTracksUiState.Content(
+                            items = listOf(
+                                PlaylistTrackRow(
+                                    trackId = "1973665667",
+                                    title = "海屿你",
+                                    artistText = "马也_Crabbit",
+                                    albumTitle = "海屿你",
+                                    coverUrl = null,
+                                    durationMs = 295940L
+                                )
+                            ),
+                            endReached = true
+                        )
+                    ),
+                    onBack = {},
+                    onRetry = {},
+                    onLoadMore = {},
+                    onPlayAll = {},
+                    onTrackClick = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("playlist_tracks_list"))
+        composeRule.onNodeWithTag("playlist_tracks_list")
+            .performScrollToNode(hasTestTag("playlist_tracks_load_more_end"))
+        composeRule.onNodeWithTag("playlist_tracks_load_more_end").assertIsDisplayed()
     }
 
     @Test
@@ -302,6 +435,8 @@ class PlaylistDetailScreenRobolectricTest {
 
         composeRule.onNodeWithTag("playlist_play_all_button").performClick()
         composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag("playlist_tracks_list"))
+        composeRule.onNodeWithTag("playlist_tracks_list")
             .performScrollToNode(hasTestTag("playlist_track_1973665667"))
         composeRule.onNodeWithTag("playlist_track_1973665667").performClick()
 

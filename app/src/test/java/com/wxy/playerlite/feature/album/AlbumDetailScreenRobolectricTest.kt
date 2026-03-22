@@ -1,10 +1,9 @@
 package com.wxy.playerlite.feature.album
 
-import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToNode
@@ -22,7 +21,7 @@ class AlbumDetailScreenRobolectricTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun contentState_shouldShowHeroDynamicInfoAndTrackList() {
+    fun contentState_shouldShowHeroDynamicInfoAndTracksTabContent() {
         composeRule.setContent {
             PlayerLiteTheme {
                 AlbumDetailScreen(
@@ -57,6 +56,9 @@ class AlbumDetailScreenRobolectricTest {
                             )
                         )
                     ),
+                    heroAccentColor = Color(0xFF3F51B5),
+                    topBarContentColor = Color.White,
+                    headerCommentCountText = "1990",
                     onBack = {},
                     onRetry = {},
                     onLoadMore = {},
@@ -69,18 +71,17 @@ class AlbumDetailScreenRobolectricTest {
         composeRule.onNodeWithTag("album_detail_hero_panel").assertIsDisplayed()
         composeRule.onNodeWithTag("album_detail_cover").assertIsDisplayed()
         composeRule.onNodeWithTag("album_dynamic_meta_section").assertIsDisplayed()
-        composeRule.onNodeWithTag("detail_scaffold_list")
-            .performScrollToNode(hasTestTag("album_tracks_section"))
-        composeRule.onNodeWithTag("album_tracks_section").assertIsDisplayed()
-        composeRule.onNodeWithTag("album_play_all_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("album_hero_play_all_button").assertIsDisplayed()
         composeRule.onNodeWithText("播放全部").assertIsDisplayed()
-        composeRule.onNodeWithTag("detail_scaffold_list")
+        scrollOuterToTag("album_tab_pager")
+        composeRule.onNodeWithTag("album_tracks_list").assertIsDisplayed()
+        composeRule.onNodeWithTag("album_tracks_list")
             .performScrollToNode(hasTestTag("album_track_326696"))
         composeRule.onNodeWithTag("album_track_326696").assertIsDisplayed()
     }
 
     @Test
-    fun clickingHeroDescriptionPreview_shouldShowFullDescriptionSheet() {
+    fun selectingDescriptionTab_shouldShowFullDescriptionPanel() {
         val longDescription = "专辑简介第一段。专辑简介第二段。专辑简介第三段。"
 
         composeRule.setContent {
@@ -102,6 +103,9 @@ class AlbumDetailScreenRobolectricTest {
                         ),
                         dynamicState = AlbumDynamicUiState.Empty
                     ),
+                    heroAccentColor = Color(0xFF3F51B5),
+                    topBarContentColor = Color.White,
+                    headerCommentCountText = null,
                     onBack = {},
                     onRetry = {},
                     onLoadMore = {},
@@ -111,11 +115,14 @@ class AlbumDetailScreenRobolectricTest {
             }
         }
 
-        composeRule.onNodeWithTag("album_description_preview").assertIsDisplayed().performClick()
-        composeRule.onAllNodesWithTag("album_description_card").assertCountEquals(0)
+        scrollOuterToTag("album_sticky_tabs_header")
+        composeRule.onNodeWithTag("album_tab_description", useUnmergedTree = true)
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.waitForIdle()
 
-        composeRule.onNodeWithTag("album_description_sheet").assertIsDisplayed()
-        composeRule.onNodeWithTag("album_description_sheet_scroll").assertIsDisplayed()
+        composeRule.onNodeWithTag("album_description_list").assertIsDisplayed()
+        composeRule.onNodeWithTag("album_description_panel").assertIsDisplayed()
         composeRule.onNodeWithText(longDescription).assertIsDisplayed()
     }
 
@@ -156,6 +163,9 @@ class AlbumDetailScreenRobolectricTest {
                             )
                         )
                     ),
+                    heroAccentColor = Color(0xFF3F51B5),
+                    topBarContentColor = Color.White,
+                    headerCommentCountText = "1990",
                     onBack = {},
                     onRetry = {},
                     onLoadMore = {},
@@ -165,7 +175,8 @@ class AlbumDetailScreenRobolectricTest {
             }
         }
 
-        composeRule.onNodeWithTag("detail_scaffold_list")
+        scrollOuterToTag("album_tab_pager")
+        composeRule.onNodeWithTag("album_tracks_list")
             .performScrollToNode(hasTestTag("album_tracks_load_more_loading"))
         composeRule.onNodeWithTag("album_tracks_load_more_loading").assertIsDisplayed()
     }
@@ -207,6 +218,9 @@ class AlbumDetailScreenRobolectricTest {
                             )
                         )
                     ),
+                    heroAccentColor = Color(0xFF3F51B5),
+                    topBarContentColor = Color.White,
+                    headerCommentCountText = "1990",
                     onBack = {},
                     onRetry = {},
                     onLoadMore = {},
@@ -216,7 +230,8 @@ class AlbumDetailScreenRobolectricTest {
             }
         }
 
-        composeRule.onNodeWithTag("detail_scaffold_list")
+        scrollOuterToTag("album_tab_pager")
+        composeRule.onNodeWithTag("album_tracks_list")
             .performScrollToNode(hasTestTag("album_tracks_load_more_error"))
         composeRule.onNodeWithTag("album_tracks_load_more_error").assertIsDisplayed()
     }
@@ -260,6 +275,9 @@ class AlbumDetailScreenRobolectricTest {
                             )
                         )
                     ),
+                    heroAccentColor = Color(0xFF3F51B5),
+                    topBarContentColor = Color.White,
+                    headerCommentCountText = "1990",
                     onBack = {},
                     onRetry = {},
                     onLoadMore = {},
@@ -269,14 +287,18 @@ class AlbumDetailScreenRobolectricTest {
             }
         }
 
-        composeRule.onNodeWithTag("detail_scaffold_list")
-            .performScrollToNode(hasTestTag("album_play_all_button"))
-        composeRule.onNodeWithTag("album_play_all_button").performClick()
-        composeRule.onNodeWithTag("detail_scaffold_list")
+        composeRule.onNodeWithTag("album_hero_play_all_button").performClick()
+        scrollOuterToTag("album_tab_pager")
+        composeRule.onNodeWithTag("album_tracks_list")
             .performScrollToNode(hasTestTag("album_track_326696"))
         composeRule.onNodeWithTag("album_track_326696").performClick()
 
         assertEquals(1, playAllClicks)
         assertEquals(0, clickedTrackIndex)
+    }
+
+    private fun scrollOuterToTag(tag: String) {
+        composeRule.onNodeWithTag("detail_scaffold_list")
+            .performScrollToNode(hasTestTag(tag))
     }
 }
