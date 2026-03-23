@@ -62,6 +62,7 @@ class PlaybackDetailChromeRobolectricTest {
                     onDismissPlaylist = {
                         playerState = playerState.copy(showPlaylistSheet = false)
                     },
+                    onCyclePlaybackMode = {},
                     onShowOriginalOrderInShuffleChange = {},
                     onSelectPlaylistItem = {},
                     onClearPlaylist = {},

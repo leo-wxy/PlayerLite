@@ -35,6 +35,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,9 +63,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -89,6 +94,7 @@ internal fun PlaylistBottomSheet(
     showOriginalOrderInShuffle: Boolean,
     canReorder: Boolean,
     onDismiss: () -> Unit,
+    onCyclePlaybackMode: () -> Unit = {},
     onShowOriginalOrderInShuffleChange: (Boolean) -> Unit,
     onSelect: (Int) -> Unit,
     onClearAll: () -> Unit = {},
@@ -207,8 +213,28 @@ internal fun PlaylistBottomSheet(
                         }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .clickable(onClick = onCyclePlaybackMode)
+                                    .testTag("playlist_sheet_mode_button")
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = playbackMode.icon(),
+                                    contentDescription = null,
+                                    tint = visualTokens.accentStrong,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = playbackMode.label(),
+                                    color = visualTokens.accentStrong
+                                )
+                            }
                             if (items.isNotEmpty()) {
                                 TextButton(
                                     onClick = onClearAll,
@@ -426,6 +452,20 @@ internal fun PlaylistBottomSheet(
             }
         }
     }
+}
+
+private fun PlaybackMode.label(): String {
+    return when (this) {
+        PlaybackMode.LIST_LOOP -> "列表循环"
+        PlaybackMode.SINGLE_LOOP -> "单曲循环"
+        PlaybackMode.SHUFFLE -> "随机播放"
+    }
+}
+
+private fun PlaybackMode.icon() = when (this) {
+    PlaybackMode.LIST_LOOP -> Icons.Rounded.Repeat
+    PlaybackMode.SINGLE_LOOP -> Icons.Rounded.RepeatOne
+    PlaybackMode.SHUFFLE -> Icons.Rounded.Shuffle
 }
 
 internal data class PlaylistSheetItemVisuals(

@@ -8,19 +8,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,10 +25,12 @@ import com.wxy.playerlite.feature.main.ContentEntryAction
 import com.wxy.playerlite.feature.main.HomeOverviewScreen
 import com.wxy.playerlite.feature.main.HomeChromeLayoutSpec
 import com.wxy.playerlite.feature.main.HomeViewModel
-import com.wxy.playerlite.feature.main.MainBottomBar
-import com.wxy.playerlite.feature.main.MainShellMiniPlayerOverlay
+import com.wxy.playerlite.feature.main.LikedContentActivity
+import com.wxy.playerlite.feature.main.MainShellMiniPlayerChrome
+import com.wxy.playerlite.feature.main.MainShellScaffold
 import com.wxy.playerlite.feature.main.MainShellState
 import com.wxy.playerlite.feature.main.MainTab
+import com.wxy.playerlite.feature.main.RecentSongsActivity
 import com.wxy.playerlite.feature.main.UserCenterScreen
 import com.wxy.playerlite.feature.main.UserCenterViewModel
 import com.wxy.playerlite.feature.main.resolveContentEntryLaunch
@@ -119,127 +114,87 @@ class MainActivity : ComponentActivity() {
                             .background(MaterialTheme.colorScheme.surface)
                     )
                 } else {
-                    Scaffold(
-                        modifier = Modifier.fillMaxSize(),
-                        bottomBar = {
-                            AnimatedVisibility(
-                                visible = true,
-                                enter = fadeIn(animationSpec = tween(durationMillis = 180)) +
-                                    slideInVertically(
-                                        animationSpec = tween(durationMillis = 220),
-                                        initialOffsetY = { fullHeight -> fullHeight / 2 }
-                                    ),
-                                exit = fadeOut(animationSpec = tween(durationMillis = 120)) +
-                                    slideOutVertically(
-                                        animationSpec = tween(durationMillis = 180),
-                                        targetOffsetY = { fullHeight -> fullHeight / 2 }
-                                    )
-                            ) {
-                                MainBottomBar(
-                                    selectedTab = shellState.selectedTab,
-                                    onTabSelected = { tab ->
-                                        shellState = shellState.selectTab(tab)
-                                    }
-                                )
+                    MainShellScaffold(
+                        selectedTab = shellState.selectedTab,
+                        onTabSelected = { tab ->
+                            shellState = shellState.selectTab(tab)
+                        },
+                        playerState = state,
+                        onOpenPlayer = {
+                            startActivity(
+                                PlayerActivity.createIntent(this@MainActivity)
+                            )
+                        },
+                        onTogglePlayback = {
+                            if (state.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING) {
+                                viewModel.pausePlayback()
+                            } else if (state.playbackState == AUDIO_TRACK_PLAYSTATE_PAUSED) {
+                                viewModel.resumePlayback()
+                            } else {
+                                viewModel.playSelectedAudio()
                             }
-                        }
+                        },
+                        onTogglePlaylistSheet = viewModel::onTogglePlaylistSheet,
+                        onDismissPlaylistSheet = viewModel::onDismissPlaylistSheet,
+                        onCyclePlaybackMode = viewModel::cyclePlaybackMode,
+                        onShowOriginalOrderInShuffleChange = viewModel::setShowOriginalOrderInShuffle,
+                        onSelectPlaylistItem = viewModel::selectPlaylistItem,
+                        onClearPlaylist = viewModel::clearPlaylist,
+                        onRemovePlaylistItem = viewModel::removePlaylistItem,
+                        onMovePlaylistItem = viewModel::movePlaylistItem,
+                        onSkipPrevious = viewModel::skipToPreviousTrack,
+                        onSkipNext = viewModel::skipToNextTrack
                     ) { innerPadding ->
                         val topInset = innerPadding.calculateTopPadding()
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            when (shellState.selectedTab) {
-                                MainTab.HOME -> {
-                                    HomeOverviewScreen(
-                                        playerState = state,
-                                        overviewState = homeState,
-                                        onSearchClick = {
-                                            startActivity(
-                                                SearchActivity.createIntent(this@MainActivity)
-                                            )
-                                        },
-                                        onRetry = homeViewModel::refresh,
-                                        onItemClick = ::handleContentEntryAction,
-                                        onOpenPlayer = {
-                                            startActivity(
-                                                PlayerActivity.createIntent(this@MainActivity)
-                                            )
-                                        },
-                                        onTogglePlayback = {
-                                            if (state.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING) {
-                                                viewModel.pausePlayback()
-                                            } else if (state.playbackState == AUDIO_TRACK_PLAYSTATE_PAUSED) {
-                                                viewModel.resumePlayback()
-                                            } else {
-                                                viewModel.playSelectedAudio()
-                                            }
-                                        },
-                                        onOpenPlaylist = {
-                                            startActivity(
-                                                PlayerActivity.createIntent(
-                                                    context = this@MainActivity,
-                                                    openPlaylist = true
-                                                )
-                                            )
-                                        },
-                                        onSkipPrevious = viewModel::skipToPreviousTrack,
-                                        onSkipNext = viewModel::skipToNextTrack,
-                                        showInlineMiniPlayer = false,
-                                        modifier = Modifier.padding(top = topInset)
-                                    )
-                                }
-
-                                MainTab.USER_CENTER -> {
-                                    UserCenterScreen(
-                                        userState = userState,
-                                        contentState = userCenterState,
-                                        onTabSelected = userCenterViewModel::onTabSelected,
-                                        onRetryCurrentTab = userCenterViewModel::retryCurrentTab,
-                                        onContentClick = ::handleContentEntryAction,
-                                        onOpenLocalSongs = {
-                                            localSongsLauncher.launch(
-                                                LocalSongsActivity.createIntent(this@MainActivity)
-                                            )
-                                        },
-                                        onLoginClick = {
-                                            startActivity(LoginActivity.createIntent(this@MainActivity))
-                                        },
-                                        onLogoutClick = viewModel::logout,
-                                        bottomContentPadding = if (state.hasSelection) {
-                                            HomeChromeLayoutSpec.homeOverviewScrollBottomPadding
-                                        } else {
-                                            HomeChromeLayoutSpec.userCenterScrollBottomPadding
-                                        },
-                                        modifier = Modifier.padding(top = topInset)
-                                    )
-                                }
+                        when (shellState.selectedTab) {
+                            MainTab.HOME -> {
+                                HomeOverviewScreen(
+                                    playerState = state,
+                                    overviewState = homeState,
+                                    onSearchClick = {
+                                        startActivity(
+                                            SearchActivity.createIntent(this@MainActivity)
+                                        )
+                                    },
+                                    onRetry = homeViewModel::refresh,
+                                    onItemClick = ::handleContentEntryAction,
+                                    modifier = Modifier.padding(top = topInset)
+                                )
                             }
 
-                            MainShellMiniPlayerOverlay(
-                                playerState = state,
-                                onOpenPlayer = {
-                                    startActivity(
-                                        PlayerActivity.createIntent(this@MainActivity)
-                                    )
-                                },
-                                onTogglePlayback = {
-                                    if (state.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING) {
-                                        viewModel.pausePlayback()
-                                    } else if (state.playbackState == AUDIO_TRACK_PLAYSTATE_PAUSED) {
-                                        viewModel.resumePlayback()
-                                    } else {
-                                        viewModel.playSelectedAudio()
-                                    }
-                                },
-                                onOpenPlaylist = {
-                                    startActivity(
-                                        PlayerActivity.createIntent(
-                                            context = this@MainActivity,
-                                            openPlaylist = true
+                            MainTab.USER_CENTER -> {
+                                UserCenterScreen(
+                                    userState = userState,
+                                    contentState = userCenterState,
+                                    onRetryPlaylists = userCenterViewModel::retryPlaylists,
+                                    onContentClick = ::handleContentEntryAction,
+                                    onOpenLikedSongs = {
+                                        startActivity(
+                                            LikedContentActivity.createIntent(this@MainActivity)
                                         )
-                                    )
-                                },
-                                onSkipPrevious = viewModel::skipToPreviousTrack,
-                                onSkipNext = viewModel::skipToNextTrack
-                            )
+                                    },
+                                    onOpenRecentSongs = {
+                                        startActivity(
+                                            RecentSongsActivity.createIntent(this@MainActivity)
+                                        )
+                                    },
+                                    onOpenLocalSongs = {
+                                        localSongsLauncher.launch(
+                                            LocalSongsActivity.createIntent(this@MainActivity)
+                                        )
+                                    },
+                                    onLoginClick = {
+                                        startActivity(LoginActivity.createIntent(this@MainActivity))
+                                    },
+                                    onLogoutClick = viewModel::logout,
+                                    bottomContentPadding = if (state.hasSelection) {
+                                        HomeChromeLayoutSpec.homeOverviewScrollBottomPadding
+                                    } else {
+                                        HomeChromeLayoutSpec.userCenterScrollBottomPadding
+                                    },
+                                    modifier = Modifier.padding(top = topInset)
+                                )
+                            }
                         }
                     }
                 }

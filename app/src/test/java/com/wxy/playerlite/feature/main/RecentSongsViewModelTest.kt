@@ -17,73 +17,70 @@ import org.junit.Rule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class UserCenterViewModelTest {
+class RecentSongsViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
-    fun init_loggedIn_shouldLoadCreatedPlaylists() = runTest {
-        val repository = FakeUserCenterRepository().apply {
-            createdPlaylistResults += Result.success(
+    fun init_loggedIn_shouldLoadRecentSongs() = runTest {
+        val repository = FakeRecentSongsUserCenterRepository().apply {
+            recentSongResults += Result.success(
                 listOf(
                     UserCenterCollectionItemUiModel(
-                        id = "playlist-created",
-                        title = "我创建的歌单",
-                        subtitle = "Codex",
-                        imageUrl = "http://example.com/created.jpg"
+                        id = "song-1",
+                        title = "Song 1",
+                        subtitle = "Artist 1",
+                        imageUrl = null
                     )
                 )
             )
         }
-        val userRepository = FakeUserRepository(
+        val userRepository = FakeRecentSongsUserRepository(
             initialState = LoginState.LoggedIn(session())
         )
 
-        val viewModel = UserCenterViewModel(
+        val viewModel = RecentSongsViewModel(
             application = Application(),
             repository = repository,
             userRepository = userRepository
         )
         advanceUntilIdle()
 
-        assertEquals(null, viewModel.uiStateFlow.value.likedPlaylistId)
-        val playlistsState = viewModel.uiStateFlow.value.playlistsState as UserCenterPlaylistsState.Content
-        assertEquals(1, playlistsState.items.size)
-        assertEquals("playlist-created", playlistsState.items.single().id)
-        assertEquals(1, repository.createdPlaylistRequestCount)
-        assertEquals(listOf(77L), repository.createdPlaylistRequestUserIds)
+        assertEquals(true, viewModel.uiStateFlow.value.isLoggedIn)
+        val state = viewModel.uiStateFlow.value.contentState as RecentSongsContentState.Content
+        assertEquals(1, state.items.size)
+        assertEquals(listOf(100), repository.requestLimits)
     }
 
     @Test
-    fun init_loggedOut_shouldNotRequestPlaylists() = runTest {
-        val repository = FakeUserCenterRepository().apply {
-            createdPlaylistResults += Result.success(listOf(item("playlist-1", "我创建的歌单")))
-        }
-        val userRepository = FakeUserRepository(
+    fun init_loggedOut_shouldStayIdleWithoutRequest() = runTest {
+        val repository = FakeRecentSongsUserCenterRepository()
+        val userRepository = FakeRecentSongsUserRepository(
             initialState = LoginState.LoggedOut
         )
 
-        val viewModel = UserCenterViewModel(
+        val viewModel = RecentSongsViewModel(
             application = Application(),
             repository = repository,
             userRepository = userRepository
         )
         advanceUntilIdle()
 
-        assertEquals(0, repository.createdPlaylistRequestCount)
-        assertEquals(UserCenterPlaylistsState.Idle, viewModel.uiStateFlow.value.playlistsState)
+        assertEquals(false, viewModel.uiStateFlow.value.isLoggedIn)
+        assertEquals(RecentSongsContentState.Idle, viewModel.uiStateFlow.value.contentState)
+        assertEquals(0, repository.requestCount)
     }
 
     @Test
     fun sessionInvalid_shouldLogoutAndResetState() = runTest {
-        val repository = FakeUserCenterRepository().apply {
-            createdPlaylistResults += Result.failure(UserSessionInvalidException("需要登录"))
+        val repository = FakeRecentSongsUserCenterRepository().apply {
+            recentSongResults += Result.failure(UserSessionInvalidException("需要登录"))
         }
-        val userRepository = FakeUserRepository(
+        val userRepository = FakeRecentSongsUserRepository(
             initialState = LoginState.LoggedIn(session())
         )
 
-        val viewModel = UserCenterViewModel(
+        val viewModel = RecentSongsViewModel(
             application = Application(),
             repository = repository,
             userRepository = userRepository
@@ -92,46 +89,16 @@ class UserCenterViewModelTest {
 
         assertEquals(1, userRepository.logoutCount)
         assertEquals(LoginState.LoggedOut, userRepository.loginStateFlow.value)
-        assertEquals(UserCenterPlaylistsState.Idle, viewModel.uiStateFlow.value.playlistsState)
-        assertEquals(null, viewModel.uiStateFlow.value.likedPlaylistId)
-    }
-
-    @Test
-    fun ordinaryFailure_shouldExposeLocalErrorAndSupportRetry() = runTest {
-        val repository = FakeUserCenterRepository().apply {
-            createdPlaylistResults += Result.failure(IllegalStateException("用户歌单加载失败"))
-            createdPlaylistResults += Result.success(listOf(item("playlist-1", "我创建的歌单")))
-        }
-        val userRepository = FakeUserRepository(
-            initialState = LoginState.LoggedIn(session())
-        )
-
-        val viewModel = UserCenterViewModel(
-            application = Application(),
-            repository = repository,
-            userRepository = userRepository
-        )
-        advanceUntilIdle()
-
-        assertEquals(
-            "用户歌单加载失败",
-            (viewModel.uiStateFlow.value.playlistsState as UserCenterPlaylistsState.Error).message
-        )
-
-        viewModel.retryPlaylists()
-        advanceUntilIdle()
-
-        assertEquals(2, repository.createdPlaylistRequestCount)
-        val playlistsState = viewModel.uiStateFlow.value.playlistsState as UserCenterPlaylistsState.Content
-        assertEquals(1, playlistsState.items.size)
+        assertEquals(false, viewModel.uiStateFlow.value.isLoggedIn)
+        assertEquals(RecentSongsContentState.Idle, viewModel.uiStateFlow.value.contentState)
     }
 }
 
-private class FakeUserCenterRepository : UserCenterRepository {
-    val createdPlaylistResults = ArrayDeque<Result<List<UserCenterCollectionItemUiModel>>>()
+private class FakeRecentSongsUserCenterRepository : UserCenterRepository {
+    val recentSongResults = ArrayDeque<Result<List<UserCenterCollectionItemUiModel>>>()
 
-    var createdPlaylistRequestCount = 0
-    val createdPlaylistRequestUserIds = mutableListOf<Long>()
+    var requestCount = 0
+    val requestLimits = mutableListOf<Int>()
 
     override suspend fun fetchFavoriteArtists(): List<UserCenterCollectionItemUiModel> {
         error("Not needed in this test")
@@ -139,12 +106,6 @@ private class FakeUserCenterRepository : UserCenterRepository {
 
     override suspend fun fetchFavoriteColumns(): List<UserCenterCollectionItemUiModel> {
         error("Not needed in this test")
-    }
-
-    override suspend fun fetchCreatedPlaylists(userId: Long): List<UserCenterCollectionItemUiModel> {
-        createdPlaylistRequestCount += 1
-        createdPlaylistRequestUserIds += userId
-        return createdPlaylistResults.removeFirst().getOrThrow()
     }
 
     override suspend fun fetchUserPlaylists(userId: Long): List<UserCenterCollectionItemUiModel> {
@@ -156,11 +117,13 @@ private class FakeUserCenterRepository : UserCenterRepository {
     }
 
     override suspend fun fetchRecentSongs(limit: Int): List<UserCenterCollectionItemUiModel> {
-        error("Not needed in this test")
+        requestCount += 1
+        requestLimits += limit
+        return recentSongResults.removeFirst().getOrThrow()
     }
 }
 
-private class FakeUserRepository(
+private class FakeRecentSongsUserRepository(
     initialState: LoginState
 ) : UserRepository {
     private val state = MutableStateFlow(initialState)
@@ -198,15 +161,6 @@ private class FakeUserRepository(
     }
 }
 
-private fun item(id: String, title: String): UserCenterCollectionItemUiModel {
-    return UserCenterCollectionItemUiModel(
-        id = id,
-        title = title,
-        subtitle = "subtitle",
-        imageUrl = null
-    )
-}
-
 private fun session(): UserSession {
     return UserSession(
         cookie = "MUSIC_U=token; __csrf=csrf-token;",
@@ -230,3 +184,4 @@ private fun session(): UserSession {
         lastValidatedAtMs = 123L
     )
 }
+

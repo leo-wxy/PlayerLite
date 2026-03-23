@@ -12,18 +12,20 @@
 - 共享 `design-system` 主题 token，统一首页、搜索、播放器展开页、播放列表与 `minibar` 的主强调色、次级信息和容器层级
 - 独立 `PlayerActivity` 作为完整播放器唯一宿主，首页和详情页通过 `minibar` 进入播放器
 - 播放展开页支持“歌曲 / 歌词”双页面切换、当前歌词摘要、完整歌词自动滚动与高亮
-- 首页 `minibar` 可直接打开独立播放器页或以已展开状态进入播放列表
+- 首页 `minibar` 主体打开独立播放器页，播放列表按钮在当前首页直接展开本地播放列表浮层
+- 首页 / 详情页 / 播放器页复用统一播放列表 half-sheet，支持删除、重排、随机顺序切换与播放模式切换
 - 专辑 / 歌手 / 歌单详情页共享底部 `minibar` chrome，主体点击进入独立播放器页，播放列表按钮在当前页打开本地列表 sheet
 - 歌手 / 专辑 / 歌单详情页采用 `hero + sticky tabs + HorizontalPager` 结构，支持头部与当前 tab 列表之间的连续纵向滚动接力
 - 首页 `minibar`、详情页 `minibar` 与系统 `MediaSession` 可随播放进度动态展示当前歌词摘要，并稳定回退为 `歌名 - 歌手`
 - 首页发现流、悬浮搜索入口、搜索结果页
-- 歌手详情、歌单详情、专辑详情，以及首页/搜索/个人中心到详情页的跳转闭环
-- 手机号/邮箱登录、用户会话恢复、个人中心基础承载
+- 歌手详情、歌单详情、专辑详情，以及首页/搜索/个人中心/喜欢页到详情页的跳转闭环
+- 手机号/邮箱登录、用户会话恢复、个人中心主页、喜欢内容页、最近播放页与本地歌曲入口
+- 个人中心采用“资料头部 + 喜欢 / 最近 / 本地快捷入口 + 自建歌单”结构
 
 ## 模块划分
 
 - `:app`
-  - 应用壳层、`Application`、`MainActivity` 主壳、独立 `PlayerActivity`、跨 feature 路由、Activity 适配器与 composition root
+  - 应用壳层、`Application`、`MainActivity` 双 Tab 主壳、独立 `PlayerActivity`、`LikedContentActivity`、`RecentSongsActivity`、跨 feature 路由、Activity 适配器与 composition root
 - `build-logic`
   - 共享 Gradle convention plugin，集中治理 Android application / library / Compose 构建约束
 - `:feature-detail-support`
@@ -194,6 +196,12 @@ python3 scripts/range_http_server.py --port 18080 --directory .
 - 登录与用户资料
 - 歌词接口 `/lyric?id=<songId>`
 - 歌手/歌单/专辑详情相关接口
+- 用户中心收藏歌手 `/artist/sublist`
+- 用户中心收藏专栏 `/topic/sublist`
+- 用户中心收藏 MV `/mv/sublist`
+- 用户自建歌单 `/user/playlist/create`
+- 用户收藏歌单 `/user/playlist/collect`
+- 最近播放歌曲 `/record/recent/song`
 
 ## 目录概览
 

@@ -327,6 +327,7 @@ internal fun PlayerScreen(
                 showOriginalOrderInShuffle = showOriginalOrderInShuffle,
                 canReorder = canReorderPlaylist,
                 onDismiss = onDismissPlaylistSheet,
+                onCyclePlaybackMode = onCyclePlaybackMode,
                 onShowOriginalOrderInShuffleChange = onShowOriginalOrderInShuffleChange,
                 onSelect = onSelectPlaylistItem,
                 onClearAll = onClearPlaylist,

@@ -5,12 +5,15 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.graphics.Color
 import com.wxy.playerlite.core.playlist.PlaylistItem
@@ -180,6 +183,50 @@ class PlaylistSheetVisualsTest {
         composeRule.waitForIdle()
 
         waitUntilFirstVisibleIndex(expected = 0)
+    }
+
+    @Test
+    fun playlistBottomSheet_shouldShowAndCyclePlaybackModeFromHeader() {
+        var playbackMode by mutableStateOf(PlaybackMode.LIST_LOOP)
+        var cycleCount = 0
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlaylistBottomSheet(
+                    visible = true,
+                    items = buildPlaylistItems(prefix = "mode"),
+                    activeIndex = 0,
+                    playbackMode = playbackMode,
+                    showOriginalOrderInShuffle = false,
+                    canReorder = true,
+                    onDismiss = {},
+                    onCyclePlaybackMode = {
+                        cycleCount += 1
+                        playbackMode = when (playbackMode) {
+                            PlaybackMode.LIST_LOOP -> PlaybackMode.SINGLE_LOOP
+                            PlaybackMode.SINGLE_LOOP -> PlaybackMode.SHUFFLE
+                            PlaybackMode.SHUFFLE -> PlaybackMode.LIST_LOOP
+                        }
+                    },
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSelect = {},
+                    onRemove = {},
+                    onMove = { _, _ -> }
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("列表循环").assertIsDisplayed()
+        composeRule.onNodeWithTag("playlist_sheet_mode_button")
+            .performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.onNodeWithText("单曲循环").assertIsDisplayed()
+        composeRule.onNodeWithTag("playlist_sheet_mode_button")
+            .performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.onNodeWithText("随机播放").assertIsDisplayed()
+
+        composeRule.runOnIdle {
+            assertEquals(2, cycleCount)
+        }
     }
 
     private fun scrollAwayFromActiveItem() {

@@ -57,8 +57,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MoreHoriz
@@ -73,6 +77,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -100,13 +105,11 @@ import com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTheme
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.resolvePlayerDisplayContentProjection
+import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
 import com.wxy.playerlite.feature.search.SearchRouteTarget
 import com.wxy.playerlite.feature.user.AccountCardSurface
-import com.wxy.playerlite.feature.user.AccountPageBackground
 import com.wxy.playerlite.feature.user.AccountPrimaryButton
-import com.wxy.playerlite.feature.user.AccountStatusChip
 import com.wxy.playerlite.feature.user.AccountVisualStyle
-import com.wxy.playerlite.feature.user.accountHeroBrush
 import com.wxy.playerlite.feature.user.model.UserSessionUiState
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -233,16 +236,10 @@ internal fun HomeOverviewScreen(
     onSearchClick: () -> Unit,
     onRetry: () -> Unit,
     onItemClick: (ContentEntryAction) -> Unit,
-    onOpenPlayer: () -> Unit,
-    onTogglePlayback: () -> Unit = {},
-    onOpenPlaylist: () -> Unit = {},
-    onSkipPrevious: () -> Unit = {},
-    onSkipNext: () -> Unit = {},
-    showInlineMiniPlayer: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val navigationBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val contentBottomPadding = if (showInlineMiniPlayer || playerState.hasSelection) {
+    val contentBottomPadding = if (playerState.hasSelection) {
         HomeChromeLayoutSpec.homeOverviewScrollBottomPadding
     } else {
         HomeChromeLayoutSpec.userCenterScrollBottomPadding
@@ -335,24 +332,71 @@ internal fun HomeOverviewScreen(
                 .align(Alignment.TopCenter)
                 .padding(horizontal = 20.dp, vertical = 14.dp)
         )
+    }
+}
 
-        if (showInlineMiniPlayer) {
-            HomePlayEntryCard(
-                playerState = playerState,
-                onOpenPlayer = onOpenPlayer,
-                onTogglePlayback = onTogglePlayback,
-                onOpenPlaylist = onOpenPlaylist,
-                onSkipPrevious = onSkipPrevious,
-                onSkipNext = onSkipNext,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(
-                        start = 16.dp,
-                        end = 16.dp,
-                        bottom = HomeChromeLayoutSpec.homeMiniPlayerBottomSpacing + navigationBottomPadding
+@Composable
+internal fun MainShellScaffold(
+    selectedTab: MainTab,
+    onTabSelected: (MainTab) -> Unit,
+    playerState: PlayerUiState,
+    onOpenPlayer: () -> Unit,
+    onTogglePlayback: () -> Unit,
+    onTogglePlaylistSheet: () -> Unit,
+    onDismissPlaylistSheet: () -> Unit,
+    onCyclePlaybackMode: () -> Unit,
+    onShowOriginalOrderInShuffleChange: (Boolean) -> Unit,
+    onSelectPlaylistItem: (Int) -> Unit,
+    onClearPlaylist: () -> Unit,
+    onRemovePlaylistItem: (Int) -> Unit,
+    onMovePlaylistItem: (Int, Int) -> Unit,
+    onSkipPrevious: () -> Unit,
+    onSkipNext: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable (PaddingValues) -> Unit
+) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            bottomBar = {
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 180)) +
+                        slideInVertically(
+                            animationSpec = tween(durationMillis = 220),
+                            initialOffsetY = { fullHeight -> fullHeight / 2 }
+                        ),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 120)) +
+                        slideOutVertically(
+                            animationSpec = tween(durationMillis = 180),
+                            targetOffsetY = { fullHeight -> fullHeight / 2 }
+                        )
+                ) {
+                    MainBottomBar(
+                        selectedTab = selectedTab,
+                        onTabSelected = onTabSelected
                     )
-            )
+                }
+            }
+        ) { innerPadding ->
+            content(innerPadding)
         }
+
+        MainShellMiniPlayerChrome(
+            playerState = playerState,
+            onOpenPlayer = onOpenPlayer,
+            onTogglePlayback = onTogglePlayback,
+            onTogglePlaylistSheet = onTogglePlaylistSheet,
+            onDismissPlaylistSheet = onDismissPlaylistSheet,
+            onCyclePlaybackMode = onCyclePlaybackMode,
+            onShowOriginalOrderInShuffleChange = onShowOriginalOrderInShuffleChange,
+            onSelectPlaylistItem = onSelectPlaylistItem,
+            onClearPlaylist = onClearPlaylist,
+            onRemovePlaylistItem = onRemovePlaylistItem,
+            onMovePlaylistItem = onMovePlaylistItem,
+            onSkipPrevious = onSkipPrevious,
+            onSkipNext = onSkipNext
+        )
     }
 }
 
@@ -383,6 +427,47 @@ internal fun BoxScope.MainShellMiniPlayerOverlay(
                 end = 16.dp,
                 bottom = HomeChromeLayoutSpec.homeMiniPlayerBottomSpacing + navigationBottomPadding
             )
+    )
+}
+
+@Composable
+internal fun BoxScope.MainShellMiniPlayerChrome(
+    playerState: PlayerUiState,
+    onOpenPlayer: () -> Unit,
+    onTogglePlayback: () -> Unit,
+    onTogglePlaylistSheet: () -> Unit,
+    onDismissPlaylistSheet: () -> Unit,
+    onCyclePlaybackMode: () -> Unit,
+    onShowOriginalOrderInShuffleChange: (Boolean) -> Unit,
+    onSelectPlaylistItem: (Int) -> Unit,
+    onClearPlaylist: () -> Unit,
+    onRemovePlaylistItem: (Int) -> Unit,
+    onMovePlaylistItem: (Int, Int) -> Unit,
+    onSkipPrevious: () -> Unit,
+    onSkipNext: () -> Unit
+) {
+    MainShellMiniPlayerOverlay(
+        playerState = playerState,
+        onOpenPlayer = onOpenPlayer,
+        onTogglePlayback = onTogglePlayback,
+        onOpenPlaylist = onTogglePlaylistSheet,
+        onSkipPrevious = onSkipPrevious,
+        onSkipNext = onSkipNext
+    )
+    PlaylistBottomSheet(
+        visible = playerState.showPlaylistSheet,
+        items = playerState.playlistItems,
+        activeIndex = playerState.activePlaylistIndex,
+        playbackMode = playerState.playbackMode,
+        showOriginalOrderInShuffle = playerState.showOriginalOrderInShuffle,
+        canReorder = playerState.canReorderPlaylist,
+        onDismiss = onDismissPlaylistSheet,
+        onCyclePlaybackMode = onCyclePlaybackMode,
+        onShowOriginalOrderInShuffleChange = onShowOriginalOrderInShuffleChange,
+        onSelect = onSelectPlaylistItem,
+        onClearAll = onClearPlaylist,
+        onRemove = onRemovePlaylistItem,
+        onMove = onMovePlaylistItem
     )
 }
 
@@ -1329,9 +1414,10 @@ private fun HomeSectionTitle(title: String) {
 internal fun UserCenterScreen(
     userState: UserSessionUiState,
     contentState: UserCenterUiState,
-    onTabSelected: (UserCenterTab) -> Unit,
-    onRetryCurrentTab: () -> Unit,
+    onRetryPlaylists: () -> Unit,
     onContentClick: (ContentEntryAction) -> Unit,
+    onOpenLikedSongs: (String?) -> Unit = {},
+    onOpenRecentSongs: () -> Unit = {},
     onOpenLocalSongs: () -> Unit = {},
     onLoginClick: () -> Unit,
     onLogoutClick: () -> Unit,
@@ -1339,7 +1425,7 @@ internal fun UserCenterScreen(
     modifier: Modifier = Modifier
 ) {
     val navigationBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    AccountPageBackground(modifier = modifier.fillMaxSize()) {
+    UserCenterPageBackground(modifier = modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -1356,16 +1442,23 @@ internal fun UserCenterScreen(
             item {
                 UserCenterProfileHeader(
                     userState = userState,
-                    onOpenLocalSongs = onOpenLocalSongs,
-                    modifier = Modifier.padding(bottom = if (userState.isLoggedIn) 12.dp else 18.dp)
+                    modifier = Modifier.padding(bottom = 14.dp)
+                )
+            }
+
+            item {
+                UserCenterQuickEntryRow(
+                    onOpenLiked = { onOpenLikedSongs(contentState.likedPlaylistId) },
+                    onOpenRecent = onOpenRecentSongs,
+                    onOpenLocal = onOpenLocalSongs,
+                    modifier = Modifier.padding(bottom = if (userState.isLoggedIn) 18.dp else 14.dp)
                 )
             }
 
             if (userState.isLoggedIn) {
                 userCenterLoggedInItems(
                     contentState = contentState,
-                    onTabSelected = onTabSelected,
-                    onRetryCurrentTab = onRetryCurrentTab,
+                    onRetryPlaylists = onRetryPlaylists,
                     onContentClick = onContentClick,
                     onLogoutClick = onLogoutClick
                 )
@@ -1379,137 +1472,170 @@ internal fun UserCenterScreen(
 }
 
 @Composable
-private fun UserCenterLocalSongsEntry(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+private fun UserCenterPageBackground(
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
 ) {
-    Surface(
-        onClick = onClick,
+    val background = MaterialTheme.colorScheme.background
+    val surface = MaterialTheme.colorScheme.surface
+    val brush = remember(background, surface) {
+        Brush.verticalGradient(
+            colors = listOf(background, surface)
+        )
+    }
+    Box(
         modifier = modifier
-            .fillMaxWidth()
-            .testTag("user_center_local_songs_entry"),
-        shape = RoundedCornerShape(20.dp),
-        color = AccountVisualStyle.accentSoftColor.copy(alpha = 0.9f)
+            .fillMaxSize()
+            .background(brush)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Surface(
-                modifier = Modifier.size(36.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = Color.White.copy(alpha = 0.72f)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Rounded.LibraryMusic,
-                        contentDescription = null,
-                        tint = AccountVisualStyle.accentColor
-                    )
-                }
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = "本地歌曲",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "进入独立页面扫描、缓存并测试本地播放列表。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = AccountVisualStyle.accentTextColor.copy(alpha = 0.88f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
+        content()
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun UserCenterQuickEntryRow(
+    onOpenLiked: () -> Unit,
+    onOpenRecent: () -> Unit,
+    onOpenLocal: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("user_center_quick_entries"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        UserCenterQuickEntry(
+            icon = Icons.Rounded.Favorite,
+            label = "喜欢",
+            onClick = onOpenLiked,
+            modifier = Modifier.testTag("user_center_quick_entry_liked")
+        )
+        UserCenterQuickEntry(
+            icon = Icons.Rounded.History,
+            label = "最近",
+            onClick = onOpenRecent,
+            modifier = Modifier.testTag("user_center_quick_entry_recent")
+        )
+        UserCenterQuickEntry(
+            icon = Icons.Rounded.DownloadForOffline,
+            label = "本地",
+            onClick = onOpenLocal,
+            modifier = Modifier.testTag("user_center_quick_entry_local")
+        )
+    }
+}
+
+@Composable
+private fun UserCenterQuickEntry(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .width(72.dp)
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Surface(
+            modifier = Modifier.size(48.dp),
+            shape = RoundedCornerShape(18.dp),
+            color = AccountVisualStyle.accentColor.copy(alpha = 0.12f),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = AccountVisualStyle.accentColor,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
 private fun LazyListScope.userCenterLoggedInItems(
     contentState: UserCenterUiState,
-    onTabSelected: (UserCenterTab) -> Unit,
-    onRetryCurrentTab: () -> Unit,
+    onRetryPlaylists: () -> Unit,
     onContentClick: (ContentEntryAction) -> Unit,
     onLogoutClick: () -> Unit
 ) {
-    stickyHeader(key = "user-center-tabs-header") {
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            UserCenterPanelSurface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("user_center_sticky_tabs_header"),
-                shape = UserCenterPanelHeaderShape
-            ) {
-                Box(modifier = Modifier.testTag("user_center_content_panel_header")) {
-                    UserCenterTabs(
-                        selectedTab = contentState.selectedTab,
-                        onTabSelected = onTabSelected
-                    )
-                }
-            }
-        }
+    item {
+        UserCenterPlaylistsSectionHeader(
+            subtitle = (contentState.playlistsState as? UserCenterPlaylistsState.Content)
+                ?.items
+                ?.size
+                ?.takeIf { it > 0 }
+                ?.let { "共 $it 个歌单" },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 10.dp)
+                .testTag("user_center_playlists_section_header")
+        )
     }
 
-    when (val currentState = contentState.currentTabState) {
-        UserCenterTabContentState.Idle,
-        UserCenterTabContentState.Loading -> item {
+    when (val currentState = contentState.playlistsState) {
+        UserCenterPlaylistsState.Idle,
+        UserCenterPlaylistsState.Loading -> item {
             UserCenterPanelSurface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("user_center_content_panel_body"),
-                shape = UserCenterPanelBodyShape
+                    .testTag("user_center_playlists_panel"),
+                shape = RoundedCornerShape(AccountVisualStyle.cardCorner)
             ) {
                 UserCenterStatusPanel(
-                    title = "正在加载${contentState.selectedTab.label}",
-                    subtitle = "正在同步当前账号的个人内容，请稍候。",
-                    tag = "user_center_content_loading"
+                    title = "正在加载歌单",
+                    subtitle = "正在同步当前账号的歌单数据，请稍候。",
+                    tag = "user_center_playlists_loading"
                 ) {
                     CircularProgressIndicator(color = AccountVisualStyle.accentColor)
                 }
             }
         }
 
-        UserCenterTabContentState.Empty -> item {
+        UserCenterPlaylistsState.Empty -> item {
             UserCenterPanelSurface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("user_center_content_panel_body"),
-                shape = UserCenterPanelBodyShape
+                    .testTag("user_center_playlists_panel"),
+                shape = RoundedCornerShape(AccountVisualStyle.cardCorner)
             ) {
                 UserCenterStatusPanel(
-                    title = "${contentState.selectedTab.label}暂时为空",
-                    subtitle = "当前账号下还没有可展示的内容，稍后再来看看。",
-                    tag = "user_center_content_empty"
+                    title = "还没有自建歌单",
+                    subtitle = "自建歌单后，这里会展示你的歌单列表。",
+                    tag = "user_center_playlists_empty"
                 )
             }
         }
 
-        is UserCenterTabContentState.Error -> item {
+        is UserCenterPlaylistsState.Error -> item {
             UserCenterPanelSurface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("user_center_content_panel_body"),
-                shape = UserCenterPanelBodyShape
+                    .testTag("user_center_playlists_panel"),
+                shape = RoundedCornerShape(AccountVisualStyle.cardCorner)
             ) {
                 UserCenterStatusPanel(
-                    title = "${contentState.selectedTab.label}加载失败",
+                    title = "歌单加载失败",
                     subtitle = currentState.message,
-                    tag = "user_center_content_error"
+                    tag = "user_center_playlists_error"
                 ) {
                     OutlinedButton(
-                        onClick = onRetryCurrentTab,
-                        modifier = Modifier.testTag("user_center_content_retry")
+                        onClick = onRetryPlaylists,
+                        modifier = Modifier.testTag("user_center_playlists_retry")
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Refresh,
@@ -1522,28 +1648,19 @@ private fun LazyListScope.userCenterLoggedInItems(
             }
         }
 
-        is UserCenterTabContentState.Content -> itemsIndexed(
+        is UserCenterPlaylistsState.Content -> itemsIndexed(
             items = currentState.items,
             key = { _, item -> item.id }
         ) { index, item ->
             UserCenterCollectionCard(
                 item = item,
-                selectedTab = contentState.selectedTab,
                 shape = userCenterContentItemShape(
                     index = index,
                     total = currentState.items.size
                 ),
-                showTopDivider = true,
+                showTopDivider = index > 0,
                 onClick = { onContentClick(item.action) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(
-                        if (index == 0) {
-                            Modifier.testTag("user_center_content_panel_body")
-                        } else {
-                            Modifier
-                        }
-                    )
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
@@ -1591,7 +1708,7 @@ private fun LazyListScope.userCenterLoggedOutItems(
                 textAlign = TextAlign.Center
             )
             Text(
-                text = "收藏歌手、专栏和用户歌单会在登录后通过 Tab 分区展示。",
+                text = "登录后可查看自己的歌单、最近播放等个人内容。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -1617,64 +1734,20 @@ private fun LazyListScope.userCenterLoggedOutItems(
     }
 }
 
-@Composable
-private fun UserCenterTabs(
-    selectedTab: UserCenterTab,
-    onTabSelected: (UserCenterTab) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("user_center_tabs"),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        UserCenterTab.entries.forEach { tab ->
-            val selected = tab == selectedTab
-            Surface(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(18.dp))
-                    .clickable { onTabSelected(tab) }
-                    .testTag("user_center_tab_${tab.tagSuffix}"),
-                color = if (selected) {
-                    AccountVisualStyle.accentColor
-                } else {
-                    AccountVisualStyle.accentSoftColor
-                }
-            ) {
-                Text(
-                    text = tab.label,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (selected) Color.White else AccountVisualStyle.accentTextColor,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
-                )
-            }
-        }
-    }
-}
-
-private val UserCenterPanelHeaderShape = RoundedCornerShape(
-    topStart = AccountVisualStyle.cardCorner,
-    topEnd = AccountVisualStyle.cardCorner,
-    bottomStart = 0.dp,
-    bottomEnd = 0.dp
-)
-
-private val UserCenterPanelBodyShape = RoundedCornerShape(
-    topStart = 0.dp,
-    topEnd = 0.dp,
-    bottomStart = AccountVisualStyle.cardCorner,
-    bottomEnd = AccountVisualStyle.cardCorner
-)
-
 private fun userCenterContentItemShape(
     index: Int,
     total: Int
 ): RoundedCornerShape {
     return when {
         total <= 0 -> RoundedCornerShape(AccountVisualStyle.cardCorner)
+        index == 0 && total == 1 -> RoundedCornerShape(AccountVisualStyle.cardCorner)
+        index == 0 -> RoundedCornerShape(
+            topStart = AccountVisualStyle.cardCorner,
+            topEnd = AccountVisualStyle.cardCorner,
+            bottomStart = 0.dp,
+            bottomEnd = 0.dp
+        )
+
         index == total - 1 -> RoundedCornerShape(
             topStart = 0.dp,
             topEnd = 0.dp,
@@ -1740,7 +1813,6 @@ private fun UserCenterStatusPanel(
 @Composable
 private fun UserCenterCollectionCard(
     item: UserCenterCollectionItemUiModel,
-    selectedTab: UserCenterTab,
     shape: RoundedCornerShape,
     showTopDivider: Boolean,
     onClick: () -> Unit,
@@ -1791,11 +1863,7 @@ private fun UserCenterCollectionCard(
                             )
                         } else {
                             Icon(
-                                imageVector = when (selectedTab) {
-                                    UserCenterTab.ARTISTS -> Icons.Rounded.Person
-                                    UserCenterTab.COLUMNS -> Icons.Rounded.Album
-                                    UserCenterTab.PLAYLISTS -> Icons.Rounded.Album
-                                },
+                                imageVector = Icons.Rounded.LibraryMusic,
                                 contentDescription = null,
                                 tint = AccountVisualStyle.accentColor
                             )
@@ -1843,6 +1911,13 @@ private fun UserCenterCollectionCard(
                         )
                     }
                 }
+
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.size(22.dp)
+                )
             }
         }
     }
@@ -1851,35 +1926,36 @@ private fun UserCenterCollectionCard(
 @Composable
 private fun UserCenterProfileHeader(
     userState: UserSessionUiState,
-    onOpenLocalSongs: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val headerShape = RoundedCornerShape(AccountVisualStyle.heroCorner)
-    Box(
+    val headerShape = RoundedCornerShape(28.dp)
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .testTag("user_center_profile_header")
-            .shadow(18.dp, headerShape, clip = false)
-            .clip(headerShape)
-            .background(accountHeroBrush())
-            .padding(horizontal = 24.dp, vertical = 22.dp)
+            .testTag("user_center_profile_header"),
+        shape = headerShape,
+        color = Color.White.copy(alpha = 0.96f),
+        tonalElevation = 0.dp,
+        shadowElevation = 10.dp,
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
+        )
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 22.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            AccountStatusChip(
-                text = if (userState.isLoggedIn) "个人主页" else "欢迎来到个人主页"
-            )
-            Surface(
+            val levelBadge = remember(userState.summary) {
+                resolveUserLevelBadge(userState.summary)
+            }
+            Box(
                 modifier = Modifier
-                    .size(112.dp)
-                    .testTag("user_center_avatar"),
-                shape = CircleShape,
-                color = Color.White.copy(alpha = 0.96f),
-                tonalElevation = 6.dp,
-                shadowElevation = 14.dp
+                    .size(96.dp)
+                    .testTag("user_center_avatar")
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     if (!userState.avatarUrl.isNullOrBlank()) {
@@ -1890,18 +1966,48 @@ private fun UserCenterProfileHeader(
                                 .fillMaxSize()
                                 .clip(CircleShape)
                                 .border(
-                                    width = 1.dp,
-                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f),
+                                    width = 4.dp,
+                                    color = Color.White.copy(alpha = 0.94f),
                                     shape = CircleShape
                                 ),
                             contentScale = ContentScale.Crop
                         )
                     } else {
-                        Icon(
-                            imageVector = Icons.Rounded.AccountCircle,
-                            contentDescription = null,
-                            tint = AccountVisualStyle.accentColor,
-                            modifier = Modifier.size(72.dp)
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            shape = CircleShape,
+                            color = AccountVisualStyle.accentSoftColor,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Rounded.AccountCircle,
+                                    contentDescription = null,
+                                    tint = AccountVisualStyle.accentColor,
+                                    modifier = Modifier.size(72.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                levelBadge?.let { badge ->
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(2.dp),
+                        color = AccountVisualStyle.accentColor,
+                        shape = RoundedCornerShape(999.dp),
+                        tonalElevation = 0.dp,
+                        shadowElevation = 2.dp
+                    ) {
+                        Text(
+                            text = badge,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -1910,25 +2016,60 @@ private fun UserCenterProfileHeader(
             Text(
                 text = userState.title,
                 style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.testTag("user_center_title")
             )
 
             Text(
                 text = userState.summary,
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White.copy(alpha = 0.9f),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.testTag("user_center_summary")
             )
-
-            UserCenterLocalSongsEntry(
-                onClick = onOpenLocalSongs,
-                modifier = Modifier.fillMaxWidth()
-            )
         }
+    }
+}
+
+private fun resolveUserLevelBadge(summary: String): String? {
+    val match = Regex("""Lv\.?\s*(\d+)""").find(summary) ?: return null
+    return "Lv${match.groupValues.getOrNull(1).orEmpty()}".takeIf { it.length > 2 }
+}
+
+@Composable
+private fun UserCenterPlaylistsSectionHeader(
+    subtitle: String?,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = "自建歌单",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            subtitle?.let { text ->
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Icon(
+            imageVector = Icons.Rounded.MoreHoriz,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+        )
     }
 }
 

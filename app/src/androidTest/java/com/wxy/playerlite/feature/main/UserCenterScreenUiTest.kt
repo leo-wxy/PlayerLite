@@ -28,22 +28,24 @@ class UserCenterScreenUiTest {
                         avatarUrl = "https://example.com/avatar.jpg"
                     ),
                     contentState = UserCenterUiState(
-                        selectedTab = UserCenterTab.ARTISTS,
-                        artistsState = UserCenterTabContentState.Content(
+                        likedPlaylistId = "liked-playlist",
+                        playlistsState = UserCenterPlaylistsState.Content(
                             items = listOf(
                                 UserCenterCollectionItemUiModel(
-                                    id = "artist-1",
-                                    title = "yama",
-                                    subtitle = "真昼",
+                                    id = "playlist-1",
+                                    title = "夜间循环",
+                                    subtitle = "Wucy",
                                     imageUrl = null,
-                                    meta = "68 张专辑"
+                                    meta = "18 首"
                                 )
                             )
                         )
                     ),
-                    onTabSelected = {},
-                    onRetryCurrentTab = {},
+                    onRetryPlaylists = {},
                     onContentClick = {},
+                    onOpenLikedSongs = {},
+                    onOpenRecentSongs = {},
+                    onOpenLocalSongs = {},
                     onLoginClick = {},
                     onLogoutClick = {}
                 )
@@ -51,14 +53,14 @@ class UserCenterScreenUiTest {
         }
 
         composeRule.onNodeWithTag("user_center_profile_header").assertIsDisplayed()
-        composeRule.onNodeWithTag("user_center_info_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("user_center_quick_entries").assertIsDisplayed()
         composeRule.onNodeWithTag("user_center_scroll_content").performTouchInput { swipeUp() }
-        composeRule.onNodeWithTag("user_center_tabs").assertIsDisplayed()
+        composeRule.onNodeWithTag("user_center_playlists_section_header").assertIsDisplayed()
         composeRule.onNodeWithTag("user_center_secondary_action").assertIsDisplayed()
         composeRule.onNodeWithTag("user_center_avatar").assertIsDisplayed()
         composeRule.onNodeWithTag("user_center_title").assertIsDisplayed()
         composeRule.onNodeWithTag("user_center_summary").assertIsDisplayed()
-        composeRule.onNodeWithTag("user_center_content_item_artist-1").assertIsDisplayed()
+        composeRule.onNodeWithTag("user_center_content_item_playlist-1").assertIsDisplayed()
     }
 
     @Test
@@ -68,9 +70,11 @@ class UserCenterScreenUiTest {
                 UserCenterScreen(
                     userState = UserSessionUiState(),
                     contentState = UserCenterUiState(),
-                    onTabSelected = {},
-                    onRetryCurrentTab = {},
+                    onRetryPlaylists = {},
                     onContentClick = {},
+                    onOpenLikedSongs = {},
+                    onOpenRecentSongs = {},
+                    onOpenLocalSongs = {},
                     onLoginClick = {},
                     onLogoutClick = {}
                 )

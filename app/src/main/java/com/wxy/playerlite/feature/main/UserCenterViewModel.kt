@@ -12,58 +12,25 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-internal enum class UserCenterTab(
-    val label: String,
-    val tagSuffix: String
-) {
-    PLAYLISTS(label = "用户歌单", tagSuffix = "playlists"),
-    ARTISTS(label = "收藏歌手", tagSuffix = "artists"),
-    COLUMNS(label = "收藏专栏", tagSuffix = "columns")
-}
-
 internal data class UserCenterUiState(
-    val selectedTab: UserCenterTab = UserCenterTab.PLAYLISTS,
-    val artistsState: UserCenterTabContentState = UserCenterTabContentState.Idle,
-    val columnsState: UserCenterTabContentState = UserCenterTabContentState.Idle,
-    val playlistsState: UserCenterTabContentState = UserCenterTabContentState.Idle
-) {
-    val currentTabState: UserCenterTabContentState
-        get() = stateFor(selectedTab)
+    val playlistsState: UserCenterPlaylistsState = UserCenterPlaylistsState.Idle,
+    val likedPlaylistId: String? = null
+)
 
-    fun stateFor(tab: UserCenterTab): UserCenterTabContentState {
-        return when (tab) {
-            UserCenterTab.ARTISTS -> artistsState
-            UserCenterTab.COLUMNS -> columnsState
-            UserCenterTab.PLAYLISTS -> playlistsState
-        }
-    }
+internal sealed interface UserCenterPlaylistsState {
+    data object Idle : UserCenterPlaylistsState
 
-    fun withTabState(
-        tab: UserCenterTab,
-        state: UserCenterTabContentState
-    ): UserCenterUiState {
-        return when (tab) {
-            UserCenterTab.ARTISTS -> copy(artistsState = state)
-            UserCenterTab.COLUMNS -> copy(columnsState = state)
-            UserCenterTab.PLAYLISTS -> copy(playlistsState = state)
-        }
-    }
-}
-
-internal sealed interface UserCenterTabContentState {
-    data object Idle : UserCenterTabContentState
-
-    data object Loading : UserCenterTabContentState
+    data object Loading : UserCenterPlaylistsState
 
     data class Content(
         val items: List<UserCenterCollectionItemUiModel>
-    ) : UserCenterTabContentState
+    ) : UserCenterPlaylistsState
 
     data class Error(
         val message: String
-    ) : UserCenterTabContentState
+    ) : UserCenterPlaylistsState
 
-    data object Empty : UserCenterTabContentState
+    data object Empty : UserCenterPlaylistsState
 }
 
 internal class UserCenterViewModel(
@@ -84,68 +51,53 @@ internal class UserCenterViewModel(
         viewModelScope.launch {
             userRepository.loginStateFlow.collect { loginState ->
                 when (loginState) {
-                    LoginState.LoggedOut -> resetContentStates()
-                    is LoginState.LoggedIn -> loadSelectedTabIfNeeded()
+                    LoginState.LoggedOut -> resetState()
+                    is LoginState.LoggedIn -> loadPlaylistsIfNeeded()
                 }
             }
         }
     }
 
-    fun onTabSelected(tab: UserCenterTab) {
-        if (_uiState.value.selectedTab != tab) {
-            _uiState.value = _uiState.value.copy(selectedTab = tab)
-        }
-        loadSelectedTabIfNeeded()
-    }
-
-    fun retryCurrentTab() {
+    fun retryPlaylists() {
         if (userRepository.currentSession() == null) {
             return
         }
-        loadTab(tab = _uiState.value.selectedTab, force = true)
+        loadPlaylists(force = true)
     }
 
-    private fun loadSelectedTabIfNeeded() {
+    private fun loadPlaylistsIfNeeded() {
         if (userRepository.currentSession() == null) {
             return
         }
-        val tab = _uiState.value.selectedTab
-        when (_uiState.value.stateFor(tab)) {
-            UserCenterTabContentState.Idle,
-            is UserCenterTabContentState.Error -> loadTab(tab = tab, force = false)
+        when (_uiState.value.playlistsState) {
+            UserCenterPlaylistsState.Idle,
+            is UserCenterPlaylistsState.Error -> loadPlaylists(force = false)
 
-            UserCenterTabContentState.Loading,
-            UserCenterTabContentState.Empty,
-            is UserCenterTabContentState.Content -> Unit
+            UserCenterPlaylistsState.Loading,
+            UserCenterPlaylistsState.Empty,
+            is UserCenterPlaylistsState.Content -> Unit
         }
     }
 
-    private fun loadTab(
-        tab: UserCenterTab,
-        force: Boolean
-    ) {
+    private fun loadPlaylists(force: Boolean) {
         val session = userRepository.currentSession() ?: return
-        if (!force && _uiState.value.stateFor(tab) is UserCenterTabContentState.Loading) {
+        if (!force && _uiState.value.playlistsState is UserCenterPlaylistsState.Loading) {
             return
         }
-        _uiState.value = _uiState.value.withTabState(
-            tab = tab,
-            state = UserCenterTabContentState.Loading
+        _uiState.value = _uiState.value.copy(
+            playlistsState = UserCenterPlaylistsState.Loading
         )
         viewModelScope.launch {
             runCatching {
-                when (tab) {
-                    UserCenterTab.ARTISTS -> repository.fetchFavoriteArtists()
-                    UserCenterTab.COLUMNS -> repository.fetchFavoriteColumns()
-                    UserCenterTab.PLAYLISTS -> repository.fetchUserPlaylists(session.userInfo.userId)
-                }
+                val userId = session.userInfo.userId
+                repository.fetchCreatedPlaylists(userId)
             }.onSuccess { items ->
-                _uiState.value = _uiState.value.withTabState(
-                    tab = tab,
-                    state = if (items.isEmpty()) {
-                        UserCenterTabContentState.Empty
+                _uiState.value = _uiState.value.copy(
+                    likedPlaylistId = null,
+                    playlistsState = if (items.isEmpty()) {
+                        UserCenterPlaylistsState.Empty
                     } else {
-                        UserCenterTabContentState.Content(items)
+                        UserCenterPlaylistsState.Content(items)
                     }
                 )
             }.onFailure { error ->
@@ -153,27 +105,16 @@ internal class UserCenterViewModel(
                     userRepository.logout()
                     return@launch
                 }
-                _uiState.value = _uiState.value.withTabState(
-                    tab = tab,
-                    state = UserCenterTabContentState.Error(
-                        message = error.message ?: defaultErrorMessage(tab)
+                _uiState.value = _uiState.value.copy(
+                    playlistsState = UserCenterPlaylistsState.Error(
+                        message = error.message ?: "用户歌单加载失败"
                     )
                 )
             }
         }
     }
 
-    private fun resetContentStates() {
-        _uiState.value = UserCenterUiState(
-            selectedTab = _uiState.value.selectedTab
-        )
-    }
-
-    private fun defaultErrorMessage(tab: UserCenterTab): String {
-        return when (tab) {
-            UserCenterTab.ARTISTS -> "收藏歌手加载失败"
-            UserCenterTab.COLUMNS -> "收藏专栏加载失败"
-            UserCenterTab.PLAYLISTS -> "用户歌单加载失败"
-        }
+    private fun resetState() {
+        _uiState.value = UserCenterUiState()
     }
 }

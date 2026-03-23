@@ -64,6 +64,18 @@
             android:theme="@style/Theme.PlayerLite" />
 
         <activity
+            android:name=".feature.main.RecentSongsActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.PlayerLite" />
+
+        <activity
+            android:name=".feature.main.LikedContentActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.PlayerLite" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"

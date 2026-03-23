@@ -42,6 +42,42 @@ class HomeOverviewScreenRobolectricTest {
     @get:Rule
     val composeRule = createComposeRule()
 
+    private fun setHomeWithMiniPlayerOverlay(
+        playerState: PlayerUiState,
+        onOpenPlayer: () -> Unit = {},
+        onTogglePlayback: () -> Unit = {},
+        onOpenPlaylist: () -> Unit = {},
+        onSkipPrevious: () -> Unit = {},
+        onSkipNext: () -> Unit = {}
+    ) {
+        val effectivePlayerState = playerState.copy(hasSelection = true)
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    HomeOverviewScreen(
+                        playerState = effectivePlayerState,
+                        overviewState = HomeOverviewUiState(
+                            isLoading = false,
+                            sections = emptyList(),
+                            searchKeywords = listOf("默认热搜")
+                        ),
+                        onSearchClick = {},
+                        onRetry = {},
+                        onItemClick = {}
+                    )
+                    MainShellMiniPlayerOverlay(
+                        playerState = effectivePlayerState,
+                        onOpenPlayer = onOpenPlayer,
+                        onTogglePlayback = onTogglePlayback,
+                        onOpenPlaylist = onOpenPlaylist,
+                        onSkipPrevious = onSkipPrevious,
+                        onSkipNext = onSkipNext
+                    )
+                }
+            }
+        }
+    }
+
     @Test
     fun discoveryItems_shouldExposeClickActionAcrossLayouts() {
         composeRule.setContent {
@@ -99,8 +135,7 @@ class HomeOverviewScreenRobolectricTest {
                     ),
                     onSearchClick = {},
                     onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = {}
+                    onItemClick = {}
                 )
             }
         }
@@ -143,8 +178,7 @@ class HomeOverviewScreenRobolectricTest {
                     ),
                     onSearchClick = {},
                     onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = {}
+                    onItemClick = {}
                 )
             }
         }
@@ -198,8 +232,7 @@ class HomeOverviewScreenRobolectricTest {
                     ),
                     onSearchClick = {},
                     onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = {}
+                    onItemClick = {}
                 )
             }
         }
@@ -241,8 +274,7 @@ class HomeOverviewScreenRobolectricTest {
                     ),
                     onSearchClick = {},
                     onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = {}
+                    onItemClick = {}
                 )
             }
         }
@@ -253,25 +285,12 @@ class HomeOverviewScreenRobolectricTest {
 
     @Test
     fun miniPlayerBar_shouldRenderParsedTrackInfoAndIndependentControls() {
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
-                        statusText = "正在播放"
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = {}
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
+                statusText = "正在播放"
+            )
+        )
 
         composeRule.onNodeWithTag("home_mini_player_bar").assertIsDisplayed()
         composeRule.onNodeWithTag("home_mini_player_progress_line", useUnmergedTree = true).assertIsDisplayed()
@@ -288,28 +307,15 @@ class HomeOverviewScreenRobolectricTest {
 
     @Test
     fun miniPlayerBar_shouldPreferRuntimeTrackMetadataOverFileNameParsing() {
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "raw-cache-file-name.mp3",
-                        currentTrackTitle = "尘大师 Lightly",
-                        currentTrackArtist = "陈奕迅",
-                        currentCoverUrl = "https://example.com/lightly.jpg",
-                        statusText = "正在播放"
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = {}
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "raw-cache-file-name.mp3",
+                currentTrackTitle = "尘大师 Lightly",
+                currentTrackArtist = "陈奕迅",
+                currentCoverUrl = "https://example.com/lightly.jpg",
+                statusText = "正在播放"
+            )
+        )
 
         composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true)
             .assertTextEquals("尘大师 Lightly - 陈奕迅")
@@ -319,39 +325,26 @@ class HomeOverviewScreenRobolectricTest {
 
     @Test
     fun miniPlayerBar_shouldPreferCurrentLyricInSingleLine() {
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "周杰伦 - 夜曲.mp3",
-                        currentTrackTitle = "夜曲",
-                        currentTrackArtist = "周杰伦",
-                        lyricUiState = PlayerLyricUiState.Content(
-                            lyrics = ParsedLyrics(
-                                songId = "1973665667",
-                                lines = listOf(
-                                    LyricLine(timestampMs = 1_000L, text = "第一句"),
-                                    LyricLine(timestampMs = 3_000L, text = "第二句")
-                                ),
-                                rawText = "[00:01.00]第一句\n[00:03.00]第二句"
-                            )
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "周杰伦 - 夜曲.mp3",
+                currentTrackTitle = "夜曲",
+                currentTrackArtist = "周杰伦",
+                lyricUiState = PlayerLyricUiState.Content(
+                    lyrics = ParsedLyrics(
+                        songId = "1973665667",
+                        lines = listOf(
+                            LyricLine(timestampMs = 1_000L, text = "第一句"),
+                            LyricLine(timestampMs = 3_000L, text = "第二句")
                         ),
-                        seekPositionMs = 3_500L,
-                        durationMs = 120_000L,
-                        statusText = "正在播放"
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = {}
-                )
-            }
-        }
+                        rawText = "[00:01.00]第一句\n[00:03.00]第二句"
+                    )
+                ),
+                seekPositionMs = 3_500L,
+                durationMs = 120_000L,
+                statusText = "正在播放"
+            )
+        )
 
         composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true)
             .assertTextEquals("第二句")
@@ -361,28 +354,15 @@ class HomeOverviewScreenRobolectricTest {
 
     @Test
     fun miniPlayerBar_shouldRenderRuntimeCoverInsteadOfPlaceholder() {
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "raw-cache-file-name.mp3",
-                        currentTrackTitle = "尘大师 Lightly",
-                        currentTrackArtist = "陈奕迅",
-                        currentCoverUrl = "https://example.com/lightly.jpg",
-                        statusText = "正在播放"
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = {}
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "raw-cache-file-name.mp3",
+                currentTrackTitle = "尘大师 Lightly",
+                currentTrackArtist = "陈奕迅",
+                currentCoverUrl = "https://example.com/lightly.jpg",
+                statusText = "正在播放"
+            )
+        )
 
         composeRule.onNodeWithTag("home_mini_player_artwork_image", useUnmergedTree = true)
             .assertIsDisplayed()
@@ -392,25 +372,12 @@ class HomeOverviewScreenRobolectricTest {
 
     @Test
     fun miniPlayerBar_withoutAnyCover_shouldRenderPlaceholderArtwork() {
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
-                        statusText = "正在播放"
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = {}
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
+                statusText = "正在播放"
+            )
+        )
 
         composeRule.onNodeWithTag("home_mini_player_artwork_placeholder", useUnmergedTree = true)
             .assertIsDisplayed()
@@ -422,25 +389,13 @@ class HomeOverviewScreenRobolectricTest {
     fun miniPlayerBar_bodyClick_shouldOpenPlayer() {
         var openPlayerCount = 0
 
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
-                        statusText = "已暂停"
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = { openPlayerCount += 1 }
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
+                statusText = "已暂停"
+            ),
+            onOpenPlayer = { openPlayerCount += 1 }
+        )
 
         composeRule.onNodeWithTag("home_mini_player_body").performClick()
         composeRule.runOnIdle {
@@ -454,27 +409,15 @@ class HomeOverviewScreenRobolectricTest {
         var togglePlaybackCount = 0
         var openPlaylistCount = 0
 
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
-                        statusText = "正在播放"
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = { openPlayerCount += 1 },
-                    onTogglePlayback = { togglePlaybackCount += 1 },
-                    onOpenPlaylist = { openPlaylistCount += 1 }
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
+                statusText = "正在播放"
+            ),
+            onOpenPlayer = { openPlayerCount += 1 },
+            onTogglePlayback = { togglePlaybackCount += 1 },
+            onOpenPlaylist = { openPlaylistCount += 1 }
+        )
 
         composeRule.onNodeWithTag("home_mini_player_play_pause_button").performClick()
         composeRule.onNodeWithTag("home_mini_player_playlist_button").performClick()
@@ -491,27 +434,14 @@ class HomeOverviewScreenRobolectricTest {
         var openPlayerCount = 0
         var openPlaylistCount = 0
 
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
-                        statusText = "正在播放"
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = { openPlayerCount += 1 },
-                    onTogglePlayback = {},
-                    onOpenPlaylist = { openPlaylistCount += 1 }
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
+                statusText = "正在播放"
+            ),
+            onOpenPlayer = { openPlayerCount += 1 },
+            onOpenPlaylist = { openPlaylistCount += 1 }
+        )
 
         composeRule.onNodeWithTag("home_mini_player_playlist_button").performClick()
         composeRule.runOnIdle {
@@ -525,31 +455,19 @@ class HomeOverviewScreenRobolectricTest {
         var openPlayerCount = 0
         var skipNextCount = 0
 
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
-                        statusText = "正在播放",
-                        playlistItems = listOf(
-                            PlaylistItem(id = "track-0", uri = "file:///current.mp3", displayName = "陈奕迅 - 尘大师 Lightly.mp3"),
-                            PlaylistItem(id = "track-1", uri = "file:///next.mp3", displayName = "下一首")
-                        ),
-                        activePlaylistIndex = 0
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = { openPlayerCount += 1 },
-                    onSkipNext = { skipNextCount += 1 }
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
+                statusText = "正在播放",
+                playlistItems = listOf(
+                    PlaylistItem(id = "track-0", uri = "file:///current.mp3", displayName = "陈奕迅 - 尘大师 Lightly.mp3"),
+                    PlaylistItem(id = "track-1", uri = "file:///next.mp3", displayName = "下一首")
+                ),
+                activePlaylistIndex = 0
+            ),
+            onOpenPlayer = { openPlayerCount += 1 },
+            onSkipNext = { skipNextCount += 1 }
+        )
 
         composeRule.onNodeWithTag("home_mini_player_song_area", useUnmergedTree = true).performTouchInput {
             swipeLeft()
@@ -566,31 +484,19 @@ class HomeOverviewScreenRobolectricTest {
         var openPlayerCount = 0
         var skipPreviousCount = 0
 
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
-                        statusText = "正在播放",
-                        playlistItems = listOf(
-                            PlaylistItem(id = "track-0", uri = "file:///prev.mp3", displayName = "上一首"),
-                            PlaylistItem(id = "track-1", uri = "file:///current.mp3", displayName = "陈奕迅 - 尘大师 Lightly.mp3")
-                        ),
-                        activePlaylistIndex = 1
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = { openPlayerCount += 1 },
-                    onSkipPrevious = { skipPreviousCount += 1 }
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
+                statusText = "正在播放",
+                playlistItems = listOf(
+                    PlaylistItem(id = "track-0", uri = "file:///prev.mp3", displayName = "上一首"),
+                    PlaylistItem(id = "track-1", uri = "file:///current.mp3", displayName = "陈奕迅 - 尘大师 Lightly.mp3")
+                ),
+                activePlaylistIndex = 1
+            ),
+            onOpenPlayer = { openPlayerCount += 1 },
+            onSkipPrevious = { skipPreviousCount += 1 }
+        )
 
         composeRule.onNodeWithTag("home_mini_player_song_area", useUnmergedTree = true).performTouchInput {
             swipeRight()
@@ -608,27 +514,15 @@ class HomeOverviewScreenRobolectricTest {
         var skipPreviousCount = 0
         var skipNextCount = 0
 
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
-                        statusText = "正在播放"
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = { openPlayerCount += 1 },
-                    onSkipPrevious = { skipPreviousCount += 1 },
-                    onSkipNext = { skipNextCount += 1 }
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
+                statusText = "正在播放"
+            ),
+            onOpenPlayer = { openPlayerCount += 1 },
+            onSkipPrevious = { skipPreviousCount += 1 },
+            onSkipNext = { skipNextCount += 1 }
+        )
 
         composeRule.onNodeWithTag("home_mini_player_song_area", useUnmergedTree = true).performTouchInput {
             down(center)
@@ -649,31 +543,19 @@ class HomeOverviewScreenRobolectricTest {
         var skipPreviousCount = 0
         var skipNextCount = 0
 
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
-                        statusText = "正在播放",
-                        playlistItems = listOf(
-                            PlaylistItem(id = "track-0", uri = "file:///current.mp3", displayName = "陈奕迅 - 尘大师 Lightly.mp3")
-                        ),
-                        activePlaylistIndex = 0
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = { openPlayerCount += 1 },
-                    onSkipPrevious = { skipPreviousCount += 1 },
-                    onSkipNext = { skipNextCount += 1 }
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "陈奕迅 - 尘大师 Lightly.mp3",
+                statusText = "正在播放",
+                playlistItems = listOf(
+                    PlaylistItem(id = "track-0", uri = "file:///current.mp3", displayName = "陈奕迅 - 尘大师 Lightly.mp3")
+                ),
+                activePlaylistIndex = 0
+            ),
+            onOpenPlayer = { openPlayerCount += 1 },
+            onSkipPrevious = { skipPreviousCount += 1 },
+            onSkipNext = { skipNextCount += 1 }
+        )
 
         composeRule.onNodeWithTag("home_mini_player_song_area", useUnmergedTree = true).performTouchInput {
             swipeLeft()
@@ -688,25 +570,12 @@ class HomeOverviewScreenRobolectricTest {
 
     @Test
     fun miniPlayerBar_longTitle_shouldRenderInSongArea() {
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        selectedFileName = "陈奕迅 - 一首为了验证首页迷你播放条标题过长时需要跑马灯展示效果的超长歌曲名称.mp3",
-                        statusText = "正在播放"
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = {}
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                selectedFileName = "陈奕迅 - 一首为了验证首页迷你播放条标题过长时需要跑马灯展示效果的超长歌曲名称.mp3",
+                statusText = "正在播放"
+            )
+        )
 
         composeRule.onNodeWithTag("home_mini_player_song_area", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithTag("home_mini_player_title", useUnmergedTree = true).assertIsDisplayed()
@@ -715,27 +584,14 @@ class HomeOverviewScreenRobolectricTest {
 
     @Test
     fun miniPlayerBar_shouldUseMoreCompactSizing() {
-        composeRule.setContent {
-            PlayerLiteTheme {
-                HomeOverviewScreen(
-                    playerState = PlayerUiState(
-                        currentTrackTitle = "尘大师 Lightly",
-                        currentTrackArtist = "陈奕迅",
-                        currentCoverUrl = "https://example.com/lightly.jpg",
-                        statusText = "正在播放"
-                    ),
-                    overviewState = HomeOverviewUiState(
-                        isLoading = false,
-                        sections = emptyList(),
-                        searchKeywords = listOf("默认热搜")
-                    ),
-                    onSearchClick = {},
-                    onRetry = {},
-                    onItemClick = {},
-                    onOpenPlayer = {}
-                )
-            }
-        }
+        setHomeWithMiniPlayerOverlay(
+            playerState = PlayerUiState(
+                currentTrackTitle = "尘大师 Lightly",
+                currentTrackArtist = "陈奕迅",
+                currentCoverUrl = "https://example.com/lightly.jpg",
+                statusText = "正在播放"
+            )
+        )
 
         val barBounds = composeRule
             .onNodeWithTag("home_mini_player_bar")
