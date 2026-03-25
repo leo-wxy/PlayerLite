@@ -6,6 +6,7 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <vector>
 
 namespace {
 constexpr int kDurationUnavailableCode = -2003;
@@ -29,6 +30,11 @@ namespace {
 constexpr int kFallbackOutputSampleRate = 44100;
 constexpr AVSampleFormat kFallbackOutputSampleFormat = AV_SAMPLE_FMT_S16;
 constexpr int kFallbackOutputChannels = 2;
+constexpr int kAudioEffectPresetOff = 0;
+constexpr int kAudioEffectPresetBassBoost = 1;
+constexpr int kAudioEffectPresetVocalBoost = 2;
+constexpr int kAudioEffectPresetBright = 3;
+constexpr int kAudioEffectPresetWarm = 4;
 
 // 本文件约定的业务返回码（其余负值通常为 FFmpeg 原生错误码）：
 //   0      : 成功
@@ -91,9 +97,22 @@ int NormalizePlaybackSpeedTenths(int speed_tenths) {
     return std::max(5, std::min(20, speed_tenths));
 }
 
-class AudioTempoProcessor {
+int NormalizeAudioEffectPresetCode(int effect_code) {
+    switch (effect_code) {
+        case kAudioEffectPresetOff:
+        case kAudioEffectPresetBassBoost:
+        case kAudioEffectPresetVocalBoost:
+        case kAudioEffectPresetBright:
+        case kAudioEffectPresetWarm:
+            return effect_code;
+        default:
+            return kAudioEffectPresetOff;
+    }
+}
+
+class AudioFilterProcessor {
 public:
-    ~AudioTempoProcessor() {
+    ~AudioFilterProcessor() {
         Reset();
     }
 
@@ -112,22 +131,18 @@ public:
 
         const int speed_tenths = NormalizePlaybackSpeedTenths(
                 consumer->CurrentPlaybackSpeedTenths());
+        const int effect_code = NormalizeAudioEffectPresetCode(
+                consumer->CurrentAudioEffectPresetCode());
         int result = EnsureGraph(
                 channel_layout,
                 sample_format,
                 sample_rate,
                 channels,
                 speed_tenths,
+                effect_code,
                 error_message);
         if (result < 0) {
             return result;
-        }
-
-        if (current_speed_tenths_ != speed_tenths) {
-            result = UpdateTempo(speed_tenths, error_message);
-            if (result < 0) {
-                return result;
-            }
         }
 
         AVFrame* frame = av_frame_alloc();
@@ -182,7 +197,7 @@ public:
         int result = av_buffersrc_add_frame_flags(buffer_src_ctx_, nullptr, 0);
         if (result < 0 && result != AVERROR_EOF) {
             if (error_message != nullptr) {
-                *error_message = "tempo flush failed: " + FfErrorToString(result);
+                *error_message = "audio filter flush failed: " + FfErrorToString(result);
             }
             return result;
         }
@@ -195,23 +210,32 @@ public:
             graph_ = nullptr;
         }
         buffer_src_ctx_ = nullptr;
-        atempo_ctx_ = nullptr;
         buffer_sink_ctx_ = nullptr;
         current_sample_format_ = AV_SAMPLE_FMT_NONE;
         current_sample_rate_ = 0;
         current_channels_ = 0;
         current_speed_tenths_ = 10;
+        current_requested_effect_code_ = kAudioEffectPresetOff;
+        current_applied_effect_code_ = kAudioEffectPresetOff;
         av_channel_layout_uninit(&current_channel_layout_);
     }
 
 private:
+    struct FilterStep {
+        const char* filter_name;
+        std::string instance_name;
+        std::string args;
+    };
+
     int EnsureGraph(
             const AVChannelLayout& channel_layout,
             AVSampleFormat sample_format,
             int sample_rate,
             int channels,
             int speed_tenths,
+            int requested_effect_code,
             std::string* error_message) {
+        const int normalized_effect_code = NormalizeAudioEffectPresetCode(requested_effect_code);
         const bool same_layout =
                 graph_ != nullptr &&
                 av_channel_layout_compare(&current_channel_layout_, &channel_layout) == 0;
@@ -219,34 +243,84 @@ private:
                 same_layout &&
                 current_sample_format_ == sample_format &&
                 current_sample_rate_ == sample_rate &&
-                current_channels_ == channels;
+                current_channels_ == channels &&
+                current_speed_tenths_ == speed_tenths &&
+                current_requested_effect_code_ == normalized_effect_code;
         if (same_config) {
             return 0;
         }
 
         Reset();
+        int result = BuildGraph(
+                channel_layout,
+                sample_format,
+                sample_rate,
+                channels,
+                speed_tenths,
+                normalized_effect_code,
+                error_message);
+        if (result >= 0) {
+            current_requested_effect_code_ = normalized_effect_code;
+            current_applied_effect_code_ = normalized_effect_code;
+            return 0;
+        }
 
+        if (normalized_effect_code == kAudioEffectPresetOff) {
+            return result;
+        }
+
+        const std::string requested_error = error_message != nullptr ? *error_message : std::string();
+        Reset();
+        result = BuildGraph(
+                channel_layout,
+                sample_format,
+                sample_rate,
+                channels,
+                speed_tenths,
+                kAudioEffectPresetOff,
+                error_message);
+        if (result < 0) {
+            if (error_message != nullptr && error_message->empty()) {
+                *error_message = requested_error;
+            }
+            return result;
+        }
+
+        current_requested_effect_code_ = normalized_effect_code;
+        current_applied_effect_code_ = kAudioEffectPresetOff;
+        if (error_message != nullptr) {
+            error_message->clear();
+        }
+        return 0;
+    }
+
+    int BuildGraph(
+            const AVChannelLayout& channel_layout,
+            AVSampleFormat sample_format,
+            int sample_rate,
+            int channels,
+            int speed_tenths,
+            int effect_code,
+            std::string* error_message) {
         graph_ = avfilter_graph_alloc();
         if (graph_ == nullptr) {
             return AVERROR(ENOMEM);
         }
 
         const AVFilter* abuffer = avfilter_get_by_name("abuffer");
-        const AVFilter* atempo = avfilter_get_by_name("atempo");
         const AVFilter* abuffersink = avfilter_get_by_name("abuffersink");
-        if (abuffer == nullptr || atempo == nullptr || abuffersink == nullptr) {
+        if (abuffer == nullptr || abuffersink == nullptr) {
             if (error_message != nullptr) {
-                *error_message = "required audio tempo filters unavailable";
+                *error_message = "required audio filters unavailable";
             }
             return AVERROR_FILTER_NOT_FOUND;
         }
 
         buffer_src_ctx_ = avfilter_graph_alloc_filter(graph_, abuffer, "src");
-        atempo_ctx_ = avfilter_graph_alloc_filter(graph_, atempo, "tempo");
         buffer_sink_ctx_ = avfilter_graph_alloc_filter(graph_, abuffersink, "sink");
-        if (buffer_src_ctx_ == nullptr || atempo_ctx_ == nullptr || buffer_sink_ctx_ == nullptr) {
+        if (buffer_src_ctx_ == nullptr || buffer_sink_ctx_ == nullptr) {
             if (error_message != nullptr) {
-                *error_message = "failed to allocate tempo filter contexts";
+                *error_message = "failed to allocate audio filter contexts";
             }
             return AVERROR(ENOMEM);
         }
@@ -266,17 +340,6 @@ private:
             return result;
         }
 
-        char tempo_value[16] = {0};
-        snprintf(tempo_value, sizeof(tempo_value), "%.1f", speed_tenths / 10.0);
-        av_opt_set(atempo_ctx_, "tempo", tempo_value, AV_OPT_SEARCH_CHILDREN);
-        result = avfilter_init_str(atempo_ctx_, nullptr);
-        if (result < 0) {
-            if (error_message != nullptr) {
-                *error_message = "init atempo failed: " + FfErrorToString(result);
-            }
-            return result;
-        }
-
         result = avfilter_init_str(buffer_sink_ctx_, nullptr);
         if (result < 0) {
             if (error_message != nullptr) {
@@ -285,13 +348,53 @@ private:
             return result;
         }
 
-        result = avfilter_link(buffer_src_ctx_, 0, atempo_ctx_, 0);
-        if (result >= 0) {
-            result = avfilter_link(atempo_ctx_, 0, buffer_sink_ctx_, 0);
+        const std::vector<FilterStep> filter_steps = BuildFilterSteps(speed_tenths, effect_code);
+        AVFilterContext* previous_ctx = buffer_src_ctx_;
+        for (const FilterStep& step : filter_steps) {
+            const AVFilter* filter = avfilter_get_by_name(step.filter_name);
+            if (filter == nullptr) {
+                if (error_message != nullptr) {
+                    *error_message = std::string("required filter unavailable: ") + step.filter_name;
+                }
+                return AVERROR_FILTER_NOT_FOUND;
+            }
+
+            AVFilterContext* filter_ctx = avfilter_graph_alloc_filter(
+                    graph_,
+                    filter,
+                    step.instance_name.c_str());
+            if (filter_ctx == nullptr) {
+                return AVERROR(ENOMEM);
+            }
+
+            result = avfilter_init_str(
+                    filter_ctx,
+                    step.args.empty() ? nullptr : step.args.c_str());
+            if (result < 0) {
+                if (error_message != nullptr) {
+                    *error_message =
+                            std::string("init ") + step.filter_name +
+                            " failed: " + FfErrorToString(result);
+                }
+                return result;
+            }
+
+            result = avfilter_link(previous_ctx, 0, filter_ctx, 0);
+            if (result < 0) {
+                if (error_message != nullptr) {
+                    *error_message =
+                            std::string("link ") + step.filter_name +
+                            " failed: " + FfErrorToString(result);
+                }
+                return result;
+            }
+            previous_ctx = filter_ctx;
         }
+
+        result = avfilter_link(previous_ctx, 0, buffer_sink_ctx_, 0);
         if (result < 0) {
             if (error_message != nullptr) {
-                *error_message = "link tempo graph failed: " + FfErrorToString(result);
+                *error_message = "link audio graph failed: " + FfErrorToString(result);
             }
             return result;
         }
@@ -299,7 +402,7 @@ private:
         result = avfilter_graph_config(graph_, nullptr);
         if (result < 0) {
             if (error_message != nullptr) {
-                *error_message = "configure tempo graph failed: " + FfErrorToString(result);
+                *error_message = "configure audio graph failed: " + FfErrorToString(result);
             }
             return result;
         }
@@ -312,31 +415,44 @@ private:
         current_sample_rate_ = sample_rate;
         current_channels_ = channels;
         current_speed_tenths_ = speed_tenths;
+        current_requested_effect_code_ = effect_code;
+        current_applied_effect_code_ = effect_code;
         return 0;
     }
 
-    int UpdateTempo(int speed_tenths, std::string* error_message) {
-        if (atempo_ctx_ == nullptr) {
-            return AVERROR(EINVAL);
-        }
-
+    std::vector<FilterStep> BuildFilterSteps(int speed_tenths, int effect_code) const {
+        std::vector<FilterStep> steps;
         char tempo_value[16] = {0};
         snprintf(tempo_value, sizeof(tempo_value), "%.1f", speed_tenths / 10.0);
-        const int result = avfilter_process_command(
-                atempo_ctx_,
+        steps.push_back(FilterStep{
+                "atempo",
                 "tempo",
-                tempo_value,
-                nullptr,
-                0,
-                0);
-        if (result < 0) {
-            if (error_message != nullptr) {
-                *error_message = "update atempo failed: " + FfErrorToString(result);
-            }
-            return result;
+                std::string("tempo=") + tempo_value});
+
+        switch (NormalizeAudioEffectPresetCode(effect_code)) {
+            case kAudioEffectPresetBassBoost:
+                steps.push_back(FilterStep{"equalizer", "bass_low", "f=90:t=o:w=1.3:g=5"});
+                steps.push_back(FilterStep{"equalizer", "bass_mid", "f=180:t=o:w=1.1:g=2.5"});
+                break;
+            case kAudioEffectPresetVocalBoost:
+                steps.push_back(FilterStep{"highpass", "voice_hp", "f=140"});
+                steps.push_back(FilterStep{"equalizer", "voice_presence", "f=2500:t=o:w=1.0:g=3.5"});
+                steps.push_back(FilterStep{"equalizer", "voice_air", "f=4000:t=o:w=1.2:g=2"});
+                break;
+            case kAudioEffectPresetBright:
+                steps.push_back(FilterStep{"equalizer", "bright_presence", "f=6000:t=o:w=1.0:g=3"});
+                steps.push_back(FilterStep{"equalizer", "bright_air", "f=12000:t=o:w=1.2:g=2.5"});
+                break;
+            case kAudioEffectPresetWarm:
+                steps.push_back(FilterStep{"equalizer", "warm_low", "f=180:t=o:w=1.1:g=2"});
+                steps.push_back(FilterStep{"equalizer", "warm_presence", "f=3500:t=o:w=1.0:g=-1.5"});
+                steps.push_back(FilterStep{"equalizer", "warm_air", "f=9000:t=o:w=1.2:g=-2"});
+                break;
+            case kAudioEffectPresetOff:
+            default:
+                break;
         }
-        current_speed_tenths_ = speed_tenths;
-        return 0;
+        return steps;
     }
 
     int Drain(PcmConsumer* consumer, std::string* error_message) {
@@ -375,20 +491,21 @@ private:
             return 0;
         }
         if (result < 0 && error_message != nullptr) {
-            *error_message = "drain tempo graph failed: " + FfErrorToString(result);
+            *error_message = "drain audio graph failed: " + FfErrorToString(result);
         }
         return result;
     }
 
     AVFilterGraph* graph_ = nullptr;
     AVFilterContext* buffer_src_ctx_ = nullptr;
-    AVFilterContext* atempo_ctx_ = nullptr;
     AVFilterContext* buffer_sink_ctx_ = nullptr;
     AVChannelLayout current_channel_layout_{};
     AVSampleFormat current_sample_format_ = AV_SAMPLE_FMT_NONE;
     int current_sample_rate_ = 0;
     int current_channels_ = 0;
     int current_speed_tenths_ = 10;
+    int current_requested_effect_code_ = kAudioEffectPresetOff;
+    int current_applied_effect_code_ = kAudioEffectPresetOff;
 };
 
 int WriteResampledFrame(
@@ -399,7 +516,7 @@ int WriteResampledFrame(
         int output_sample_rate,
         AVSampleFormat output_sample_format,
         int output_channels,
-        AudioTempoProcessor* tempo_processor,
+        AudioFilterProcessor* tempo_processor,
         PcmConsumer* consumer,
         std::string* error_message) {
     // swr 可能仍有历史延迟样本，目标采样点数需要把 delay 一起计算进来。
@@ -460,7 +577,7 @@ int WriteFrameWithoutResample(
         int output_sample_rate,
         AVSampleFormat output_sample_format,
         int output_channels,
-        AudioTempoProcessor* tempo_processor,
+        AudioFilterProcessor* tempo_processor,
         PcmConsumer* consumer,
         std::string* error_message) {
     if (decoded_frame == nullptr || consumer == nullptr) {
@@ -497,7 +614,7 @@ int ApplyPendingSeek(
         AVRational audio_time_base,
         AVCodecContext* codec_context,
         SwrContext* swr_context,
-        AudioTempoProcessor* tempo_processor,
+        AudioFilterProcessor* tempo_processor,
         PcmConsumer* consumer,
         std::string* error_message) {
     if (consumer == nullptr) {
@@ -749,7 +866,7 @@ int FfmpegDecoder::DecodeAndConsume(
     AVSampleFormat swr_input_sample_format = AV_SAMPLE_FMT_NONE;
     PcmOutputConfig output_config;
     AVSampleFormat output_sample_format = kFallbackOutputSampleFormat;
-    AudioTempoProcessor tempo_processor;
+    AudioFilterProcessor tempo_processor;
     bool use_resampler = false;
 
     auto ConsumeDecodedFrame = [&](AVFrame* frame_to_consume) -> int {

@@ -38,10 +38,12 @@ import com.wxy.playerlite.feature.player.ParsedLyrics
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
+import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.demoSongWikiSummary
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -50,6 +52,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import kotlin.math.abs
 
 @RunWith(RobolectricTestRunner::class)
 class PlayerScreenRobolectricTest {
@@ -366,6 +369,236 @@ class PlayerScreenRobolectricTest {
         composeRule.onNodeWithTag("player_screen_song_wiki_sheet").assertIsDisplayed()
         composeRule.onNodeWithText("正在加载歌曲百科…").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("播放").assertIsDisplayed()
+    }
+
+    @Test
+    fun activePlayback_moreActionsSheet_shouldExposeEntriesAndInlineSpeedOptions() {
+        var showMoreActionsSheet by mutableStateOf(false)
+        var showAudioEffectPage by mutableStateOf(false)
+        var moreActionsPage by mutableStateOf(PlayerMoreActionsPage.ROOT)
+        var playbackSpeed by mutableStateOf(1.0f)
+        var audioEffectPreset by mutableStateOf(AudioEffectPreset.OFF)
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "周杰伦 - 夜曲.mp3",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylist,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    showSongWikiSheet = false,
+                    showMoreActionsSheet = showMoreActionsSheet,
+                    showAudioEffectPage = showAudioEffectPage,
+                    moreActionsPage = moreActionsPage,
+                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackSpeed = playbackSpeed,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    audioEffectPreset = audioEffectPreset,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 12_000L,
+                    currentDurationText = "00:12",
+                    durationMs = 120_000L,
+                    totalDurationText = "02:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onShowSongWiki = {},
+                    onDismissSongWiki = {},
+                    onRetrySongWiki = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {},
+                    onMoreClick = {
+                        showMoreActionsSheet = true
+                        moreActionsPage = PlayerMoreActionsPage.ROOT
+                    },
+                    onDismissMoreActionsSheet = {
+                        showMoreActionsSheet = false
+                        moreActionsPage = PlayerMoreActionsPage.ROOT
+                    },
+                    onDismissAudioEffectPage = {
+                        showAudioEffectPage = false
+                    },
+                    onShowPlaybackSpeedSettings = {
+                        moreActionsPage = PlayerMoreActionsPage.SPEED
+                    },
+                    onShowAudioEffectSettings = {
+                        showMoreActionsSheet = false
+                        showAudioEffectPage = true
+                    },
+                    onReturnToMoreActionsRoot = {
+                        moreActionsPage = PlayerMoreActionsPage.ROOT
+                    },
+                    onSelectPlaybackSpeed = { playbackSpeed = it },
+                    onSelectAudioEffectPreset = { audioEffectPreset = it }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("player_screen_more_button").performClick()
+        composeRule.mainClock.advanceTimeBy(400)
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("player_more_actions_sheet_surface").assertIsDisplayed()
+        composeRule.onNodeWithText("音效设置").assertIsDisplayed()
+        composeRule.onNodeWithText("倍速设置").assertIsDisplayed()
+
+        composeRule.onNodeWithTag(
+            "player_more_actions_entry_playback_speed",
+            useUnmergedTree = true
+        ).assert(hasClickAction()).performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.waitForIdle()
+        assertEquals(PlayerMoreActionsPage.SPEED, moreActionsPage)
+        composeRule.onNodeWithTag("player_more_actions_speed_slider").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_more_actions_speed_value").assertTextEquals("1.0X")
+        composeRule.onNodeWithTag("player_more_actions_speed_slider")
+            .performSemanticsAction(SemanticsActions.SetProgress) { setProgress ->
+                assertTrue("Expected speed slider progress action to succeed", setProgress(10f))
+            }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("player_more_actions_speed_value").assertTextEquals("1.5X")
+    }
+
+    @Test
+    fun activePlayback_audioEffectSelection_shouldUseStandalonePageContainer() {
+        var showMoreActionsSheet by mutableStateOf(false)
+        var showAudioEffectPage by mutableStateOf(false)
+        var moreActionsPage by mutableStateOf(PlayerMoreActionsPage.ROOT)
+        var playbackSpeed by mutableStateOf(1.0f)
+        var audioEffectPreset by mutableStateOf(AudioEffectPreset.OFF)
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "周杰伦 - 夜曲.mp3",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylist,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    showSongWikiSheet = false,
+                    showMoreActionsSheet = showMoreActionsSheet,
+                    showAudioEffectPage = showAudioEffectPage,
+                    moreActionsPage = moreActionsPage,
+                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackSpeed = playbackSpeed,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    audioEffectPreset = audioEffectPreset,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 12_000L,
+                    currentDurationText = "00:12",
+                    durationMs = 120_000L,
+                    totalDurationText = "02:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onShowSongWiki = {},
+                    onDismissSongWiki = {},
+                    onRetrySongWiki = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {},
+                    onMoreClick = {
+                        showMoreActionsSheet = true
+                        moreActionsPage = PlayerMoreActionsPage.ROOT
+                    },
+                    onDismissMoreActionsSheet = {
+                        showMoreActionsSheet = false
+                        moreActionsPage = PlayerMoreActionsPage.ROOT
+                    },
+                    onDismissAudioEffectPage = {
+                        showAudioEffectPage = false
+                    },
+                    onShowPlaybackSpeedSettings = {
+                        moreActionsPage = PlayerMoreActionsPage.SPEED
+                    },
+                    onShowAudioEffectSettings = {
+                        showMoreActionsSheet = false
+                        showAudioEffectPage = true
+                    },
+                    onReturnToMoreActionsRoot = {
+                        moreActionsPage = PlayerMoreActionsPage.ROOT
+                    },
+                    onSelectPlaybackSpeed = { playbackSpeed = it },
+                    onSelectAudioEffectPreset = {
+                        audioEffectPreset = it
+                        showAudioEffectPage = false
+                    }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("player_screen_audio_effect_name").assertTextEquals("原声")
+
+        composeRule.onNodeWithTag("player_screen_more_button").performClick()
+        composeRule.mainClock.advanceTimeBy(400)
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag(
+            "player_more_actions_entry_audio_effect",
+            useUnmergedTree = true
+        ).assert(hasClickAction()).performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.waitForIdle()
+        assertTrue(showAudioEffectPage)
+        composeRule.onAllNodesWithTag("player_more_actions_sheet_surface").assertCountEquals(0)
+        composeRule.onNodeWithTag("player_screen_audio_effect_page").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_audio_effect_page_back_button").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("player_more_actions_sheet_audio_page").assertCountEquals(0)
+        composeRule.onNodeWithTag(
+            "player_screen_audio_effect_option_bright",
+            useUnmergedTree = true
+        ).assert(hasClickAction())
+            .performSemanticsAction(SemanticsActions.OnClick)
+
+        composeRule.onAllNodesWithTag("player_more_actions_sheet_surface").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_audio_effect_page").assertCountEquals(0)
+        composeRule.onNodeWithTag("player_screen_audio_effect_name").assertTextEquals("清亮高频")
+
+        val currentTimeBounds = composeRule
+            .onNodeWithTag("player_screen_current_duration")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val audioEffectBounds = composeRule
+            .onNodeWithTag("player_screen_audio_effect_name")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val totalTimeBounds = composeRule
+            .onNodeWithTag("player_screen_total_duration")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        assertTrue(abs(currentTimeBounds.top - audioEffectBounds.top) < 4f)
+        assertTrue(abs(totalTimeBounds.top - audioEffectBounds.top) < 4f)
+        assertTrue(currentTimeBounds.center.x < audioEffectBounds.center.x)
+        assertTrue(audioEffectBounds.center.x < totalTimeBounds.center.x)
     }
 
     @Test
@@ -1306,6 +1539,79 @@ class PlayerScreenRobolectricTest {
             assertEquals(1, nextClicks)
             assertEquals(1, modeClicks)
             assertEquals(1, playlistClicks)
+        }
+    }
+
+    @Test
+    fun listLoopFirstTrack_shouldKeepSkipButtonsInteractive() {
+        var previousClicks = 0
+        var nextClicks = 0
+        val interactivePlaylist = listOf(
+            PlaylistItem(
+                id = "1",
+                uri = "https://example.com/1.mp3",
+                displayName = "第一首",
+                songId = "1"
+            ),
+            PlaylistItem(
+                id = "2",
+                uri = "https://example.com/2.mp3",
+                displayName = "第二首",
+                songId = "2"
+            )
+        )
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "第一首",
+                    artistText = "测试歌手",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = interactivePlaylist,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    showSongWikiSheet = false,
+                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 12_000L,
+                    currentDurationText = "00:12",
+                    durationMs = 180_000L,
+                    totalDurationText = "03:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onShowSongWiki = {},
+                    onDismissSongWiki = {},
+                    onRetrySongWiki = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = { previousClicks += 1 },
+                    onNext = { nextClicks += 1 },
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("player_screen_previous_button").performClick()
+        composeRule.onNodeWithTag("player_screen_next_button").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, previousClicks)
+            assertEquals(1, nextClicks)
         }
     }
 

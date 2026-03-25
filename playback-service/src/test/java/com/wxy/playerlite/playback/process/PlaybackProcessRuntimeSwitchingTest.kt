@@ -1,8 +1,10 @@
 package com.wxy.playerlite.playback.process
 
 import com.wxy.playerlite.playback.model.MusicInfo
+import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioMeta
 import com.wxy.playerlite.player.AudioMetaDisplay
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.INativePlayer
 import com.wxy.playerlite.player.PlaybackOutputInfo
 import com.wxy.playerlite.player.source.IPlaysource
@@ -18,9 +20,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import sun.misc.Unsafe
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class PlaybackProcessRuntimeSwitchingTest {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -69,7 +73,7 @@ class PlaybackProcessRuntimeSwitchingTest {
 
         assertTrue(changed)
         assertEquals(1, player.stopCalls)
-        assertEquals(1, player.resumeCalls)
+        assertEquals(0, player.resumeCalls)
         assertEquals(1, preparedSource.abortCalls)
         assertEquals(1, preparedSource.closeCalls)
     }
@@ -158,6 +162,82 @@ class PlaybackProcessRuntimeSwitchingTest {
         assertTrue(player.resumeCalls >= 1)
     }
 
+    @Test
+    fun moveToPrevious_shouldWrapFromFirstTrackWhenQueueHasMultipleItems() {
+        val runtime = unsafe.allocateInstance(PlaybackProcessRuntime::class.java) as PlaybackProcessRuntime
+        val player = FakeNativePlayer()
+        val playbackCoordinator = PlaybackCoordinator(player = player, scope = serviceScope)
+        val state = MutableStateFlow(
+            PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-1",
+                            title = "第一首",
+                            playbackUri = "https://example.com/1.mp3"
+                        )
+                    ),
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-2",
+                            title = "第二首",
+                            playbackUri = "https://example.com/2.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 0,
+                playbackMode = PlaybackMode.SINGLE_LOOP
+            )
+        )
+
+        setField(runtime, "_state", state)
+        setField(runtime, "sourceSession", PreparedSourceSession())
+        setField(runtime, "playbackCoordinator", playbackCoordinator)
+
+        val changed = runtime.moveToPrevious()
+
+        assertTrue(changed)
+        assertEquals(1, state.value.activeIndex)
+    }
+
+    @Test
+    fun moveToNext_shouldWrapFromTailWhenQueueHasMultipleItems() {
+        val runtime = unsafe.allocateInstance(PlaybackProcessRuntime::class.java) as PlaybackProcessRuntime
+        val player = FakeNativePlayer()
+        val playbackCoordinator = PlaybackCoordinator(player = player, scope = serviceScope)
+        val state = MutableStateFlow(
+            PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-1",
+                            title = "第一首",
+                            playbackUri = "https://example.com/1.mp3"
+                        )
+                    ),
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-2",
+                            title = "第二首",
+                            playbackUri = "https://example.com/2.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 1,
+                playbackMode = PlaybackMode.SHUFFLE
+            )
+        )
+
+        setField(runtime, "_state", state)
+        setField(runtime, "sourceSession", PreparedSourceSession())
+        setField(runtime, "playbackCoordinator", playbackCoordinator)
+
+        val changed = runtime.moveToNext()
+
+        assertTrue(changed)
+        assertEquals(0, state.value.activeIndex)
+    }
+
     private fun setField(target: Any, name: String, value: Any) {
         val field = target.javaClass.getDeclaredField(name)
         field.isAccessible = true
@@ -173,6 +253,8 @@ class PlaybackProcessRuntimeSwitchingTest {
         override fun setPlaybackOutputInfoListener(listener: ((PlaybackOutputInfo) -> Unit)?) = Unit
 
         override fun setPlaybackSpeed(speed: Float): Int = 0
+
+        override fun setAudioEffectPreset(audioEffectPreset: AudioEffectPreset): Int = 0
 
         override fun playFromSource(source: IPlaysource): Int = 0
 

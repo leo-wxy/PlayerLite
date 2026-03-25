@@ -20,6 +20,7 @@ import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
+import com.wxy.playerlite.player.AudioEffectPreset
 
 @UnstableApi
 class PlayerServiceBridge(
@@ -346,6 +347,47 @@ class PlayerServiceBridge(
                         .onFailure { error ->
                             onControllerError(
                                 "Set mode failed: ${error.message ?: "unknown"}"
+                            )
+                            onResult?.invoke(false)
+                        }
+                },
+                mainExecutor
+            )
+        }
+    }
+
+    fun setAudioEffectPreset(
+        audioEffectPreset: AudioEffectPreset,
+        onResult: ((Boolean) -> Unit)? = null
+    ): Boolean {
+        val args = Bundle().apply {
+            putString(
+                PlaybackSessionCommands.EXTRA_AUDIO_EFFECT_PRESET,
+                audioEffectPreset.wireValue
+            )
+        }
+        return withController { activeController ->
+            val future = activeController.sendCustomCommand(
+                SessionCommand(
+                    PlaybackSessionCommands.ACTION_SET_AUDIO_EFFECT_PRESET,
+                    Bundle.EMPTY
+                ),
+                args
+            )
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess { result ->
+                            if (result.resultCode != SessionResult.RESULT_SUCCESS) {
+                                onControllerError("Set audio effect rejected: ${result.resultCode}")
+                                onResult?.invoke(false)
+                            } else {
+                                onResult?.invoke(true)
+                            }
+                        }
+                        .onFailure { error ->
+                            onControllerError(
+                                "Set audio effect failed: ${error.message ?: "unknown"}"
                             )
                             onResult?.invoke(false)
                         }

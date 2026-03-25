@@ -20,6 +20,7 @@ import com.wxy.playerlite.playback.model.PlaybackLaunchRequest
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackSpeed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -119,18 +120,7 @@ class PlayerMediaSessionService : MediaSessionService() {
 
     private fun publishSessionExtras(state: PlaybackProcessState) {
         val session = mediaSession ?: return
-        val extras = Bundle().apply {
-            PlaybackMetadataExtras.writeStatusText(this, state.statusText)
-            PlaybackMetadataExtras.writeSeekSupported(this, state.isSeekSupported)
-            PlaybackMetadataExtras.writePlaybackSpeed(this, state.playbackSpeed)
-            PlaybackMetadataExtras.writePlaybackMode(this, state.playbackMode)
-            state.audioMeta?.let { audioMeta ->
-                PlaybackMetadataExtras.writeAudioMeta(this, audioMeta)
-            }
-            state.playbackOutputInfo?.let { info ->
-                PlaybackMetadataExtras.writePlaybackOutputInfo(this, info)
-            }
-        }
+        val extras = buildSessionExtras(state)
         session.setSessionExtras(extras)
     }
 
@@ -202,6 +192,7 @@ class PlayerMediaSessionService : MediaSessionService() {
                 .add(SessionCommand(PlaybackSessionCommands.ACTION_CLEAR_CACHE, Bundle.EMPTY))
                 .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_SPEED, Bundle.EMPTY))
                 .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_MODE, Bundle.EMPTY))
+                .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_AUDIO_EFFECT_PRESET, Bundle.EMPTY))
                 .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_DISPLAY_METADATA, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -249,6 +240,19 @@ class PlayerMediaSessionService : MediaSessionService() {
                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
 
+                PlaybackSessionCommands.ACTION_SET_AUDIO_EFFECT_PRESET -> {
+                    val requested = AudioEffectPreset.fromWireValue(
+                        args.getString(PlaybackSessionCommands.EXTRA_AUDIO_EFFECT_PRESET)
+                    )
+                    val success = runtime.setAudioEffectPreset(requested)
+                    val resultCode = if (success) {
+                        SessionResult.RESULT_SUCCESS
+                    } else {
+                        SessionResult.RESULT_ERROR_BAD_VALUE
+                    }
+                    Futures.immediateFuture(SessionResult(resultCode))
+                }
+
                 PlaybackSessionCommands.ACTION_SET_DISPLAY_METADATA -> {
                     runtime.setDisplayMetadata(
                         title = args.getString(PlaybackSessionCommands.EXTRA_DISPLAY_TITLE),
@@ -259,6 +263,22 @@ class PlayerMediaSessionService : MediaSessionService() {
 
                 else -> super.onCustomCommand(session, controller, customCommand, args)
             }
+        }
+    }
+}
+
+internal fun buildSessionExtras(state: PlaybackProcessState): Bundle {
+    return Bundle().apply {
+        PlaybackMetadataExtras.writeStatusText(this, state.statusText)
+        PlaybackMetadataExtras.writeSeekSupported(this, state.isSeekSupported)
+        PlaybackMetadataExtras.writePlaybackSpeed(this, state.playbackSpeed)
+        PlaybackMetadataExtras.writePlaybackMode(this, state.playbackMode)
+        PlaybackMetadataExtras.writeAudioEffectPreset(this, state.audioEffectPreset)
+        state.audioMeta?.let { audioMeta ->
+            PlaybackMetadataExtras.writeAudioMeta(this, audioMeta)
+        }
+        state.playbackOutputInfo?.let { info ->
+            PlaybackMetadataExtras.writePlaybackOutputInfo(this, info)
         }
     }
 }

@@ -1,10 +1,18 @@
 package com.wxy.playerlite.playback.process
 
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
+import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
+import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.playback.service.R
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class PlayerMediaSessionServiceNotificationIconTest {
     @Test
     fun resolveNotificationSmallIcon_shouldAlwaysUseDedicatedNotificationIcon() {
@@ -84,5 +92,24 @@ class PlayerMediaSessionServiceNotificationIconTest {
         )
 
         assertEquals("夜曲 - 周杰伦", resolveNotificationSubtitle(state))
+    }
+
+    @Test
+    fun buildSessionExtras_shouldPublishAudioEffectPresetAlongsidePlaybackFields() {
+        val extras = buildSessionExtras(
+            PlaybackProcessState(
+                statusText = "Playing",
+                isSeekSupported = true,
+                playbackSpeed = 1.5f,
+                playbackMode = PlaybackMode.SINGLE_LOOP,
+                audioEffectPreset = AudioEffectPreset.WARM
+            )
+        )
+
+        assertEquals("Playing", PlaybackMetadataExtras.readStatusText(extras))
+        assertEquals(true, PlaybackMetadataExtras.readSeekSupported(extras))
+        assertEquals(1.5f, PlaybackMetadataExtras.readPlaybackSpeed(extras) ?: 0f, 0f)
+        assertEquals(PlaybackMode.SINGLE_LOOP, PlaybackMetadataExtras.readPlaybackMode(extras))
+        assertEquals(AudioEffectPreset.WARM, PlaybackMetadataExtras.readAudioEffectPreset(extras))
     }
 }

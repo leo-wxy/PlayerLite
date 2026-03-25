@@ -5,19 +5,24 @@ import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioMetaDisplay
+import com.wxy.playerlite.player.AudioEffectPreset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class RemotePlaybackSnapshotMapperTest {
     @Test
     fun map_prefersPlaybackParametersSpeedAndReadsAudioMetaFromCurrentMetadata() {
         val currentMetadataExtras = Bundle().apply {
             PlaybackMetadataExtras.writePlaybackSpeed(this, 1.5f)
             PlaybackMetadataExtras.writePlaybackMode(this, PlaybackMode.LIST_LOOP)
+            PlaybackMetadataExtras.writeAudioEffectPreset(this, AudioEffectPreset.BRIGHT)
             PlaybackMetadataExtras.writeAudioMeta(
                 this,
                 AudioMetaDisplay(
@@ -60,11 +65,53 @@ class RemotePlaybackSnapshotMapperTest {
 
         assertEquals(2.0f, snapshot.playbackSpeed, 0f)
         assertEquals(PlaybackMode.LIST_LOOP, snapshot.playbackMode)
+        assertEquals(AudioEffectPreset.BRIGHT, snapshot.audioEffectPreset)
         assertEquals("track-1", snapshot.currentMediaId)
         assertEquals("FLAC", snapshot.audioMeta?.codec)
         assertEquals(321_000L, snapshot.audioMeta?.durationMs)
         assertNotNull(snapshot.currentPlayable)
         assertEquals("347230", snapshot.currentPlayable?.songId)
         assertEquals("https://example.com/qingtian.jpg", snapshot.currentPlayable?.coverUrl)
+    }
+
+    @Test
+    fun map_fallsBackToSessionAudioEffectPresetAndLeavesMissingPresetUnset() {
+        val sessionExtras = Bundle().apply {
+            PlaybackMetadataExtras.writeAudioEffectPreset(this, AudioEffectPreset.WARM)
+        }
+
+        val snapshotFromSession = RemotePlaybackSnapshotMapper.map(
+            playbackState = 2,
+            playWhenReady = false,
+            isPlaying = false,
+            isSeekSupported = true,
+            currentPositionMs = 0L,
+            durationMs = 0L,
+            playbackParametersSpeed = 0f,
+            currentMetadataExtras = null,
+            sessionExtras = sessionExtras,
+            rootMetadataExtras = Bundle(),
+            currentPlayable = null,
+            currentMediaId = null,
+            statusText = null
+        )
+        val defaultSnapshot = RemotePlaybackSnapshotMapper.map(
+            playbackState = 2,
+            playWhenReady = false,
+            isPlaying = false,
+            isSeekSupported = true,
+            currentPositionMs = 0L,
+            durationMs = 0L,
+            playbackParametersSpeed = 0f,
+            currentMetadataExtras = null,
+            sessionExtras = Bundle(),
+            rootMetadataExtras = Bundle(),
+            currentPlayable = null,
+            currentMediaId = null,
+            statusText = null
+        )
+
+        assertEquals(AudioEffectPreset.WARM, snapshotFromSession.audioEffectPreset)
+        assertNull(defaultSnapshot.audioEffectPreset)
     }
 }

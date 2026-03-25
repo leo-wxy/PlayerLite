@@ -23,6 +23,7 @@ import com.wxy.playerlite.playback.client.PlayerServiceBridge
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.LocalMusicInfo
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.user.model.LoginState
 import com.wxy.playerlite.user.model.toAuthHeaders
@@ -364,7 +365,41 @@ internal class PlayerViewModel(
     }
 
     fun onShowPlayerMoreActions() {
-        showTransientToast("更多功能待补充")
+        runtime.onShowPlayerMoreActions()
+    }
+
+    fun onDismissPlayerMoreActions() {
+        runtime.onDismissPlayerMoreActions()
+    }
+
+    fun showPlaybackSpeedSettings() {
+        runtime.showPlaybackSpeedSettings()
+    }
+
+    fun showAudioEffectSettings() {
+        runtime.showAudioEffectSettings()
+    }
+
+    fun dismissAudioEffectSettings() {
+        runtime.dismissAudioEffectSettings()
+    }
+
+    fun returnToPlayerMoreActionsRoot() {
+        runtime.returnToPlayerMoreActionsRoot()
+    }
+
+    fun updateAudioEffectPreset(audioEffectPreset: AudioEffectPreset) {
+        val previousPreset = uiStateFlow.value.audioEffectPreset
+        runtime.updateLocalAudioEffectPreset(audioEffectPreset)
+        serviceBridge.connectIfNeeded()
+        if (!serviceBridge.setAudioEffectPreset(audioEffectPreset) { success ->
+                if (!success) {
+                    runtime.revertPendingAudioEffectPreset(previousPreset)
+                }
+            }) {
+            runtime.revertPendingAudioEffectPreset(previousPreset)
+            runtime.setStatusText("音效设置失败：后台播放进程未连接")
+        }
     }
 
     fun pausePlayback() {
@@ -514,7 +549,8 @@ internal class PlayerViewModel(
             isProgressAdvancing = snapshot.isPlaying,
             currentPlayable = snapshot.currentPlayable,
             playbackOutputInfo = snapshot.playbackOutputInfo,
-            audioMeta = snapshot.audioMeta
+            audioMeta = snapshot.audioMeta,
+            audioEffectPreset = snapshot.audioEffectPreset
         )
         runtime.syncActiveItemById(snapshot.currentMediaId)
         snapshot.statusText
@@ -697,6 +733,10 @@ internal interface PlayerControlBridge {
     fun stop(): Boolean
     fun clearCache(): Boolean
     fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)? = null): Boolean
+    fun setAudioEffectPreset(
+        audioEffectPreset: AudioEffectPreset,
+        onResult: ((Boolean) -> Unit)? = null
+    ): Boolean
     fun setPlaybackMode(playbackMode: PlaybackMode, onResult: ((Boolean) -> Unit)? = null): Boolean
     fun setDisplayMetadata(title: String?, subtitle: String?): Boolean
     fun currentSnapshot(): RemotePlaybackSnapshot?
@@ -742,6 +782,13 @@ internal interface PlayerControlBridge {
 
     override fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)?): Boolean {
         return delegate.setPlaybackSpeed(speed, onResult)
+    }
+
+    override fun setAudioEffectPreset(
+        audioEffectPreset: AudioEffectPreset,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean {
+        return delegate.setAudioEffectPreset(audioEffectPreset, onResult)
     }
 
     override fun setPlaybackMode(playbackMode: PlaybackMode, onResult: ((Boolean) -> Unit)?): Boolean {

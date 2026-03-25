@@ -8,12 +8,15 @@ import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.feature.main.MainDispatcherRule
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
+import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
+import com.wxy.playerlite.feature.player.runtime.AudioEffectPresetStorage
 import com.wxy.playerlite.feature.player.runtime.PlayerRuntime
 import com.wxy.playerlite.feature.player.runtime.toQueuePlayableItem
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.user.UserRepository
 import com.wxy.playerlite.user.model.LoginState
 import com.wxy.playerlite.user.model.UserSession
@@ -232,6 +235,157 @@ class PlayerViewModelTest {
                 listOf("prewarmConnection"),
                 bridge.actions
             )
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun init_shouldPreservePersistedAudioEffectPresetWhenRemoteSnapshotOmitsPreset() = runTest {
+        val preferences = application.getSharedPreferences(
+            "player_view_model_audio_effect_restore_test",
+            Context.MODE_PRIVATE
+        )
+        preferences.edit().clear().commit()
+        val storage = AudioEffectPresetStorage(preferences)
+        storage.write(AudioEffectPreset.WARM)
+        val runtime = PlayerRuntime(
+            appContext = application,
+            audioEffectPresetStorage = storage
+        )
+        val bridge = FakePlayerControlBridge(
+            currentSnapshot = RemotePlaybackSnapshot(
+                playbackState = 2,
+                playWhenReady = false,
+                isPlaying = false,
+                isSeekSupported = true,
+                currentPositionMs = 0L,
+                durationMs = 0L,
+                playbackSpeed = 1.0f,
+                playbackMode = PlaybackMode.LIST_LOOP,
+                audioEffectPreset = null,
+                statusText = null,
+                currentPlayable = null,
+                currentMediaId = null,
+                playbackOutputInfo = null,
+                audioMeta = null
+            )
+        )
+
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            songWikiRepository = FakeSongWikiRepository(),
+            serviceBridge = bridge,
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 60_000L,
+            uiProgressIntervalMs = 60_000L
+        )
+        try {
+            runCurrent()
+
+            assertEquals(AudioEffectPreset.WARM, runtime.uiStateFlow.value.audioEffectPreset)
+            assertEquals(AudioEffectPreset.WARM, storage.read())
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun onShowPlayerMoreActions_shouldExposeSheetRootPage() = runTest {
+        val runtime = PlayerRuntime(application)
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            songWikiRepository = FakeSongWikiRepository(),
+            serviceBridge = FakePlayerControlBridge(currentSnapshot = null),
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 60_000L,
+            uiProgressIntervalMs = 60_000L
+        )
+        try {
+            runCurrent()
+
+            viewModel.onShowPlayerMoreActions()
+
+            assertTrue(viewModel.uiStateFlow.value.showMoreActionsSheet)
+            assertEquals(PlayerMoreActionsPage.ROOT, viewModel.uiStateFlow.value.moreActionsPage)
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun updateAudioEffectPreset_shouldSendCommandAndUpdateLocalState() = runTest {
+        val runtime = PlayerRuntime(application)
+        val bridge = FakePlayerControlBridge(currentSnapshot = null)
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            songWikiRepository = FakeSongWikiRepository(),
+            serviceBridge = bridge,
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 60_000L,
+            uiProgressIntervalMs = 60_000L
+        )
+        try {
+            runCurrent()
+            bridge.clearActions()
+
+            viewModel.updateAudioEffectPreset(AudioEffectPreset.BRIGHT)
+
+            assertEquals(AudioEffectPreset.BRIGHT, viewModel.uiStateFlow.value.audioEffectPreset)
+            assertEquals(
+                listOf("connectIfNeeded", "setAudioEffectPreset(bright)"),
+                bridge.actions
+            )
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun init_shouldSyncRemoteAudioEffectPresetIntoUiState() = runTest {
+        val runtime = PlayerRuntime(application)
+        val bridge = FakePlayerControlBridge(
+            currentSnapshot = RemotePlaybackSnapshot(
+                playbackState = 3,
+                playWhenReady = true,
+                isPlaying = true,
+                isSeekSupported = true,
+                currentPositionMs = 8_000L,
+                durationMs = 200_000L,
+                playbackSpeed = 1.0f,
+                playbackMode = PlaybackMode.LIST_LOOP,
+                audioEffectPreset = AudioEffectPreset.WARM,
+                statusText = "Playing",
+                currentPlayable = null,
+                currentMediaId = null,
+                playbackOutputInfo = null,
+                audioMeta = null
+            )
+        )
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            songWikiRepository = FakeSongWikiRepository(),
+            serviceBridge = bridge,
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 60_000L,
+            uiProgressIntervalMs = 60_000L
+        )
+        try {
+            runCurrent()
+
+            assertEquals(AudioEffectPreset.WARM, viewModel.uiStateFlow.value.audioEffectPreset)
         } finally {
             clearViewModel(viewModel)
             runCurrent()
@@ -734,6 +888,14 @@ private class FakePlayerControlBridge(
     override fun clearCache(): Boolean = true
 
     override fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)?): Boolean = true
+
+    override fun setAudioEffectPreset(
+        audioEffectPreset: AudioEffectPreset,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean {
+        actions += "setAudioEffectPreset(${audioEffectPreset.wireValue})"
+        return true
+    }
 
     override fun setPlaybackMode(playbackMode: PlaybackMode, onResult: ((Boolean) -> Unit)?): Boolean = true
 

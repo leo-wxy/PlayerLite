@@ -1,6 +1,7 @@
 package com.wxy.playerlite.playback.client
 
 import com.wxy.playerlite.player.AudioMetaDisplay
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackOutputInfo
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
@@ -14,6 +15,7 @@ data class RemotePlaybackSnapshot(
     val durationMs: Long,
     val playbackSpeed: Float,
     val playbackMode: PlaybackMode,
+    val audioEffectPreset: AudioEffectPreset? = null,
     val statusText: String?,
     val currentPlayable: PlayableItemSnapshot?,
     val currentMediaId: String?,

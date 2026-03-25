@@ -39,6 +39,11 @@ constexpr jint kContextUnavailableCode = -6;
 constexpr int kDefaultPlaybackSpeedTenths = 10;
 constexpr int kMinPlaybackSpeedTenths = 5;
 constexpr int kMaxPlaybackSpeedTenths = 20;
+constexpr int kAudioEffectPresetOff = 0;
+constexpr int kAudioEffectPresetBassBoost = 1;
+constexpr int kAudioEffectPresetVocalBoost = 2;
+constexpr int kAudioEffectPresetBright = 3;
+constexpr int kAudioEffectPresetWarm = 4;
 constexpr int64_t kProgressNotifyIntervalMs = 500;
 constexpr int kAudioWriteChunkBytes = 16 * 1024;
 constexpr int kAudioWriteRecoverMaxRetries = 2;
@@ -74,6 +79,7 @@ struct PlayerContext {
     std::atomic<bool> pause_requested{false};
     std::atomic<int64_t> seek_position_ms{-1};
     std::atomic<int> playback_speed_tenths{kDefaultPlaybackSpeedTenths};
+    std::atomic<int> audio_effect_preset_code{kAudioEffectPresetOff};
 
     std::mutex pause_mutex;
     std::condition_variable pause_cv;
@@ -88,6 +94,19 @@ struct PlayerContext {
 
 int NormalizePlaybackSpeedTenths(int speed_tenths) {
     return std::clamp(speed_tenths, kMinPlaybackSpeedTenths, kMaxPlaybackSpeedTenths);
+}
+
+int NormalizeAudioEffectPresetCode(int preset_code) {
+    switch (preset_code) {
+        case kAudioEffectPresetOff:
+        case kAudioEffectPresetBassBoost:
+        case kAudioEffectPresetVocalBoost:
+        case kAudioEffectPresetBright:
+        case kAudioEffectPresetWarm:
+            return preset_code;
+        default:
+            return kAudioEffectPresetOff;
+    }
 }
 
 std::mutex g_context_init_mutex;
@@ -671,6 +690,14 @@ public:
         }
         return NormalizePlaybackSpeedTenths(
                 context_->playback_speed_tenths.load(std::memory_order_relaxed));
+    }
+
+    int CurrentAudioEffectPresetCode() const override {
+        if (context_ == nullptr) {
+            return kAudioEffectPresetOff;
+        }
+        return NormalizeAudioEffectPresetCode(
+                context_->audio_effect_preset_code.load(std::memory_order_relaxed));
     }
 
     bool FinalizePlayback(std::string* error_message) override {
@@ -1356,6 +1383,24 @@ Java_com_wxy_playerlite_player_NativePlayer_nativeSetPlaybackSpeed(
     const int speed_tenths = NormalizePlaybackSpeedTenths(
             static_cast<int>(std::lround(speed * 10.f)));
     context->playback_speed_tenths.store(speed_tenths, std::memory_order_relaxed);
+    SetLastError(context, "ok");
+    return 0;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_wxy_playerlite_player_NativePlayer_nativeSetAudioEffectPreset(
+        JNIEnv* env,
+        jobject thiz,
+        jint audio_effect_preset_code) {
+    PlayerContext* context = GetOrCreateContext(env, thiz);
+    if (context == nullptr) {
+        return kContextUnavailableCode;
+    }
+    ScopedContextUse scoped_context(env, thiz, context);
+
+    context->audio_effect_preset_code.store(
+            NormalizeAudioEffectPresetCode(audio_effect_preset_code),
+            std::memory_order_relaxed);
     SetLastError(context, "ok");
     return 0;
 }

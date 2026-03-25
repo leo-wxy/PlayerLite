@@ -4,6 +4,7 @@ import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.feature.player.ParsedLyrics
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioMetaDisplay
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.player.PlaybackOutputInfo
 
@@ -46,6 +47,12 @@ internal enum class PlayerTopTab {
     LYRICS
 }
 
+internal enum class PlayerMoreActionsPage {
+    ROOT,
+    SPEED,
+    AUDIO_EFFECT
+}
+
 internal data class PlayerUiState(
     val selectedFileName: String = "No audio selected",
     val currentTrackTitle: String = "No audio selected",
@@ -61,6 +68,9 @@ internal data class PlayerUiState(
     val activePlaylistIndex: Int = -1,
     val showPlaylistSheet: Boolean = false,
     val showSongWikiSheet: Boolean = false,
+    val showMoreActionsSheet: Boolean = false,
+    val showAudioEffectPage: Boolean = false,
+    val moreActionsPage: PlayerMoreActionsPage = PlayerMoreActionsPage.ROOT,
     val songWikiUiState: PlayerSongWikiUiState = PlayerSongWikiUiState.Placeholder,
     val lyricUiState: PlayerLyricUiState = PlayerLyricUiState.Placeholder,
     val selectedTopTab: PlayerTopTab = PlayerTopTab.SONG,
@@ -69,6 +79,7 @@ internal data class PlayerUiState(
     val isSeekSupported: Boolean = false,
     val playbackSpeed: Float = PlaybackSpeed.DEFAULT.value,
     val playbackMode: PlaybackMode = PlaybackMode.LIST_LOOP,
+    val audioEffectPreset: AudioEffectPreset = AudioEffectPreset.DEFAULT,
     val showOriginalOrderInShuffle: Boolean = false,
     val canReorderPlaylist: Boolean = true,
     val durationMs: Long = 0L,
@@ -78,6 +89,15 @@ internal data class PlayerUiState(
 ) {
     val displayedSeekMs: Long
         get() = if (isSeekDragging) seekDragPositionMs else seekPositionMs
+
+    val currentAudioEffectDisplayName: String
+        get() = audioEffectPreset.displayName
+
+    val canSkipPrevious: Boolean
+        get() = playlistItems.size > 1
+
+    val canSkipNext: Boolean
+        get() = playlistItems.size > 1
 
     val currentSongId: String?
         get() = currentSongIdOverride?.takeIf { it.isNotBlank() }

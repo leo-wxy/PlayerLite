@@ -98,9 +98,8 @@ internal fun DetailMiniPlayerBar(
     val swipeOffsetPx = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
     val colors = PlayerLiteVisualTheme.colors
-    val canSkipPrevious = playerState.activePlaylistIndex > 0
-    val canSkipNext = playerState.activePlaylistIndex >= 0 &&
-        playerState.activePlaylistIndex < playerState.playlistItems.lastIndex
+    val canSkipPrevious = playerState.canSkipPrevious
+    val canSkipNext = playerState.canSkipNext
     val miniPlayerShape = RoundedCornerShape(HomeChromeLayoutSpec.miniPlayerCornerRadius)
     Surface(
         modifier = modifier

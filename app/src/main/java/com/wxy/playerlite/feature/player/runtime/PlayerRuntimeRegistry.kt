@@ -21,7 +21,13 @@ internal object PlayerRuntimeRegistry {
 
         return synchronized(this) {
             runtime ?: PlayerRuntime(
-                appContext = context.applicationContext
+                appContext = context.applicationContext,
+                audioEffectPresetStorage = AudioEffectPresetStorage(
+                    preferences = context.applicationContext.getSharedPreferences(
+                        AudioEffectPresetStorage.PREFERENCES_NAME,
+                        Context.MODE_PRIVATE
+                    )
+                )
             ).also {
                 runtime = it
             }

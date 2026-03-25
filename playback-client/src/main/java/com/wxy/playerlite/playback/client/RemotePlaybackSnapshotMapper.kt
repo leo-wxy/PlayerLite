@@ -4,6 +4,7 @@ import android.os.Bundle
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackSpeed
 
 internal object RemotePlaybackSnapshotMapper {
@@ -32,6 +33,9 @@ internal object RemotePlaybackSnapshotMapper {
             ?: PlaybackMetadataExtras.readPlaybackMode(sessionExtras)
             ?: PlaybackMetadataExtras.readPlaybackMode(rootMetadataExtras)
             ?: PlaybackMode.LIST_LOOP
+        val audioEffectPreset = PlaybackMetadataExtras.readAudioEffectPreset(currentMetadataExtras)
+            ?: PlaybackMetadataExtras.readAudioEffectPreset(sessionExtras)
+            ?: PlaybackMetadataExtras.readAudioEffectPreset(rootMetadataExtras)
         return RemotePlaybackSnapshot(
             playbackState = playbackState,
             playWhenReady = playWhenReady,
@@ -41,6 +45,7 @@ internal object RemotePlaybackSnapshotMapper {
             durationMs = durationMs,
             playbackSpeed = playbackSpeed,
             playbackMode = playbackMode,
+            audioEffectPreset = audioEffectPreset,
             statusText = statusText,
             currentPlayable = currentPlayable,
             currentMediaId = currentMediaId,

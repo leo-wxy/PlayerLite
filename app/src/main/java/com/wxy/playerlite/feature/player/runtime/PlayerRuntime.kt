@@ -9,13 +9,16 @@ import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.core.playlist.SharedPreferencesPlaylistStorage
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
+import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.emptyAudioMeta
+import com.wxy.playerlite.feature.player.model.withAudioEffectPreset
 import com.wxy.playerlite.feature.player.model.withPlaybackSpeed
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioMetaDisplay
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackOutputInfo
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 internal class PlayerRuntime(
     appContext: Context,
+    private val audioEffectPresetStorage: AudioEffectPresetStorage? = null,
     private val elapsedRealtimeProvider: () -> Long = { SystemClock.elapsedRealtime() }
 ) {
     private val mediaSourceRepository = MediaSourceRepository(appContext)
@@ -43,6 +47,7 @@ internal class PlayerRuntime(
     private var remoteProgressShouldAdvance: Boolean = false
     private var pendingPlaybackSpeed: Float? = null
     private var pendingPlaybackMode: PlaybackMode? = null
+    private var pendingAudioEffectPreset: AudioEffectPreset? = null
 
     private var uiState: PlayerUiState
         get() = _uiState.value
@@ -51,6 +56,7 @@ internal class PlayerRuntime(
         }
 
     init {
+        restoreAudioEffectPreset()
         restorePlaylistState()
     }
 
@@ -63,7 +69,14 @@ internal class PlayerRuntime(
     }
 
     fun onTogglePlaylistSheet() {
-        uiState = uiState.copy(showPlaylistSheet = !uiState.showPlaylistSheet)
+        val nextVisible = !uiState.showPlaylistSheet
+        uiState = uiState.copy(
+            showPlaylistSheet = nextVisible,
+            showSongWikiSheet = if (nextVisible) false else uiState.showSongWikiSheet,
+            showMoreActionsSheet = if (nextVisible) false else uiState.showMoreActionsSheet,
+            showAudioEffectPage = if (nextVisible) false else uiState.showAudioEffectPage,
+            moreActionsPage = if (nextVisible) PlayerMoreActionsPage.ROOT else uiState.moreActionsPage
+        )
     }
 
     fun onDismissPlaylistSheet() {
@@ -75,12 +88,62 @@ internal class PlayerRuntime(
             return
         }
         uiState = uiState.copy(
-            showSongWikiSheet = true
+            showSongWikiSheet = true,
+            showPlaylistSheet = false,
+            showMoreActionsSheet = false,
+            showAudioEffectPage = false,
+            moreActionsPage = PlayerMoreActionsPage.ROOT
         )
     }
 
     fun onDismissSongWiki() {
         uiState = uiState.copy(showSongWikiSheet = false)
+    }
+
+    fun onShowPlayerMoreActions() {
+        uiState = uiState.copy(
+            showPlaylistSheet = false,
+            showSongWikiSheet = false,
+            showMoreActionsSheet = true,
+            showAudioEffectPage = false,
+            moreActionsPage = PlayerMoreActionsPage.ROOT
+        )
+    }
+
+    fun onDismissPlayerMoreActions() {
+        uiState = uiState.copy(
+            showMoreActionsSheet = false,
+            showAudioEffectPage = false,
+            moreActionsPage = PlayerMoreActionsPage.ROOT
+        )
+    }
+
+    fun showPlaybackSpeedSettings() {
+        uiState = uiState.copy(
+            showMoreActionsSheet = true,
+            showAudioEffectPage = false,
+            moreActionsPage = PlayerMoreActionsPage.SPEED
+        )
+    }
+
+    fun showAudioEffectSettings() {
+        uiState = uiState.copy(
+            showMoreActionsSheet = false,
+            showAudioEffectPage = true,
+            moreActionsPage = PlayerMoreActionsPage.ROOT
+        )
+    }
+
+    fun returnToPlayerMoreActionsRoot() {
+        uiState = uiState.copy(
+            showMoreActionsSheet = true,
+            showAudioEffectPage = false,
+            moreActionsPage = PlayerMoreActionsPage.ROOT
+        )
+    }
+
+    fun dismissAudioEffectSettings() {
+        uiState = uiState.copy(showAudioEffectPage = false)
     }
 
     fun updateSongWikiUiState(songWikiUiState: com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState) {
@@ -144,7 +207,12 @@ internal class PlayerRuntime(
         val target = playlistSession.itemAt(index) ?: return
         val previousActiveId = playlistSession.activeItem?.id
         if (playlistSession.activeIndex == index) {
-            uiState = uiState.copy(showPlaylistSheet = false)
+            uiState = uiState.copy(
+                showPlaylistSheet = false,
+                showMoreActionsSheet = false,
+                showAudioEffectPage = false,
+                moreActionsPage = PlayerMoreActionsPage.ROOT
+            )
             return
         }
 
@@ -155,6 +223,9 @@ internal class PlayerRuntime(
         }
         uiState = uiState.copy(
             showPlaylistSheet = false,
+            showMoreActionsSheet = false,
+            showAudioEffectPage = false,
+            moreActionsPage = PlayerMoreActionsPage.ROOT,
             statusText = "已切换到: ${target.displayName}"
         )
     }
@@ -170,7 +241,10 @@ internal class PlayerRuntime(
             uiState = uiState.copy(
                 statusText = "播放列表已清空",
                 showPlaylistSheet = false,
-                showSongWikiSheet = false
+                showSongWikiSheet = false,
+                showMoreActionsSheet = false,
+                showAudioEffectPage = false,
+                moreActionsPage = PlayerMoreActionsPage.ROOT
             )
             return
         }
@@ -180,7 +254,10 @@ internal class PlayerRuntime(
             uiState = uiState.copy(
                 statusText = "已移除当前项",
                 showPlaylistSheet = false,
-                showSongWikiSheet = false
+                showSongWikiSheet = false,
+                showMoreActionsSheet = false,
+                showAudioEffectPage = false,
+                moreActionsPage = PlayerMoreActionsPage.ROOT
             )
             return
         }
@@ -188,7 +265,10 @@ internal class PlayerRuntime(
         uiState = uiState.copy(
             statusText = "已移除: ${target.displayName}",
             showPlaylistSheet = false,
-            showSongWikiSheet = false
+            showSongWikiSheet = false,
+            showMoreActionsSheet = false,
+            showAudioEffectPage = false,
+            moreActionsPage = PlayerMoreActionsPage.ROOT
         )
     }
 
@@ -197,7 +277,10 @@ internal class PlayerRuntime(
             uiState = uiState.copy(
                 statusText = "播放列表已清空",
                 showPlaylistSheet = false,
-                showSongWikiSheet = false
+                showSongWikiSheet = false,
+                showMoreActionsSheet = false,
+                showAudioEffectPage = false,
+                moreActionsPage = PlayerMoreActionsPage.ROOT
             )
             return
         }
@@ -208,7 +291,10 @@ internal class PlayerRuntime(
         uiState = uiState.copy(
             statusText = "播放列表已清空",
             showPlaylistSheet = false,
-            showSongWikiSheet = false
+            showSongWikiSheet = false,
+            showMoreActionsSheet = false,
+            showAudioEffectPage = false,
+            moreActionsPage = PlayerMoreActionsPage.ROOT
         )
     }
 
@@ -251,13 +337,24 @@ internal class PlayerRuntime(
         isProgressAdvancing: Boolean,
         currentPlayable: PlayableItemSnapshot?,
         playbackOutputInfo: PlaybackOutputInfo?,
-        audioMeta: AudioMetaDisplay?
+        audioMeta: AudioMetaDisplay?,
+        audioEffectPreset: AudioEffectPreset? = null
     ) {
         val speedResolution = PlaybackSpeedSyncResolver.onRemoteUpdate(
             remoteSpeed = playbackSpeed,
             pendingSpeed = pendingPlaybackSpeed
         )
         pendingPlaybackSpeed = speedResolution.pendingSpeed
+        val resolvedAudioEffectPreset = if (audioEffectPreset != null) {
+            val audioEffectResolution = AudioEffectPresetSyncResolver.onRemoteUpdate(
+                remotePreset = audioEffectPreset,
+                pendingPreset = pendingAudioEffectPreset
+            )
+            pendingAudioEffectPreset = audioEffectResolution.pendingPreset
+            audioEffectResolution.resolvedPreset
+        } else {
+            uiState.audioEffectPreset
+        }
         val remoteProjection = resolveRemotePlaybackProjection(
             currentMediaId = currentMediaId,
             currentPlayable = currentPlayable
@@ -370,6 +467,10 @@ internal class PlayerRuntime(
             ),
             playbackMode = playlistSession.state.playbackMode
         ).withPlaybackSpeed(speedResolution.resolvedSpeed)
+            .withAudioEffectPreset(resolvedAudioEffectPreset)
+        if (audioEffectPreset != null) {
+            persistAudioEffectPreset(resolvedAudioEffectPreset)
+        }
         syncSelectionFromPlaylist()
     }
 
@@ -386,6 +487,21 @@ internal class PlayerRuntime(
         val speedResolution = PlaybackSpeedSyncResolver.onCommandRejected(playbackSpeed)
         pendingPlaybackSpeed = speedResolution.pendingSpeed
         uiState = uiState.withPlaybackSpeed(speedResolution.resolvedSpeed)
+    }
+
+    fun updateLocalAudioEffectPreset(audioEffectPreset: AudioEffectPreset) {
+        val effectResolution = AudioEffectPresetSyncResolver.onLocalRequest(audioEffectPreset)
+        pendingAudioEffectPreset = effectResolution.pendingPreset
+        uiState = uiState.withAudioEffectPreset(effectResolution.resolvedPreset)
+            .copy(showAudioEffectPage = false)
+        persistAudioEffectPreset(effectResolution.resolvedPreset)
+    }
+
+    fun revertPendingAudioEffectPreset(audioEffectPreset: AudioEffectPreset) {
+        val effectResolution = AudioEffectPresetSyncResolver.onCommandRejected(audioEffectPreset)
+        pendingAudioEffectPreset = effectResolution.pendingPreset
+        uiState = uiState.withAudioEffectPreset(effectResolution.resolvedPreset)
+        persistAudioEffectPreset(effectResolution.resolvedPreset)
     }
 
     fun tickRemotePlaybackPosition() {
@@ -409,6 +525,7 @@ internal class PlayerRuntime(
         remoteProgressShouldAdvance = false
         pendingPlaybackSpeed = null
         pendingPlaybackMode = null
+        pendingAudioEffectPreset = null
         resetRemoteProgressAnchor()
         uiState = uiState.copy(
             audioMeta = emptyAudioMeta(),
@@ -425,6 +542,9 @@ internal class PlayerRuntime(
             isPreparing = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
             showSongWikiSheet = false,
+            showMoreActionsSheet = false,
+            showAudioEffectPage = false,
+            moreActionsPage = PlayerMoreActionsPage.ROOT,
             lyricUiState = PlayerLyricUiState.Placeholder,
             selectedTopTab = PlayerTopTab.SONG,
             statusText = if (updateStatus) "Stopped" else uiState.statusText
@@ -475,6 +595,9 @@ internal class PlayerRuntime(
         uiState = uiState.copy(
             showPlaylistSheet = false,
             showSongWikiSheet = false,
+            showMoreActionsSheet = false,
+            showAudioEffectPage = false,
+            moreActionsPage = PlayerMoreActionsPage.ROOT,
             statusText = if (replacedQueue) {
                 "已替换播放列表"
             } else {
@@ -504,6 +627,11 @@ internal class PlayerRuntime(
     private fun restorePlaylistState() {
         playlistSession.restore(mediaSourceRepository::isPlaylistItemReadable)
         syncSelectionFromPlaylist()
+    }
+
+    private fun restoreAudioEffectPreset() {
+        val restoredPreset = audioEffectPresetStorage?.read() ?: return
+        uiState = uiState.withAudioEffectPreset(restoredPreset)
     }
 
     private fun addPickedUriToPlaylist(uri: Uri) {
@@ -547,6 +675,9 @@ internal class PlayerRuntime(
             isPreparing = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
             showSongWikiSheet = false,
+            showMoreActionsSheet = false,
+            showAudioEffectPage = false,
+            moreActionsPage = PlayerMoreActionsPage.ROOT,
             lyricUiState = PlayerLyricUiState.Placeholder
         )
     }
@@ -627,6 +758,10 @@ internal class PlayerRuntime(
     private fun updateRemoteProgressAnchor(positionMs: Long) {
         remoteProgressAnchorPositionMs = positionMs
         remoteProgressAnchorElapsedRealtimeMs = elapsedRealtimeProvider()
+    }
+
+    private fun persistAudioEffectPreset(audioEffectPreset: AudioEffectPreset) {
+        audioEffectPresetStorage?.write(audioEffectPreset)
     }
 
     private fun resetRemoteProgressAnchor() {

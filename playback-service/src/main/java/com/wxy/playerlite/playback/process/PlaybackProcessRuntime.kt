@@ -1,6 +1,7 @@
 package com.wxy.playerlite.playback.process
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import android.util.Log
@@ -9,6 +10,8 @@ import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.config.CacheCoreConfig
 import com.wxy.playerlite.network.core.JsonHttpClient
 import com.wxy.playerlite.player.AudioMetaDisplay
+import com.wxy.playerlite.player.AudioEffectPreset
+import com.wxy.playerlite.player.INativePlayer
 import com.wxy.playerlite.player.NativePlayer
 import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.player.PlaybackOutputInfo
@@ -28,6 +31,7 @@ internal data class PlaybackProcessState(
     val playWhenReady: Boolean = false,
     val playbackOutputInfo: PlaybackOutputInfo? = null,
     val playbackSpeed: Float = PlaybackSpeed.DEFAULT.value,
+    val audioEffectPreset: AudioEffectPreset = AudioEffectPreset.DEFAULT,
     val playbackMode: PlaybackMode = PlaybackMode.LIST_LOOP,
     val playbackState: Int = PLAYBACK_STATE_STOPPED,
     val isSeekSupported: Boolean = false,
@@ -45,9 +49,14 @@ internal data class PlaybackProcessState(
 
 internal class PlaybackProcessRuntime(
     appContext: Context,
-    private val serviceScope: CoroutineScope
+    private val serviceScope: CoroutineScope,
+    nativePlayerFactory: () -> INativePlayer = { NativePlayer() }
 ) {
     private val cacheRootDirPath = File(appContext.cacheDir, "cache_core").absolutePath
+    private val audioEffectPreferences: SharedPreferences? = appContext.getSharedPreferences(
+        AUDIO_EFFECT_PREFERENCES_NAME,
+        Context.MODE_PRIVATE
+    )
     private val onlinePlaybackPlanner = OnlinePlaybackPreparationPlanner(
         resolver = OnlinePlaybackUrlResolver(
             remoteDataSource = NeteaseOnlinePlaybackRemoteDataSource(
@@ -57,7 +66,7 @@ internal class PlaybackProcessRuntime(
     )
     private val mediaSourceRepository = MediaSourceRepository(appContext)
     private val playbackCoordinator = PlaybackCoordinator(
-        player = NativePlayer(),
+        player = nativePlayerFactory(),
         scope = serviceScope
     )
     private val trackPreparationCoordinator = TrackPreparationCoordinator(
@@ -71,7 +80,9 @@ internal class PlaybackProcessRuntime(
     @Volatile
     private var activePlaybackTrackId: String? = null
 
-    private val _state = MutableStateFlow(PlaybackProcessState())
+    private val _state = MutableStateFlow(
+        PlaybackProcessState(audioEffectPreset = readPersistedAudioEffectPreset())
+    )
     val state: StateFlow<PlaybackProcessState> = _state.asStateFlow()
 
     init {
@@ -193,8 +204,7 @@ internal class PlaybackProcessRuntime(
     fun moveToNext(): Boolean {
         val value = _state.value
         val nextIndex = when {
-            value.playbackMode == PlaybackMode.LIST_LOOP &&
-                value.tracks.size > 1 &&
+            value.tracks.size > 1 &&
                 value.activeIndex == value.tracks.lastIndex -> 0
 
             else -> value.activeIndex + 1
@@ -208,8 +218,7 @@ internal class PlaybackProcessRuntime(
     fun moveToPrevious(): Boolean {
         val value = _state.value
         val nextIndex = when {
-            value.playbackMode == PlaybackMode.LIST_LOOP &&
-                value.tracks.size > 1 &&
+            value.tracks.size > 1 &&
                 value.activeIndex == 0 -> value.tracks.lastIndex
 
             else -> value.activeIndex - 1
@@ -224,8 +233,7 @@ internal class PlaybackProcessRuntime(
         val value = _state.value
         return when {
             value.activeIndex !in value.tracks.indices -> false
-            value.playbackMode == PlaybackMode.LIST_LOOP -> value.tracks.size > 1
-            else -> value.activeIndex < value.tracks.lastIndex
+            else -> value.tracks.size > 1
         }
     }
 
@@ -233,8 +241,7 @@ internal class PlaybackProcessRuntime(
         val value = _state.value
         return when {
             value.activeIndex !in value.tracks.indices -> false
-            value.playbackMode == PlaybackMode.LIST_LOOP -> value.tracks.size > 1
-            else -> value.activeIndex > 0
+            else -> value.tracks.size > 1
         }
     }
 
@@ -261,6 +268,19 @@ internal class PlaybackProcessRuntime(
 
     fun setPlaybackMode(playbackMode: PlaybackMode) {
         _state.value = _state.value.copy(playbackMode = playbackMode)
+    }
+
+    fun setAudioEffectPreset(audioEffectPreset: AudioEffectPreset): Boolean {
+        val code = playbackCoordinator.setAudioEffectPreset(audioEffectPreset)
+        if (code != 0) {
+            _state.value = _state.value.copy(
+                statusText = "Set audio effect failed($code): ${playbackCoordinator.lastError()}"
+            )
+            return false
+        }
+        _state.value = _state.value.copy(audioEffectPreset = audioEffectPreset)
+        persistAudioEffectPreset(audioEffectPreset)
+        return true
     }
 
     fun setDisplayMetadata(title: String?, subtitle: String?) {
@@ -313,6 +333,15 @@ internal class PlaybackProcessRuntime(
                 playWhenReady = false,
                 playbackState = PLAYBACK_STATE_STOPPED,
                 statusText = "Set speed failed($speedCode): ${playbackCoordinator.lastError()}"
+            )
+            return
+        }
+        val audioEffectCode = playbackCoordinator.setAudioEffectPreset(_state.value.audioEffectPreset)
+        if (audioEffectCode != 0) {
+            _state.value = _state.value.copy(
+                playWhenReady = false,
+                playbackState = PLAYBACK_STATE_STOPPED,
+                statusText = "Set audio effect failed($audioEffectCode): ${playbackCoordinator.lastError()}"
             )
             return
         }
@@ -424,6 +453,13 @@ internal class PlaybackProcessRuntime(
         if (speedCode != 0) {
             _state.value = _state.value.copy(
                 statusText = "Set speed failed($speedCode): ${playbackCoordinator.lastError()}"
+            )
+            return
+        }
+        val audioEffectCode = playbackCoordinator.setAudioEffectPreset(_state.value.audioEffectPreset)
+        if (audioEffectCode != 0) {
+            _state.value = _state.value.copy(
+                statusText = "Set audio effect failed($audioEffectCode): ${playbackCoordinator.lastError()}"
             )
             return
         }
@@ -568,12 +604,26 @@ internal class PlaybackProcessRuntime(
 
     private fun clearQueue(statusText: String) {
         val currentSpeed = _state.value.playbackSpeed
+        val currentAudioEffectPreset = _state.value.audioEffectPreset
         stop()
         sourceSession.release()
         _state.value = PlaybackProcessState(
             playbackSpeed = currentSpeed,
+            audioEffectPreset = currentAudioEffectPreset,
             statusText = statusText
         )
+    }
+
+    private fun readPersistedAudioEffectPreset(): AudioEffectPreset {
+        return AudioEffectPreset.fromWireValue(
+            audioEffectPreferences?.getString(KEY_AUDIO_EFFECT_PRESET, null)
+        )
+    }
+
+    private fun persistAudioEffectPreset(audioEffectPreset: AudioEffectPreset) {
+        audioEffectPreferences?.edit()
+            ?.putString(KEY_AUDIO_EFFECT_PRESET, audioEffectPreset.wireValue)
+            ?.apply()
     }
 
     private fun applyTrackSelection(
@@ -626,6 +676,8 @@ internal class PlaybackProcessRuntime(
         private const val TAG = "PlaybackProcessRuntime"
         private const val API_BASE_URL = "http://139.9.223.233:3000"
         private const val STALE_PROGRESS_REGRESSION_TOLERANCE_MS = 300L
+        private const val AUDIO_EFFECT_PREFERENCES_NAME = "player_playback_preferences"
+        private const val KEY_AUDIO_EFFECT_PRESET = "audio_effect_preset"
     }
 
     private fun safeLogI(message: String) {

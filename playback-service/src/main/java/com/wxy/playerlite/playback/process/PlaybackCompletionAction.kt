@@ -28,8 +28,7 @@ internal enum class PlaybackCompletionAction {
             val hasNextTrack = activeIndex >= 0 && activeIndex < trackCount - 1
             return when {
                 hasNextTrack -> AUTO_NEXT
-                playbackMode == PlaybackMode.LIST_LOOP -> LOOP_TO_FIRST
-                else -> STOP_AT_END
+                else -> LOOP_TO_FIRST
             }
         }
     }

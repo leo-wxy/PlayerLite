@@ -45,6 +45,19 @@ class PlaybackCompletionActionTest {
     }
 
     @Test
+    fun resolve_returnsLoopToFirstWhenShuffleCompletesAtTail() {
+        assertEquals(
+            PlaybackCompletionAction.LOOP_TO_FIRST,
+            PlaybackCompletionAction.resolve(
+                playCode = 0,
+                activeIndex = 1,
+                trackCount = 2,
+                playbackMode = PlaybackMode.SHUFFLE
+            )
+        )
+    }
+
+    @Test
     fun resolve_returnsStopWithErrorWhenPlaybackDidNotCompleteNaturally() {
         assertEquals(
             PlaybackCompletionAction.STOP_WITH_ERROR,

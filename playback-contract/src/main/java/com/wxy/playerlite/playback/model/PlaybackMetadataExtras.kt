@@ -2,6 +2,7 @@ package com.wxy.playerlite.playback.model
 
 import android.os.Bundle
 import com.wxy.playerlite.player.AudioMetaDisplay
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackOutputInfo
 
 object PlaybackMetadataExtras {
@@ -16,6 +17,7 @@ object PlaybackMetadataExtras {
     private const val KEY_SEEK_SUPPORTED = "seek_supported"
     private const val KEY_PLAYBACK_SPEED = "playback_speed"
     private const val KEY_PLAYBACK_MODE = "playback_mode"
+    private const val KEY_AUDIO_EFFECT_PRESET = "audio_effect_preset"
     private const val KEY_AUDIO_META_CODEC = "audio_meta_codec"
     private const val KEY_AUDIO_META_SAMPLE_RATE = "audio_meta_sample_rate"
     private const val KEY_AUDIO_META_CHANNELS = "audio_meta_channels"
@@ -46,6 +48,10 @@ object PlaybackMetadataExtras {
 
     fun writePlaybackMode(extras: Bundle, playbackMode: PlaybackMode) {
         extras.putString(KEY_PLAYBACK_MODE, playbackMode.wireValue)
+    }
+
+    fun writeAudioEffectPreset(extras: Bundle, audioEffectPreset: AudioEffectPreset) {
+        extras.putString(KEY_AUDIO_EFFECT_PRESET, audioEffectPreset.wireValue)
     }
 
     fun writeAudioMeta(extras: Bundle, audioMeta: AudioMetaDisplay) {
@@ -79,6 +85,13 @@ object PlaybackMetadataExtras {
             return null
         }
         return PlaybackMode.fromWireValue(extras.getString(KEY_PLAYBACK_MODE))
+    }
+
+    fun readAudioEffectPreset(extras: Bundle?): AudioEffectPreset? {
+        if (extras == null || !extras.containsKey(KEY_AUDIO_EFFECT_PRESET)) {
+            return null
+        }
+        return AudioEffectPreset.fromWireValue(extras.getString(KEY_AUDIO_EFFECT_PRESET))
     }
 
     fun readAudioMeta(extras: Bundle?): AudioMetaDisplay? {

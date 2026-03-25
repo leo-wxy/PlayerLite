@@ -1,6 +1,7 @@
 package com.wxy.playerlite.playback.process
 
 import com.wxy.playerlite.player.INativePlayer
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackOutputInfo
 import com.wxy.playerlite.player.source.IPlaysource
 import kotlinx.coroutines.CancellationException
@@ -32,6 +33,37 @@ internal class PlaybackCoordinator(
 
     fun setPlaybackSpeed(speed: Float): Int {
         return player.setPlaybackSpeed(speed)
+    }
+
+    fun setAudioEffectPreset(audioEffectPreset: AudioEffectPreset): Int {
+        val typedMethod = runCatching {
+            player.javaClass.getMethod(
+                "setAudioEffectPreset",
+                AudioEffectPreset::class.java
+            )
+        }.getOrNull()
+        if (typedMethod != null) {
+            val result = runCatching {
+                typedMethod.invoke(player, audioEffectPreset) as? Int
+            }.getOrNull()
+            return result ?: -1
+        }
+
+        val wireMethod = runCatching {
+            player.javaClass.getMethod("setAudioEffectPreset", String::class.java)
+        }.getOrNull()
+        if (wireMethod != null) {
+            val result = runCatching {
+                wireMethod.invoke(player, audioEffectPreset.wireValue) as? Int
+            }.getOrNull()
+            return result ?: -1
+        }
+
+        return if (audioEffectPreset == AudioEffectPreset.DEFAULT) {
+            0
+        } else {
+            -1
+        }
     }
 
     fun launchPlay(

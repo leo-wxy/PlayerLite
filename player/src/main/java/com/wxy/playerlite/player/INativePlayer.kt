@@ -35,6 +35,8 @@ interface INativePlayer {
 
     fun setPlaybackSpeed(speed: Float): Int
 
+    fun setAudioEffectPreset(audioEffectPreset: AudioEffectPreset): Int
+
     fun playFromSource(source: IPlaysource): Int
 
     fun pause(): Int

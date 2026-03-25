@@ -106,12 +106,16 @@ import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
+import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.SongWikiSummary
 import com.wxy.playerlite.feature.player.ui.components.PlaybackControls
+import com.wxy.playerlite.feature.player.ui.components.PlayerMoreActionsSheet
 import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.player.AudioEffectPreset
+import com.wxy.playerlite.player.PlaybackSpeed
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -132,13 +136,20 @@ internal fun PlayerScreen(
     activePlaylistIndex: Int,
     showPlaylistSheet: Boolean,
     showSongWikiSheet: Boolean,
+    showMoreActionsSheet: Boolean = false,
+    showAudioEffectPage: Boolean = false,
+    moreActionsPage: PlayerMoreActionsPage = PlayerMoreActionsPage.ROOT,
     songWikiUiState: PlayerSongWikiUiState,
     lyricUiState: PlayerLyricUiState = PlayerLyricUiState.Placeholder,
     selectedTopTab: PlayerTopTab = PlayerTopTab.SONG,
     isPreparing: Boolean,
     playbackState: Int,
     isSeekSupported: Boolean,
+    playbackSpeed: Float = PlaybackSpeed.DEFAULT.value,
     playbackMode: PlaybackMode,
+    audioEffectPreset: AudioEffectPreset = AudioEffectPreset.DEFAULT,
+    canSkipPrevious: Boolean = playlistItems.size > 1,
+    canSkipNext: Boolean = playlistItems.size > 1,
     showOriginalOrderInShuffle: Boolean,
     canReorderPlaylist: Boolean,
     seekValueMs: Long,
@@ -181,6 +192,13 @@ internal fun PlayerScreen(
     onShowOriginalOrderInShuffleChange: (Boolean) -> Unit,
     onSeekValueChange: (Long) -> Unit,
     onSeekFinished: () -> Unit,
+    onDismissMoreActionsSheet: () -> Unit = {},
+    onDismissAudioEffectPage: () -> Unit = {},
+    onShowPlaybackSpeedSettings: () -> Unit = {},
+    onShowAudioEffectSettings: () -> Unit = {},
+    onReturnToMoreActionsRoot: () -> Unit = {},
+    onSelectPlaybackSpeed: (Float) -> Unit = {},
+    onSelectAudioEffectPreset: (AudioEffectPreset) -> Unit = {},
     onBackClick: () -> Unit = {},
     onShareClick: () -> Unit = {},
     onArtistClick: () -> Unit = {},
@@ -190,8 +208,6 @@ internal fun PlayerScreen(
     val visualTokens = PlayerLiteVisualTheme.colors
     val isPlaying = playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING
     val isPaused = playbackState == AUDIO_TRACK_PLAYSTATE_PAUSED
-    val hasPreviousTrack = activePlaylistIndex > 0
-    val hasNextTrack = activePlaylistIndex >= 0 && activePlaylistIndex < playlistItems.lastIndex
     val hasKnownDuration = durationMs > 0L
     val resolvedCoverUrl = currentCoverUrl?.takeIf { it.isNotBlank() }
     val resolvedArtistId = currentArtistId?.takeIf { it.isNotBlank() }
@@ -277,8 +293,8 @@ internal fun PlayerScreen(
                 isPreparing = isPreparing,
                 isPlaying = isPlaying,
                 isPaused = isPaused,
-                hasPreviousTrack = hasPreviousTrack,
-                hasNextTrack = hasNextTrack,
+                hasPreviousTrack = canSkipPrevious,
+                hasNextTrack = canSkipNext,
                 playlistItemCount = playlistItems.size,
                 playbackMode = playbackMode,
                 sliderValue = sliderValue,
@@ -288,6 +304,7 @@ internal fun PlayerScreen(
                 currentDurationText = currentDurationText,
                 totalDurationText = totalDurationText,
                 currentArtistId = resolvedArtistId,
+                audioEffectDisplayName = audioEffectPreset.displayName,
                 onSeekValueChange = onSeekValueChange,
                 onSeekFinished = onSeekFinished,
                 onBackClick = onBackClick,
@@ -335,6 +352,28 @@ internal fun PlayerScreen(
                 onMove = onMovePlaylistItem,
                 modifier = Modifier.testTag("player_screen_playlist_sheet")
             )
+
+            PlayerMoreActionsSheet(
+                visible = showMoreActionsSheet,
+                page = moreActionsPage,
+                playbackSpeed = playbackSpeed,
+                audioEffectPreset = audioEffectPreset,
+                onDismiss = onDismissMoreActionsSheet,
+                onShowPlaybackSpeedSettings = onShowPlaybackSpeedSettings,
+                onShowAudioEffectSettings = onShowAudioEffectSettings,
+                onReturnToRoot = onReturnToMoreActionsRoot,
+                onSelectPlaybackSpeed = onSelectPlaybackSpeed,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
+
+            if (showAudioEffectPage) {
+                PlayerAudioEffectPage(
+                    audioEffectPreset = audioEffectPreset,
+                    onDismiss = onDismissAudioEffectPage,
+                    onSelectAudioEffectPreset = onSelectAudioEffectPreset,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 }
@@ -362,6 +401,103 @@ internal fun PlayerSongWikiButton(
                 imageVector = Icons.AutoMirrored.Rounded.MenuBook,
                 contentDescription = "歌曲百科"
             )
+        }
+    }
+}
+
+@Composable
+private fun PlayerAudioEffectPage(
+    audioEffectPreset: AudioEffectPreset,
+    onDismiss: () -> Unit,
+    onSelectAudioEffectPreset: (AudioEffectPreset) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.testTag("player_screen_audio_effect_page"),
+        color = Color(0xFF14171D).copy(alpha = 0.98f)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.testTag("player_screen_audio_effect_page_back_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "返回播放页"
+                    )
+                }
+                Text(
+                    text = "音效设置",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.size(48.dp))
+            }
+
+            Text(
+                text = "选择后立即生效，并返回播放页主视图",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.68f)
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                AudioEffectPreset.entries.forEach { preset ->
+                    val selected = preset == audioEffectPreset
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("player_screen_audio_effect_option_${preset.wireValue.replace('-', '_')}"),
+                        onClick = { onSelectAudioEffectPreset(preset) },
+                        shape = RoundedCornerShape(24.dp),
+                        color = if (selected) {
+                            PlayerLiteVisualTheme.colors.accentStrong.copy(alpha = 0.12f)
+                        } else {
+                            Color.White.copy(alpha = 0.08f)
+                        }
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = preset.displayName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (selected) {
+                                    PlayerLiteVisualTheme.colors.accentStrong
+                                } else {
+                                    Color.White
+                                }
+                            )
+                            Text(
+                                text = if (selected) "当前使用中" else "点击后立即切换",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.64f)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1160,6 +1296,7 @@ private fun PlayerScreenContent(
     currentDurationText: String,
     totalDurationText: String,
     currentArtistId: String?,
+    audioEffectDisplayName: String,
     onSeekValueChange: (Long) -> Unit,
     onSeekFinished: () -> Unit,
     onBackClick: () -> Unit,
@@ -1440,14 +1577,29 @@ private fun PlayerScreenContent(
                                             style = MaterialTheme.typography.labelMedium.copy(
                                                 fontSize = layoutMetrics.progressTimeFontSizeSp.sp
                                             ),
-                                            color = Color.White.copy(alpha = 0.62f)
+                                            color = Color.White.copy(alpha = 0.62f),
+                                            modifier = Modifier
+                                            .testTag("player_screen_current_duration")
+                                        )
+                                        Text(
+                                            text = audioEffectDisplayName,
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontSize = layoutMetrics.progressTimeFontSizeSp.sp
+                                            ),
+                                            color = Color.White.copy(alpha = 0.74f),
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .testTag("player_screen_audio_effect_name")
                                         )
                                         Text(
                                             text = totalDurationText,
                                             style = MaterialTheme.typography.labelMedium.copy(
                                                 fontSize = layoutMetrics.progressTimeFontSizeSp.sp
                                             ),
-                                            color = Color.White.copy(alpha = 0.62f)
+                                            color = Color.White.copy(alpha = 0.62f),
+                                            modifier = Modifier
+                                                .testTag("player_screen_total_duration")
                                         )
                                     }
                                 }

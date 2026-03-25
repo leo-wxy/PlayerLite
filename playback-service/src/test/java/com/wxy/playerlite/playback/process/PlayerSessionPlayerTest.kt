@@ -10,6 +10,7 @@ import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.MusicInfo
 import com.wxy.playerlite.player.AudioMeta
 import com.wxy.playerlite.player.AudioMetaDisplay
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.INativePlayer
 import com.wxy.playerlite.player.PlaybackOutputInfo
 import com.wxy.playerlite.player.source.IPlaysource
@@ -27,12 +28,14 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import sun.misc.Unsafe
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class PlayerSessionPlayerTest {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -142,6 +145,38 @@ class PlayerSessionPlayerTest {
     }
 
     @Test
+    fun getState_writesAudioEffectPresetIntoCurrentItemExtras() {
+        val runtime = createRuntime(
+            PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-1",
+                            title = "Track 1",
+                            playbackUri = "https://example.com/track-1.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 0,
+                audioEffectPreset = AudioEffectPreset.BRIGHT
+            )
+        )
+
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+        val extrasRef = AtomicReference<android.os.Bundle?>()
+
+        Handler(Looper.getMainLooper()).post {
+            extrasRef.set(player.currentMediaItem?.mediaMetadata?.extras)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(
+            AudioEffectPreset.BRIGHT,
+            PlaybackMetadataExtras.readAudioEffectPreset(extrasRef.get())
+        )
+    }
+
+    @Test
     fun getState_projectsDisplayMetadataIntoCurrentItemWhilePreservingOriginalTrackMetadata() {
         val runtime = createRuntime(
             PlaybackProcessState(
@@ -203,6 +238,80 @@ class PlayerSessionPlayerTest {
                 ),
                 activeIndex = 1,
                 playbackMode = PlaybackMode.LIST_LOOP
+            )
+        )
+
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+        val commandsRef = AtomicReference<Player.Commands>()
+
+        Handler(Looper.getMainLooper()).post {
+            commandsRef.set(player.availableCommands)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val commands = commandsRef.get()
+        assertEquals(true, commands.contains(Player.COMMAND_SEEK_TO_NEXT))
+    }
+
+    @Test
+    fun getState_keepsPreviousCommandAvailableOnSingleLoopHeadWhenQueueHasMultipleTracks() {
+        val runtime = createRuntime(
+            PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-1",
+                            title = "Track 1",
+                            playbackUri = "https://example.com/track-1.mp3"
+                        )
+                    ),
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-2",
+                            title = "Track 2",
+                            playbackUri = "https://example.com/track-2.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 0,
+                playbackMode = PlaybackMode.SINGLE_LOOP
+            )
+        )
+
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+        val commandsRef = AtomicReference<Player.Commands>()
+
+        Handler(Looper.getMainLooper()).post {
+            commandsRef.set(player.availableCommands)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val commands = commandsRef.get()
+        assertEquals(true, commands.contains(Player.COMMAND_SEEK_TO_PREVIOUS))
+    }
+
+    @Test
+    fun getState_keepsNextCommandAvailableOnShuffleTailWhenQueueHasMultipleTracks() {
+        val runtime = createRuntime(
+            PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-1",
+                            title = "Track 1",
+                            playbackUri = "https://example.com/track-1.mp3"
+                        )
+                    ),
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-2",
+                            title = "Track 2",
+                            playbackUri = "https://example.com/track-2.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 1,
+                playbackMode = PlaybackMode.SHUFFLE
             )
         )
 
@@ -370,6 +479,8 @@ class PlayerSessionPlayerTest {
         override fun setPlaybackOutputInfoListener(listener: ((PlaybackOutputInfo) -> Unit)?) = Unit
 
         override fun setPlaybackSpeed(speed: Float): Int = 0
+
+        override fun setAudioEffectPreset(audioEffectPreset: AudioEffectPreset): Int = 0
 
         override fun playFromSource(source: IPlaysource): Int {
             playFromSourceCalls += 1

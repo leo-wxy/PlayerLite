@@ -1,10 +1,13 @@
 package com.wxy.playerlite.feature.player.runtime
 
+import android.content.Context
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
+import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.player.AudioEffectPreset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -15,6 +18,104 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class PlayerRuntimeInteractionTest {
+    @Test
+    fun playerMoreActions_shouldOpenIndependentAudioEffectPage() {
+        val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
+
+        runtime.onShowPlayerMoreActions()
+        assertTrue(runtime.uiStateFlow.value.showMoreActionsSheet)
+        assertFalse(runtime.uiStateFlow.value.showAudioEffectPage)
+        assertEquals(PlayerMoreActionsPage.ROOT, runtime.uiStateFlow.value.moreActionsPage)
+
+        runtime.showPlaybackSpeedSettings()
+        assertEquals(PlayerMoreActionsPage.SPEED, runtime.uiStateFlow.value.moreActionsPage)
+
+        runtime.returnToPlayerMoreActionsRoot()
+        assertEquals(PlayerMoreActionsPage.ROOT, runtime.uiStateFlow.value.moreActionsPage)
+
+        runtime.showAudioEffectSettings()
+        assertFalse(runtime.uiStateFlow.value.showMoreActionsSheet)
+        assertTrue(runtime.uiStateFlow.value.showAudioEffectPage)
+        assertEquals(PlayerMoreActionsPage.ROOT, runtime.uiStateFlow.value.moreActionsPage)
+
+        runtime.dismissAudioEffectSettings()
+        assertFalse(runtime.uiStateFlow.value.showAudioEffectPage)
+        assertEquals(PlayerMoreActionsPage.ROOT, runtime.uiStateFlow.value.moreActionsPage)
+    }
+
+    @Test
+    fun updateLocalAudioEffectPreset_shouldApplyImmediatelyAndRollbackWhenRejected() {
+        val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
+
+        runtime.updateLocalAudioEffectPreset(AudioEffectPreset.BRIGHT)
+        assertEquals(AudioEffectPreset.BRIGHT, runtime.uiStateFlow.value.audioEffectPreset)
+
+        runtime.revertPendingAudioEffectPreset(AudioEffectPreset.OFF)
+        assertEquals(AudioEffectPreset.OFF, runtime.uiStateFlow.value.audioEffectPreset)
+    }
+
+    @Test
+    fun audioEffectPreset_shouldRestoreAndPersistWhenStorageProvided() {
+        val appContext = RuntimeEnvironment.getApplication()
+        val preferences = appContext.getSharedPreferences(
+            "player_runtime_audio_effect_persistence_test",
+            Context.MODE_PRIVATE
+        )
+        preferences.edit().clear().commit()
+        val storage = AudioEffectPresetStorage(preferences)
+        storage.write(AudioEffectPreset.WARM)
+
+        val runtime = PlayerRuntime(
+            appContext = appContext,
+            audioEffectPresetStorage = storage
+        )
+
+        assertEquals(AudioEffectPreset.WARM, runtime.uiStateFlow.value.audioEffectPreset)
+
+        runtime.showAudioEffectSettings()
+        runtime.updateLocalAudioEffectPreset(AudioEffectPreset.BRIGHT)
+        assertFalse(runtime.uiStateFlow.value.showAudioEffectPage)
+        assertEquals(AudioEffectPreset.BRIGHT, storage.read())
+
+        runtime.revertPendingAudioEffectPreset(AudioEffectPreset.WARM)
+        assertEquals(AudioEffectPreset.WARM, storage.read())
+    }
+
+    @Test
+    fun updateRemotePlaybackState_whenRemotePresetMissing_shouldPreserveStoredAudioEffectPreset() {
+        val appContext = RuntimeEnvironment.getApplication()
+        val preferences = appContext.getSharedPreferences(
+            "player_runtime_audio_effect_remote_restore_test",
+            Context.MODE_PRIVATE
+        )
+        preferences.edit().clear().commit()
+        val storage = AudioEffectPresetStorage(preferences)
+        storage.write(AudioEffectPreset.BRIGHT)
+
+        val runtime = PlayerRuntime(
+            appContext = appContext,
+            audioEffectPresetStorage = storage
+        )
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+            positionMs = 0L,
+            durationMs = 180_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = null,
+            isProgressAdvancing = false,
+            currentPlayable = null,
+            playbackOutputInfo = null,
+            audioMeta = null,
+            audioEffectPreset = null
+        )
+
+        assertEquals(AudioEffectPreset.BRIGHT, runtime.uiStateFlow.value.audioEffectPreset)
+        assertEquals(AudioEffectPreset.BRIGHT, storage.read())
+    }
+
     @Test
     fun updateLocalPlaybackMode_shouldPublishNewModeImmediately() {
         val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())

@@ -1053,9 +1053,8 @@ private fun HomePlayEntryCard(
     val miniPlayerState = resolveHomeMiniPlayerState(playerState)
     val swipeOffsetPx = remember { androidx.compose.animation.core.Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
-    val canSkipPrevious = playerState.activePlaylistIndex > 0
-    val canSkipNext = playerState.activePlaylistIndex >= 0 &&
-        playerState.activePlaylistIndex < playerState.playlistItems.lastIndex
+    val canSkipPrevious = playerState.canSkipPrevious
+    val canSkipNext = playerState.canSkipNext
     val miniPlayerShape = RoundedCornerShape(HomeChromeLayoutSpec.miniPlayerCornerRadius)
     Surface(
         modifier = modifier

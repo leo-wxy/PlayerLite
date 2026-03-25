@@ -43,6 +43,7 @@ internal class PlayerSessionPlayer(
                 val extras = Bundle(baseItem.mediaMetadata.extras ?: Bundle())
                 PlaybackMetadataExtras.writePlaybackSpeed(extras, runtimeState.playbackSpeed)
                 PlaybackMetadataExtras.writePlaybackMode(extras, runtimeState.playbackMode)
+                PlaybackMetadataExtras.writeAudioEffectPreset(extras, runtimeState.audioEffectPreset)
                 runtimeState.audioMeta?.let { audioMeta ->
                     PlaybackMetadataExtras.writeAudioMeta(extras, audioMeta)
                 }

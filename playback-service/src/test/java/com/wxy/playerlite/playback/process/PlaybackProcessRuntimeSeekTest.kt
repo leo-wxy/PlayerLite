@@ -2,6 +2,7 @@ package com.wxy.playerlite.playback.process
 
 import com.wxy.playerlite.player.AudioMeta
 import com.wxy.playerlite.player.AudioMetaDisplay
+import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.INativePlayer
 import com.wxy.playerlite.player.PlaybackOutputInfo
 import com.wxy.playerlite.player.source.IPlaysource
@@ -17,9 +18,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import sun.misc.Unsafe
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class PlaybackProcessRuntimeSeekTest {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -97,6 +100,8 @@ class PlaybackProcessRuntimeSeekTest {
         override fun setPlaybackOutputInfoListener(listener: ((PlaybackOutputInfo) -> Unit)?) = Unit
 
         override fun setPlaybackSpeed(speed: Float): Int = 0
+
+        override fun setAudioEffectPreset(audioEffectPreset: AudioEffectPreset): Int = 0
 
         override fun playFromSource(source: IPlaysource): Int = 0
 

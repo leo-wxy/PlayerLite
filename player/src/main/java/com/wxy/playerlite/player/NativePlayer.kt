@@ -21,6 +21,8 @@ class NativePlayer : INativePlayer {
 
     private external fun nativeSetPlaybackSpeed(speed: Float): Int
 
+    private external fun nativeSetAudioEffectPreset(audioEffectPresetCode: Int): Int
+
     private external fun nativeSeek(positionMs: Long): Int
 
     private external fun nativeGetDurationFromSource(source: IPlaysource): Long
@@ -49,6 +51,10 @@ class NativePlayer : INativePlayer {
 
     override fun setPlaybackSpeed(speed: Float): Int {
         return nativeSetPlaybackSpeed(speed)
+    }
+
+    override fun setAudioEffectPreset(audioEffectPreset: AudioEffectPreset): Int {
+        return nativeSetAudioEffectPreset(audioEffectPreset.nativeCode)
     }
 
     override fun pause(): Int {
