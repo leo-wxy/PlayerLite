@@ -41,6 +41,7 @@ import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.search.SearchActivity
 import com.wxy.playerlite.feature.user.InitialLoginLaunchGate
 import com.wxy.playerlite.feature.user.LoginActivity
+import com.wxy.playerlite.feature.webplaylistimport.WebPlaylistImportActivity
 import com.wxy.playerlite.playback.model.PlaybackLaunchRequest
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
@@ -181,6 +182,11 @@ class MainActivity : ComponentActivity() {
                                     onOpenLocalSongs = {
                                         localSongsLauncher.launch(
                                             LocalSongsActivity.createIntent(this@MainActivity)
+                                        )
+                                    },
+                                    onOpenPlaylistImport = {
+                                        startActivity(
+                                            WebPlaylistImportActivity.createIntent(this@MainActivity)
                                         )
                                     },
                                     onLoginClick = {

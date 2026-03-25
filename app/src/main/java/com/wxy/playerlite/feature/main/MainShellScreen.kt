@@ -62,6 +62,7 @@ import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -1419,6 +1420,7 @@ internal fun UserCenterScreen(
     onOpenLikedSongs: (String?) -> Unit = {},
     onOpenRecentSongs: () -> Unit = {},
     onOpenLocalSongs: () -> Unit = {},
+    onOpenPlaylistImport: () -> Unit = {},
     onLoginClick: () -> Unit,
     onLogoutClick: () -> Unit,
     bottomContentPadding: Dp = HomeChromeLayoutSpec.userCenterScrollBottomPadding,
@@ -1451,6 +1453,7 @@ internal fun UserCenterScreen(
                     onOpenLiked = { onOpenLikedSongs(contentState.likedPlaylistId) },
                     onOpenRecent = onOpenRecentSongs,
                     onOpenLocal = onOpenLocalSongs,
+                    onOpenImport = onOpenPlaylistImport,
                     modifier = Modifier.padding(bottom = if (userState.isLoggedIn) 18.dp else 14.dp)
                 )
             }
@@ -1497,6 +1500,7 @@ private fun UserCenterQuickEntryRow(
     onOpenLiked: () -> Unit,
     onOpenRecent: () -> Unit,
     onOpenLocal: () -> Unit,
+    onOpenImport: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -1523,6 +1527,12 @@ private fun UserCenterQuickEntryRow(
             label = "本地",
             onClick = onOpenLocal,
             modifier = Modifier.testTag("user_center_quick_entry_local")
+        )
+        UserCenterQuickEntry(
+            icon = Icons.Rounded.FileDownload,
+            label = "导入",
+            onClick = onOpenImport,
+            modifier = Modifier.testTag("user_center_quick_entry_import")
         )
     }
 }

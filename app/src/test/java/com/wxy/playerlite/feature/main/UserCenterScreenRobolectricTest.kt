@@ -55,6 +55,7 @@ class UserCenterScreenRobolectricTest {
                     onOpenLikedSongs = {},
                     onOpenRecentSongs = {},
                     onOpenLocalSongs = {},
+                    onOpenPlaylistImport = {},
                     onLoginClick = {},
                     onLogoutClick = {}
                 )
@@ -66,6 +67,7 @@ class UserCenterScreenRobolectricTest {
         composeRule.onNodeWithTag("user_center_quick_entry_liked").assertHasClickAction()
         composeRule.onNodeWithTag("user_center_quick_entry_recent").assertHasClickAction()
         composeRule.onNodeWithTag("user_center_quick_entry_local").assertHasClickAction()
+        composeRule.onNodeWithTag("user_center_quick_entry_import").assertHasClickAction()
         composeRule.onAllNodesWithTag("user_center_tabs").assertCountEquals(0)
         composeRule.onNodeWithTag("user_center_playlists_section_header").assertIsDisplayed()
         composeRule.onNodeWithTag("user_center_scroll_content").performScrollToNode(
@@ -86,6 +88,7 @@ class UserCenterScreenRobolectricTest {
                     onOpenLikedSongs = {},
                     onOpenRecentSongs = {},
                     onOpenLocalSongs = {},
+                    onOpenPlaylistImport = {},
                     onLoginClick = {},
                     onLogoutClick = {}
                 )
@@ -94,6 +97,7 @@ class UserCenterScreenRobolectricTest {
 
         composeRule.onNodeWithTag("user_center_quick_entries").assertIsDisplayed()
         composeRule.onNodeWithTag("user_center_quick_entry_local").assertHasClickAction()
+        composeRule.onNodeWithTag("user_center_quick_entry_import").assertHasClickAction()
         composeRule.onNodeWithTag("user_center_scroll_content").performScrollToNode(
             matcher = hasTestTag("user_center_primary_action")
         )
@@ -106,6 +110,7 @@ class UserCenterScreenRobolectricTest {
         var likedClicks = 0
         var recentClicks = 0
         var localClicks = 0
+        var importClicks = 0
 
         composeRule.setContent {
             PlayerLiteTheme {
@@ -117,6 +122,7 @@ class UserCenterScreenRobolectricTest {
                     onOpenLikedSongs = { likedClicks += 1 },
                     onOpenRecentSongs = { recentClicks += 1 },
                     onOpenLocalSongs = { localClicks += 1 },
+                    onOpenPlaylistImport = { importClicks += 1 },
                     onLoginClick = {},
                     onLogoutClick = {}
                 )
@@ -126,11 +132,13 @@ class UserCenterScreenRobolectricTest {
         composeRule.onNodeWithTag("user_center_quick_entry_liked").performClick()
         composeRule.onNodeWithTag("user_center_quick_entry_recent").performClick()
         composeRule.onNodeWithTag("user_center_quick_entry_local").performClick()
+        composeRule.onNodeWithTag("user_center_quick_entry_import").performClick()
 
         composeRule.runOnIdle {
             assertEquals(1, likedClicks)
             assertEquals(1, recentClicks)
             assertEquals(1, localClicks)
+            assertEquals(1, importClicks)
         }
     }
 
@@ -152,6 +160,7 @@ class UserCenterScreenRobolectricTest {
                     onOpenLikedSongs = {},
                     onOpenRecentSongs = {},
                     onOpenLocalSongs = {},
+                    onOpenPlaylistImport = {},
                     onLoginClick = {},
                     onLogoutClick = {}
                 )
@@ -181,6 +190,7 @@ class UserCenterScreenRobolectricTest {
                         onOpenLikedSongs = {},
                         onOpenRecentSongs = {},
                         onOpenLocalSongs = {},
+                        onOpenPlaylistImport = {},
                         onLoginClick = {},
                         onLogoutClick = {},
                         bottomContentPadding = HomeChromeLayoutSpec.homeOverviewScrollBottomPadding

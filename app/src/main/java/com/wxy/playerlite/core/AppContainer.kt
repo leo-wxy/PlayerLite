@@ -28,6 +28,11 @@ import com.wxy.playerlite.feature.player.NeteaseSongWikiRemoteDataSource
 import com.wxy.playerlite.feature.player.SongWikiRepository
 import com.wxy.playerlite.feature.search.SearchRepository
 import com.wxy.playerlite.feature.search.SearchFeatureServiceFactory
+import com.wxy.playerlite.feature.webplaylistimport.DefaultQqMusicPlaylistRemoteDataSource
+import com.wxy.playerlite.feature.webplaylistimport.DefaultWebPlaylistImportRepository
+import com.wxy.playerlite.feature.webplaylistimport.QQ_MUSIC_API_BASE_URL
+import com.wxy.playerlite.feature.webplaylistimport.WebPlaylistImportRepository
+import com.wxy.playerlite.feature.webplaylistimport.WebPlaylistImportUrlParser
 import com.wxy.playerlite.network.core.AuthHeaderProvider
 import com.wxy.playerlite.network.core.JsonHttpClient
 import com.wxy.playerlite.user.DefaultUserRepository
@@ -83,6 +88,10 @@ internal object AppContainer {
         return getServices(context).songDetailRepository
     }
 
+    fun webPlaylistImportRepository(context: Context): WebPlaylistImportRepository {
+        return getServices(context).webPlaylistImportRepository
+    }
+
     private fun getServices(context: Context): Services {
         val existing = services
         if (existing != null) {
@@ -105,7 +114,13 @@ internal object AppContainer {
             baseUrl = AppEnvironmentConfig.apiBaseUrl,
             authHeaderProvider = authHeaderProvider
         )
+        val qqMusicHttpClient = JsonHttpClient(
+            baseUrl = QQ_MUSIC_API_BASE_URL
+        )
         val remoteDataSource = NeteaseUserRemoteDataSource(httpClient)
+        val playlistDetailRepository = DefaultPlaylistDetailRepository(
+            remoteDataSource = NeteasePlaylistDetailRemoteDataSource(httpClient)
+        )
         return Services(
             userRepository = DefaultUserRepository(
                 storage = storage,
@@ -127,8 +142,13 @@ internal object AppContainer {
             artistDetailRepository = DefaultArtistDetailRepository(
                 remoteDataSource = NeteaseArtistDetailRemoteDataSource(httpClient)
             ),
-            playlistDetailRepository = DefaultPlaylistDetailRepository(
-                remoteDataSource = NeteasePlaylistDetailRemoteDataSource(httpClient)
+            playlistDetailRepository = playlistDetailRepository,
+            webPlaylistImportRepository = DefaultWebPlaylistImportRepository(
+                urlParser = WebPlaylistImportUrlParser(),
+                playlistDetailRepository = playlistDetailRepository,
+                qqMusicRemoteDataSource = DefaultQqMusicPlaylistRemoteDataSource(
+                    httpClient = qqMusicHttpClient
+                )
             ),
             albumDetailRepository = DefaultAlbumDetailRepository(
                 remoteDataSource = NeteaseAlbumDetailRemoteDataSource(httpClient)
@@ -155,6 +175,7 @@ internal object AppContainer {
         val userCenterRepository: UserCenterRepository,
         val artistDetailRepository: ArtistDetailRepository,
         val playlistDetailRepository: PlaylistDetailRepository,
+        val webPlaylistImportRepository: WebPlaylistImportRepository,
         val albumDetailRepository: AlbumDetailRepository,
         val songDetailRepository: SongDetailRepository,
         val songWikiRepository: SongWikiRepository,
