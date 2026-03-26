@@ -3,10 +3,8 @@ package com.wxy.playerlite.feature.player.runtime
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
-import com.wxy.playerlite.core.playlist.PlaylistController
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
-import com.wxy.playerlite.core.playlist.SharedPreferencesPlaylistStorage
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
@@ -17,6 +15,11 @@ import com.wxy.playerlite.feature.player.model.withAudioEffectPreset
 import com.wxy.playerlite.feature.player.model.withPlaybackSpeed
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.orchestrator.AudioEffectPresetSyncResolver
+import com.wxy.playerlite.playback.orchestrator.PlaybackRuntimePort
+import com.wxy.playerlite.playback.orchestrator.PlaybackSpeedSyncResolver
+import com.wxy.playerlite.playlist.core.PlaylistController
+import com.wxy.playerlite.playlist.core.PlaylistSessionCoordinator
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackOutputInfo
@@ -29,7 +32,7 @@ internal class PlayerRuntime(
     appContext: Context,
     private val audioEffectPresetStorage: AudioEffectPresetStorage? = null,
     private val elapsedRealtimeProvider: () -> Long = { SystemClock.elapsedRealtime() }
-) {
+) : PlaybackRuntimePort {
     private val mediaSourceRepository = MediaSourceRepository(appContext)
     private val playlistSession = PlaylistSessionCoordinator(
         controller = PlaylistController(
@@ -158,7 +161,7 @@ internal class PlayerRuntime(
         uiState = uiState.copy(selectedTopTab = topTab)
     }
 
-    fun updateLocalPlaybackMode(playbackMode: PlaybackMode) {
+    override fun updateLocalPlaybackMode(playbackMode: PlaybackMode) {
         pendingPlaybackMode = playbackMode
         playlistSession.setPlaybackMode(playbackMode)
         syncSelectionFromPlaylist()
@@ -203,7 +206,7 @@ internal class PlayerRuntime(
         playlistSession.flush()
     }
 
-    fun selectPlaylistItem(index: Int) {
+    override fun selectPlaylistItem(index: Int) {
         val target = playlistSession.itemAt(index) ?: return
         val previousActiveId = playlistSession.activeItem?.id
         if (playlistSession.activeIndex == index) {
@@ -230,7 +233,7 @@ internal class PlayerRuntime(
         )
     }
 
-    fun removePlaylistItem(index: Int) {
+    override fun removePlaylistItem(index: Int) {
         val target = playlistSession.itemAt(index) ?: return
         val previousActiveId = playlistSession.activeItem?.id
         playlistSession.removeAt(index)
@@ -272,7 +275,7 @@ internal class PlayerRuntime(
         )
     }
 
-    fun clearPlaylist() {
+    override fun clearPlaylist() {
         if (playlistSession.items.isEmpty()) {
             uiState = uiState.copy(
                 statusText = "播放列表已清空",
@@ -298,7 +301,7 @@ internal class PlayerRuntime(
         )
     }
 
-    fun movePlaylistItem(fromIndex: Int, toIndex: Int) {
+    override fun movePlaylistItem(fromIndex: Int, toIndex: Int) {
         if (fromIndex == toIndex) {
             return
         }
@@ -310,11 +313,11 @@ internal class PlayerRuntime(
         syncSelectionFromPlaylist()
     }
 
-    fun setStatusText(statusText: String) {
+    override fun setStatusText(statusText: String) {
         uiState = uiState.copy(statusText = statusText)
     }
 
-    fun syncActiveItemById(itemId: String?) {
+    override fun syncActiveItemById(itemId: String?) {
         if (itemId.isNullOrBlank()) {
             return
         }
@@ -325,12 +328,12 @@ internal class PlayerRuntime(
         syncSelectionFromPlaylist()
     }
 
-    fun updateRemotePlaybackState(
+    override fun updateRemotePlaybackState(
         playbackState: Int,
         positionMs: Long,
         durationMs: Long,
         isSeekSupported: Boolean,
-        isPreparing: Boolean = false,
+        isPreparing: Boolean,
         playbackSpeed: Float,
         playbackMode: PlaybackMode,
         currentMediaId: String?,
@@ -338,7 +341,7 @@ internal class PlayerRuntime(
         currentPlayable: PlayableItemSnapshot?,
         playbackOutputInfo: PlaybackOutputInfo?,
         audioMeta: AudioMetaDisplay?,
-        audioEffectPreset: AudioEffectPreset? = null
+        audioEffectPreset: AudioEffectPreset?
     ) {
         val speedResolution = PlaybackSpeedSyncResolver.onRemoteUpdate(
             remoteSpeed = playbackSpeed,
@@ -474,7 +477,68 @@ internal class PlayerRuntime(
         syncSelectionFromPlaylist()
     }
 
-    fun updateLocalPlaybackSpeed(playbackSpeed: Float) {
+    fun updateRemotePlaybackState(
+        playbackState: Int,
+        positionMs: Long,
+        durationMs: Long,
+        isSeekSupported: Boolean,
+        playbackSpeed: Float,
+        playbackMode: PlaybackMode,
+        currentMediaId: String?,
+        isProgressAdvancing: Boolean,
+        currentPlayable: PlayableItemSnapshot?,
+        playbackOutputInfo: PlaybackOutputInfo?,
+        audioMeta: AudioMetaDisplay?
+    ) {
+        updateRemotePlaybackState(
+            playbackState = playbackState,
+            positionMs = positionMs,
+            durationMs = durationMs,
+            isSeekSupported = isSeekSupported,
+            isPreparing = false,
+            playbackSpeed = playbackSpeed,
+            playbackMode = playbackMode,
+            currentMediaId = currentMediaId,
+            isProgressAdvancing = isProgressAdvancing,
+            currentPlayable = currentPlayable,
+            playbackOutputInfo = playbackOutputInfo,
+            audioMeta = audioMeta,
+            audioEffectPreset = null
+        )
+    }
+
+    fun updateRemotePlaybackState(
+        playbackState: Int,
+        positionMs: Long,
+        durationMs: Long,
+        isSeekSupported: Boolean,
+        isPreparing: Boolean,
+        playbackSpeed: Float,
+        playbackMode: PlaybackMode,
+        currentMediaId: String?,
+        isProgressAdvancing: Boolean,
+        currentPlayable: PlayableItemSnapshot?,
+        playbackOutputInfo: PlaybackOutputInfo?,
+        audioMeta: AudioMetaDisplay?
+    ) {
+        updateRemotePlaybackState(
+            playbackState = playbackState,
+            positionMs = positionMs,
+            durationMs = durationMs,
+            isSeekSupported = isSeekSupported,
+            isPreparing = isPreparing,
+            playbackSpeed = playbackSpeed,
+            playbackMode = playbackMode,
+            currentMediaId = currentMediaId,
+            isProgressAdvancing = isProgressAdvancing,
+            currentPlayable = currentPlayable,
+            playbackOutputInfo = playbackOutputInfo,
+            audioMeta = audioMeta,
+            audioEffectPreset = null
+        )
+    }
+
+    override fun updateLocalPlaybackSpeed(playbackSpeed: Float) {
         val speedResolution = PlaybackSpeedSyncResolver.onLocalRequest(
             requestedSpeed = playbackSpeed
         )
@@ -483,13 +547,13 @@ internal class PlayerRuntime(
         updateRemoteProgressAnchor(uiState.displayedSeekMs)
     }
 
-    fun revertPendingPlaybackSpeed(playbackSpeed: Float) {
+    override fun revertPendingPlaybackSpeed(playbackSpeed: Float) {
         val speedResolution = PlaybackSpeedSyncResolver.onCommandRejected(playbackSpeed)
         pendingPlaybackSpeed = speedResolution.pendingSpeed
         uiState = uiState.withPlaybackSpeed(speedResolution.resolvedSpeed)
     }
 
-    fun updateLocalAudioEffectPreset(audioEffectPreset: AudioEffectPreset) {
+    override fun updateLocalAudioEffectPreset(audioEffectPreset: AudioEffectPreset) {
         val effectResolution = AudioEffectPresetSyncResolver.onLocalRequest(audioEffectPreset)
         pendingAudioEffectPreset = effectResolution.pendingPreset
         uiState = uiState.withAudioEffectPreset(effectResolution.resolvedPreset)
@@ -497,7 +561,7 @@ internal class PlayerRuntime(
         persistAudioEffectPreset(effectResolution.resolvedPreset)
     }
 
-    fun revertPendingAudioEffectPreset(audioEffectPreset: AudioEffectPreset) {
+    override fun revertPendingAudioEffectPreset(audioEffectPreset: AudioEffectPreset) {
         val effectResolution = AudioEffectPresetSyncResolver.onCommandRejected(audioEffectPreset)
         pendingAudioEffectPreset = effectResolution.pendingPreset
         uiState = uiState.withAudioEffectPreset(effectResolution.resolvedPreset)
@@ -555,16 +619,30 @@ internal class PlayerRuntime(
         return PlayerUiFormatter.formatDuration(durationMs)
     }
 
-    fun playbackQueueItems(): List<PlaylistItem> {
+    override fun playbackQueueItems(): List<PlaylistItem> {
         return playlistSession.playbackItems
     }
 
-    fun playbackQueueActiveIndex(): Int {
+    override fun playbackQueueActiveIndex(): Int {
         return playlistSession.playbackActiveIndex
     }
 
-    fun playbackQueueItemsInOriginalOrder(): List<PlaylistItem> {
+    override fun currentPlaybackMode(): PlaybackMode {
+        return uiState.playbackMode
+    }
+
+    override fun playbackQueueItemsInOriginalOrder(): List<PlaylistItem> {
         return playlistSession.originalItems
+    }
+
+    override fun replaceQueueFromDetail(
+        items: List<PlaylistItem>,
+        activeIndex: Int
+    ) {
+        applyExternalQueueSelection(
+            items = items,
+            activeIndex = activeIndex
+        )
     }
 
     fun applyExternalQueueSelection(
@@ -610,7 +688,7 @@ internal class PlayerRuntime(
         )
     }
 
-    fun updatePlaylistItemsMetadata(
+    override fun updatePlaylistItemsMetadata(
         updatesById: Map<String, PlaylistItem>
     ) {
         if (updatesById.isEmpty()) {

@@ -35,6 +35,7 @@ import com.wxy.playerlite.feature.main.UserCenterScreen
 import com.wxy.playerlite.feature.main.UserCenterViewModel
 import com.wxy.playerlite.feature.main.resolveContentEntryLaunch
 import com.wxy.playerlite.feature.player.PlayerActivity
+import com.wxy.playerlite.feature.player.PlayerEntry
 import com.wxy.playerlite.feature.player.PlayerViewModel
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
@@ -42,7 +43,6 @@ import com.wxy.playerlite.feature.search.SearchActivity
 import com.wxy.playerlite.feature.user.InitialLoginLaunchGate
 import com.wxy.playerlite.feature.user.LoginActivity
 import com.wxy.playerlite.feature.webplaylistimport.WebPlaylistImportActivity
-import com.wxy.playerlite.playback.model.PlaybackLaunchRequest
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 class MainActivity : ComponentActivity() {
@@ -277,13 +277,13 @@ internal fun resolveLegacyPlayerLaunchRedirectIntent(
     sourceIntent: Intent?,
     context: android.content.Context
 ): Intent? {
-    val shouldOpenPlayer = PlaybackLaunchRequest.shouldOpenPlayer(sourceIntent)
-    val shouldStartPlayback = PlaybackLaunchRequest.shouldStartPlayback(sourceIntent)
-    val shouldOpenPlaylist = PlaybackLaunchRequest.shouldOpenPlaylist(sourceIntent)
+    val shouldOpenPlayer = PlayerEntry.shouldOpenPlayerFromIntent(sourceIntent)
+    val shouldStartPlayback = PlayerEntry.shouldStartPlaybackFromIntent(sourceIntent)
+    val shouldOpenPlaylist = PlayerEntry.shouldOpenPlaylistFromIntent(sourceIntent)
     if (!shouldOpenPlayer && !shouldStartPlayback && !shouldOpenPlaylist) {
         return null
     }
-    return PlayerActivity.createIntent(
+    return PlayerEntry.createIntent(
         context = context,
         openPlaylist = shouldOpenPlaylist,
         startPlayback = shouldStartPlayback

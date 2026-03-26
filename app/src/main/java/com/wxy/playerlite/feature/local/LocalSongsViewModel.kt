@@ -6,9 +6,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.wxy.playerlite.core.playback.AppPlaybackGraph
 import com.wxy.playerlite.feature.player.runtime.DetailPlaybackGateway
 import com.wxy.playerlite.feature.player.runtime.DetailPlaybackRequest
-import com.wxy.playerlite.feature.player.runtime.RuntimeDetailPlaybackGateway
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -151,7 +151,7 @@ internal class LocalSongsViewModel(
                                 )
                             )
                         ),
-                        playbackGateway = RuntimeDetailPlaybackGateway(appContext)
+                        playbackGateway = AppPlaybackGraph.detailPlaybackGateway(appContext)
                     ) as T
                 }
             }

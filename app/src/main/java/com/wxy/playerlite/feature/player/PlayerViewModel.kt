@@ -6,23 +6,25 @@ import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.media3.common.C
 import androidx.media3.common.Player
 import com.wxy.playerlite.core.AppContainer
+import com.wxy.playerlite.core.playback.AppPlaybackGraph
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.PlayerUiState
-import com.wxy.playerlite.feature.player.runtime.PlayerRuntimeRegistry
-import com.wxy.playerlite.feature.player.runtime.toQueuePlayableItem
 import com.wxy.playerlite.feature.user.model.UserSessionUiState
 import com.wxy.playerlite.feature.user.model.toUserSessionUiState
-import com.wxy.playerlite.playback.client.PlayerServiceBridge
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.LocalMusicInfo
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.orchestrator.PlaybackQueueController
+import com.wxy.playerlite.playback.orchestrator.PlaybackSettingsController
+import com.wxy.playerlite.playback.orchestrator.PlaybackServiceSynchronizer
+import com.wxy.playerlite.playback.orchestrator.PlaybackTransportController
+import com.wxy.playerlite.playback.orchestrator.PlayerServiceController
 import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.user.model.LoginState
@@ -41,11 +43,13 @@ import kotlinx.coroutines.launch
 
 internal class PlayerViewModel(
     application: Application,
-    private val runtime: com.wxy.playerlite.feature.player.runtime.PlayerRuntime = PlayerRuntimeRegistry.get(application.applicationContext),
+    private val runtime: com.wxy.playerlite.feature.player.runtime.PlayerRuntime = AppPlaybackGraph.runtime(
+        application.applicationContext
+    ),
     private val userRepository: com.wxy.playerlite.user.UserRepository = AppContainer.userRepository(application.applicationContext),
     private val songWikiRepository: SongWikiRepository = AppContainer.songWikiRepository(application.applicationContext),
     private val lyricRepository: LyricRepository = AppContainer.lyricRepository(application.applicationContext),
-    private val serviceBridge: PlayerControlBridge = MediaControllerPlayerControlBridge(
+    private val serviceBridge: PlayerServiceController = AppPlaybackGraph.playerServiceController(
         context = application.applicationContext,
         onControllerError = { errorMessage ->
             runtime.setStatusText(errorMessage)
@@ -71,17 +75,41 @@ internal class PlayerViewModel(
 
     val uiStateFlow: StateFlow<PlayerUiState> = runtime.uiStateFlow
     val userSessionUiStateFlow: StateFlow<UserSessionUiState> = _userSessionUiState.asStateFlow()
+    private val playbackSynchronizer = PlaybackServiceSynchronizer(
+        runtime = runtime,
+        serviceController = serviceBridge,
+        authHeadersProvider = { userRepository.currentSession()?.toAuthHeaders().orEmpty() },
+        playbackStateMapper = ::mapRemotePlaybackState,
+        localShouldContinuePlayback = {
+            val uiState = uiStateFlow.value
+            uiState.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING || uiState.isPreparing
+        }
+    )
+    private val playbackTransportController = PlaybackTransportController(
+        runtime = runtime,
+        serviceController = serviceBridge,
+        playbackSynchronizer = playbackSynchronizer
+    )
+    private val playbackQueueController = PlaybackQueueController(
+        runtime = runtime,
+        serviceController = serviceBridge,
+        playbackSynchronizer = playbackSynchronizer
+    )
+    private val playbackSettingsController = PlaybackSettingsController(
+        runtime = runtime,
+        serviceController = serviceBridge
+    )
 
     constructor(application: Application) : this(
         application = application,
-        runtime = PlayerRuntimeRegistry.get(application.applicationContext),
+        runtime = AppPlaybackGraph.runtime(application.applicationContext),
         userRepository = AppContainer.userRepository(application.applicationContext),
         songWikiRepository = AppContainer.songWikiRepository(application.applicationContext),
         lyricRepository = AppContainer.lyricRepository(application.applicationContext),
-        serviceBridge = MediaControllerPlayerControlBridge(
+        serviceBridge = AppPlaybackGraph.playerServiceController(
             context = application.applicationContext,
             onControllerError = { errorMessage ->
-                val runtime = PlayerRuntimeRegistry.get(application.applicationContext)
+                val runtime = AppPlaybackGraph.runtime(application.applicationContext)
                 runtime.setStatusText(errorMessage)
                 Log.w(TAG, errorMessage)
             }
@@ -133,7 +161,7 @@ internal class PlayerViewModel(
         }
         remoteSyncJob = viewModelScope.launch {
             while (isActive) {
-                syncRemotePlaybackState()
+                playbackSynchronizer.syncRemotePlaybackState()
                 delay(remoteSyncIntervalMs)
             }
         }
@@ -213,32 +241,22 @@ internal class PlayerViewModel(
         }
         val target = uiStateFlow.value.seekDragPositionMs
         runtime.finishSeekDrag()
-        if (!serviceBridge.seekTo(target)) {
-            runtime.setStatusText("后台播放进程未连接")
-        }
+        playbackTransportController.seekTo(target)
     }
 
     fun updatePlaybackSpeed(speed: Float) {
         val previousSpeed = uiStateFlow.value.playbackSpeed
         val normalizedSpeed = PlaybackSpeed.normalizeValue(speed)
-        runtime.updateLocalPlaybackSpeed(normalizedSpeed)
-        serviceBridge.connectIfNeeded()
-        if (!serviceBridge.setPlaybackSpeed(normalizedSpeed) { success ->
-                if (!success) {
-                    runtime.revertPendingPlaybackSpeed(previousSpeed)
-                }
-            }) {
-            runtime.revertPendingPlaybackSpeed(previousSpeed)
-            runtime.setStatusText("倍速设置失败：后台播放进程未连接")
-        }
+        playbackSettingsController.updatePlaybackSpeed(
+            playbackSpeed = normalizedSpeed,
+            previousPlaybackSpeed = previousSpeed
+        )
     }
 
     fun updatePlaybackMode(playbackMode: PlaybackMode) {
-        val shouldContinue = shouldContinuePlayback()
         val currentPosition = uiStateFlow.value.displayedSeekMs
-        runtime.updateLocalPlaybackMode(playbackMode)
-        syncQueueToPlaybackProcess(
-            playWhenReady = shouldContinue,
+        playbackQueueController.updatePlaybackMode(
+            playbackMode = playbackMode,
             startPositionMs = currentPosition
         )
     }
@@ -258,56 +276,38 @@ internal class PlayerViewModel(
     }
 
     fun selectPlaylistItem(index: Int) {
-        runtime.selectPlaylistItem(index)
-        syncQueueToPlaybackProcess(playWhenReady = true)
+        playbackQueueController.selectPlaylistItem(index)
     }
 
     fun removePlaylistItem(index: Int) {
         val previous = uiStateFlow.value
-        runtime.removePlaylistItem(index)
-        val latest = uiStateFlow.value
-        if (!latest.hasSelection) {
-            serviceBridge.stop()
-            return
-        }
-        val shouldContinue = (previous.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING || previous.isPreparing) &&
+        val removedActiveWhilePlayingOrPreparing =
+            (previous.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING || previous.isPreparing) &&
             index == previous.activePlaylistIndex
-        syncQueueToPlaybackProcess(playWhenReady = shouldContinue)
+        playbackQueueController.removePlaylistItem(
+            index = index,
+            removedActiveWhilePlayingOrPreparing = removedActiveWhilePlayingOrPreparing
+        )
     }
 
     fun clearPlaylist() {
-        runtime.clearPlaylist()
-        if (!uiStateFlow.value.hasSelection) {
-            serviceBridge.stop()
-        }
+        playbackQueueController.clearPlaylist()
     }
 
     fun movePlaylistItem(fromIndex: Int, toIndex: Int) {
-        val shouldContinue = shouldContinuePlayback()
-        runtime.movePlaylistItem(fromIndex, toIndex)
-        syncQueueToPlaybackProcess(playWhenReady = shouldContinue)
+        playbackQueueController.movePlaylistItem(fromIndex, toIndex)
     }
 
     fun skipToPreviousTrack() {
-        ensureRemoteQueueReadyForSkip()
-        serviceBridge.ensurePlaybackServiceStartedForPlayback()
-        serviceBridge.connectIfNeeded()
-        if (!serviceBridge.seekToPreviousMediaItem()) {
-            runtime.setStatusText("切换上一首失败：后台播放进程未连接")
-        }
+        playbackTransportController.skipToPreviousTrack()
     }
 
     fun skipToNextTrack() {
-        ensureRemoteQueueReadyForSkip()
-        serviceBridge.ensurePlaybackServiceStartedForPlayback()
-        serviceBridge.connectIfNeeded()
-        if (!serviceBridge.seekToNextMediaItem()) {
-            runtime.setStatusText("切换下一首失败：后台播放进程未连接")
-        }
+        playbackTransportController.skipToNextTrack()
     }
 
     fun playSelectedAudio() {
-        syncQueueToPlaybackProcess(playWhenReady = true)
+        playbackTransportController.playSelectedAudio()
     }
 
     fun runUiTestEntry() {
@@ -345,15 +345,7 @@ internal class PlayerViewModel(
     }
 
     fun clearCache() {
-        serviceBridge.connectIfNeeded()
-        val accepted = serviceBridge.clearCache()
-        runtime.setStatusText(
-            if (accepted) {
-                "已请求清理缓存"
-            } else {
-                "清理缓存请求失败：后台播放进程未连接"
-            }
-        )
+        playbackTransportController.clearCache()
     }
 
     fun onShareCurrentTrack() {
@@ -390,35 +382,22 @@ internal class PlayerViewModel(
 
     fun updateAudioEffectPreset(audioEffectPreset: AudioEffectPreset) {
         val previousPreset = uiStateFlow.value.audioEffectPreset
-        runtime.updateLocalAudioEffectPreset(audioEffectPreset)
-        serviceBridge.connectIfNeeded()
-        if (!serviceBridge.setAudioEffectPreset(audioEffectPreset) { success ->
-                if (!success) {
-                    runtime.revertPendingAudioEffectPreset(previousPreset)
-                }
-            }) {
-            runtime.revertPendingAudioEffectPreset(previousPreset)
-            runtime.setStatusText("音效设置失败：后台播放进程未连接")
-        }
+        playbackSettingsController.updateAudioEffectPreset(
+            audioEffectPreset = audioEffectPreset,
+            previousAudioEffectPreset = previousPreset
+        )
     }
 
     fun pausePlayback() {
-        serviceBridge.connectIfNeeded()
-        if (!serviceBridge.pause()) {
-            runtime.setStatusText("暂停失败：后台播放进程未连接")
-        }
+        playbackTransportController.pausePlayback()
     }
 
     fun resumePlayback() {
-        serviceBridge.ensurePlaybackServiceStartedForPlayback()
-        serviceBridge.connectIfNeeded()
-        if (!serviceBridge.play()) {
-            runtime.setStatusText("恢复失败：后台播放进程未连接")
-        }
+        playbackTransportController.resumePlayback()
     }
 
     fun stopAll(updateStatus: Boolean) {
-        serviceBridge.stop()
+        playbackTransportController.stopPlayback()
         runtime.stopAll(updateStatus = updateStatus)
     }
 
@@ -533,31 +512,6 @@ internal class PlayerViewModel(
         super.onCleared()
     }
 
-    private fun syncRemotePlaybackState() {
-        val snapshot = serviceBridge.currentSnapshot() ?: run {
-            return
-        }
-        runtime.updateRemotePlaybackState(
-            playbackState = mapRemotePlaybackState(snapshot),
-            positionMs = snapshot.currentPositionMs,
-            durationMs = snapshot.durationMs,
-            isSeekSupported = snapshot.isSeekSupported,
-            isPreparing = snapshot.playbackState == Player.STATE_BUFFERING,
-            playbackSpeed = snapshot.playbackSpeed,
-            playbackMode = snapshot.playbackMode,
-            currentMediaId = snapshot.currentMediaId,
-            isProgressAdvancing = snapshot.isPlaying,
-            currentPlayable = snapshot.currentPlayable,
-            playbackOutputInfo = snapshot.playbackOutputInfo,
-            audioMeta = snapshot.audioMeta,
-            audioEffectPreset = snapshot.audioEffectPreset
-        )
-        runtime.syncActiveItemById(snapshot.currentMediaId)
-        snapshot.statusText
-            ?.takeIf { it.isNotBlank() }
-            ?.let { runtime.setStatusText(it) }
-    }
-
     private fun mapRemotePlaybackState(snapshot: RemotePlaybackSnapshot): Int {
         return when {
             snapshot.isPlaying -> AUDIO_TRACK_PLAYSTATE_PLAYING
@@ -567,88 +521,6 @@ internal class PlayerViewModel(
             snapshot.playbackState == Player.STATE_READY -> AUDIO_TRACK_PLAYSTATE_PAUSED
             else -> AUDIO_TRACK_PLAYSTATE_STOPPED
         }
-    }
-
-    private fun ensureRemoteQueueReadyForSkip() {
-        val snapshot = serviceBridge.currentSnapshot()
-        if (!snapshot?.currentMediaId.isNullOrBlank()) {
-            return
-        }
-        if (runtime.playbackQueueItems().isEmpty()) {
-            return
-        }
-        val shouldContinue = shouldContinuePlayback(snapshot)
-        syncQueueToPlaybackProcess(
-            playWhenReady = shouldContinue,
-            requirePlaybackServiceStart = true
-        )
-    }
-
-    private fun shouldContinuePlayback(snapshot: RemotePlaybackSnapshot? = serviceBridge.currentSnapshot()): Boolean {
-        if (snapshot != null) {
-            return snapshot.playWhenReady || snapshot.isPlaying || snapshot.playbackState == Player.STATE_BUFFERING
-        }
-        val uiState = uiStateFlow.value
-        return uiState.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING || uiState.isPreparing
-    }
-
-    private fun syncQueueToPlaybackProcess(
-        playWhenReady: Boolean,
-        startPositionMs: Long = C.TIME_UNSET,
-        requirePlaybackServiceStart: Boolean = playWhenReady
-    ): Boolean {
-        val queueItems = runtime.playbackQueueItems()
-        if (queueItems.isEmpty()) {
-            runtime.setStatusText("Pick audio first")
-            return false
-        }
-
-        val activeIndex = runtime.playbackQueueActiveIndex().takeIf { it in queueItems.indices } ?: 0
-        val activeItemId = queueItems.getOrNull(activeIndex)?.id
-        val authHeaders = userRepository.currentSession()?.toAuthHeaders().orEmpty()
-        val queueEntries = queueItems.mapNotNull { item ->
-            val playable = item.toQueuePlayableItem()?.let { candidate ->
-                if (candidate is com.wxy.playerlite.playback.model.MusicInfo) {
-                    candidate.copy(requestHeaders = authHeaders)
-                } else {
-                    candidate
-                }
-            }
-            playable?.let { item.id to it }
-        }
-        if (queueEntries.isEmpty()) {
-            runtime.setStatusText("播放失败：当前列表没有可投影的可播放条目")
-            return false
-        }
-        val queue = queueEntries.map { it.second }
-        val normalizedActiveIndex = queueEntries.indexOfFirst { it.first == activeItemId }
-            .takeIf { it >= 0 }
-            ?: 0
-
-        if (requirePlaybackServiceStart) {
-            serviceBridge.ensurePlaybackServiceStartedForPlayback()
-        }
-        serviceBridge.connectIfNeeded()
-        val synced = serviceBridge.syncQueue(
-            queue = queue,
-            activeIndex = normalizedActiveIndex,
-            playWhenReady = playWhenReady,
-            startPositionMs = startPositionMs
-        )
-
-        if (!synced) {
-            runtime.setStatusText("播放失败：后台播放进程未连接")
-        } else {
-            serviceBridge.setPlaybackMode(uiStateFlow.value.playbackMode)
-            runtime.setStatusText(
-                if (playWhenReady) {
-                    "已同步队列并开始后台播放"
-                } else {
-                    "已同步播放队列"
-                }
-            )
-        }
-        return synced
     }
 
     private fun resolveDisplayMetadataTarget(state: PlayerUiState): DisplayMetadataTarget? {
@@ -713,93 +585,3 @@ private data class DisplayMetadataTarget(
     val title: String?,
     val subtitle: String?
 )
-
-internal interface PlayerControlBridge {
-    fun prewarmConnection()
-    fun ensurePlaybackServiceStartedForPlayback()
-    fun connectIfNeeded()
-    fun syncQueue(
-        queue: List<com.wxy.playerlite.playback.model.PlayableItem>,
-        activeIndex: Int,
-        playWhenReady: Boolean,
-        startPositionMs: Long = C.TIME_UNSET
-    ): Boolean
-
-    fun play(): Boolean
-    fun pause(): Boolean
-    fun seekTo(positionMs: Long): Boolean
-    fun seekToNextMediaItem(): Boolean
-    fun seekToPreviousMediaItem(): Boolean
-    fun stop(): Boolean
-    fun clearCache(): Boolean
-    fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)? = null): Boolean
-    fun setAudioEffectPreset(
-        audioEffectPreset: AudioEffectPreset,
-        onResult: ((Boolean) -> Unit)? = null
-    ): Boolean
-    fun setPlaybackMode(playbackMode: PlaybackMode, onResult: ((Boolean) -> Unit)? = null): Boolean
-    fun setDisplayMetadata(title: String?, subtitle: String?): Boolean
-    fun currentSnapshot(): RemotePlaybackSnapshot?
-    fun release()
-}
-
-    private class MediaControllerPlayerControlBridge(
-        context: android.content.Context,
-        onControllerError: (String) -> Unit
-    ) : PlayerControlBridge {
-        private val delegate = PlayerServiceBridge(
-            context = context,
-            onControllerError = onControllerError
-        )
-
-    override fun prewarmConnection() = delegate.prewarmConnection()
-
-    override fun ensurePlaybackServiceStartedForPlayback() =
-        delegate.ensurePlaybackServiceStartedForPlayback()
-
-    override fun connectIfNeeded() = delegate.connectIfNeeded()
-
-    override fun syncQueue(
-        queue: List<com.wxy.playerlite.playback.model.PlayableItem>,
-        activeIndex: Int,
-        playWhenReady: Boolean,
-        startPositionMs: Long
-    ): Boolean = delegate.syncQueue(queue, activeIndex, playWhenReady, startPositionMs)
-
-    override fun play(): Boolean = delegate.play()
-
-    override fun pause(): Boolean = delegate.pause()
-
-    override fun seekTo(positionMs: Long): Boolean = delegate.seekTo(positionMs)
-
-    override fun seekToNextMediaItem(): Boolean = delegate.seekToNextMediaItem()
-
-    override fun seekToPreviousMediaItem(): Boolean = delegate.seekToPreviousMediaItem()
-
-    override fun stop(): Boolean = delegate.stop()
-
-    override fun clearCache(): Boolean = delegate.clearCache()
-
-    override fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)?): Boolean {
-        return delegate.setPlaybackSpeed(speed, onResult)
-    }
-
-    override fun setAudioEffectPreset(
-        audioEffectPreset: AudioEffectPreset,
-        onResult: ((Boolean) -> Unit)?
-    ): Boolean {
-        return delegate.setAudioEffectPreset(audioEffectPreset, onResult)
-    }
-
-    override fun setPlaybackMode(playbackMode: PlaybackMode, onResult: ((Boolean) -> Unit)?): Boolean {
-        return delegate.setPlaybackMode(playbackMode, onResult)
-    }
-
-    override fun setDisplayMetadata(title: String?, subtitle: String?): Boolean {
-        return delegate.setDisplayMetadata(title = title, subtitle = subtitle)
-    }
-
-    override fun currentSnapshot(): RemotePlaybackSnapshot? = delegate.currentSnapshot()
-
-    override fun release() = delegate.release()
-}

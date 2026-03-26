@@ -11,11 +11,11 @@ import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.feature.player.runtime.AudioEffectPresetStorage
 import com.wxy.playerlite.feature.player.runtime.PlayerRuntime
-import com.wxy.playerlite.feature.player.runtime.toQueuePlayableItem
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.orchestrator.PlayerServiceController
 import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.user.UserRepository
 import com.wxy.playerlite.user.model.LoginState
@@ -835,7 +835,7 @@ class PlayerViewModelTest {
 
 private class FakePlayerControlBridge(
     private val currentSnapshot: RemotePlaybackSnapshot?
-) : PlayerControlBridge {
+) : PlayerServiceController {
     val actions = mutableListOf<String>()
 
     fun clearActions() {

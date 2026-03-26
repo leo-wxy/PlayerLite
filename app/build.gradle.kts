@@ -34,12 +34,16 @@ android {
 
 dependencies {
     implementation(project(":design-system"))
+    implementation(project(":feature-player"))
     implementation(project(":feature-detail-support"))
+    implementation(project(":feature-player"))
     implementation(project(":feature-search"))
     implementation(project(":feature-playlist-detail"))
     implementation(project(":feature-album-detail"))
     implementation(project(":feature-artist-detail"))
     implementation(project(":network-core"))
+    implementation(project(":playlist-core"))
+    implementation(project(":playback-orchestrator"))
     implementation(project(":user"))
     implementation(project(":playback-client"))
     implementation(project(":playback-contract"))

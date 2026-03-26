@@ -14,10 +14,10 @@ import androidx.compose.ui.graphics.lerp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wxy.playerlite.core.AppContainer
+import com.wxy.playerlite.core.playback.AppPlaybackGraph
 import com.wxy.playerlite.feature.detail.BasePlaybackDetailActivity
 import com.wxy.playerlite.feature.detail.rememberDynamicHeroAccentColor
 import com.wxy.playerlite.feature.detail.shouldUseLightStatusBarContent
-import com.wxy.playerlite.feature.player.runtime.RuntimeDetailPlaybackGateway
 
 const val EXTRA_PLAYLIST_ID = "playlist_id"
 
@@ -26,7 +26,7 @@ class PlaylistDetailActivity : BasePlaybackDetailActivity() {
         PlaylistDetailViewModel.factory(
             playlistId = playlistIdFrom(intent),
             repository = AppContainer.playlistDetailRepository(this),
-            playbackGateway = RuntimeDetailPlaybackGateway(this)
+            playbackGateway = AppPlaybackGraph.detailPlaybackGateway(this)
         )
     }
 

@@ -17,8 +17,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wxy.playerlite.resolveCurrentPlayerArtistId
 import com.wxy.playerlite.feature.artist.ArtistDetailActivity
+import com.wxy.playerlite.feature.player.ui.PlayerScreenCallbacks
 import com.wxy.playerlite.feature.player.ui.PlayerScreen
-import com.wxy.playerlite.playback.model.PlaybackLaunchRequest
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 class PlayerActivity : ComponentActivity() {
@@ -88,40 +88,7 @@ class PlayerActivity : ComponentActivity() {
                 }
             }
             PlayerLiteTheme {
-                PlayerScreen(
-                    fileName = state.currentTrackTitle,
-                    artistText = state.currentTrackArtist,
-                    status = state.statusText,
-                    hasSelection = state.hasSelection,
-                    playlistItems = state.playlistItems,
-                    activePlaylistIndex = state.activePlaylistIndex,
-                    showPlaylistSheet = state.showPlaylistSheet,
-                    showSongWikiSheet = state.showSongWikiSheet,
-                    showMoreActionsSheet = state.showMoreActionsSheet,
-                    showAudioEffectPage = state.showAudioEffectPage,
-                    moreActionsPage = state.moreActionsPage,
-                    songWikiUiState = state.songWikiUiState,
-                    lyricUiState = state.lyricUiState,
-                    selectedTopTab = state.selectedTopTab,
-                    isPreparing = state.isPreparing,
-                    playbackState = state.playbackState,
-                    isSeekSupported = state.isSeekSupported,
-                    playbackSpeed = state.playbackSpeed,
-                    playbackMode = state.playbackMode,
-                    audioEffectPreset = state.audioEffectPreset,
-                    canSkipPrevious = state.canSkipPrevious,
-                    canSkipNext = state.canSkipNext,
-                    showOriginalOrderInShuffle = state.showOriginalOrderInShuffle,
-                    canReorderPlaylist = state.canReorderPlaylist,
-                    seekValueMs = state.displayedSeekMs,
-                    currentDurationText = viewModel.formatDuration(state.displayedSeekMs),
-                    durationMs = state.durationMs,
-                    totalDurationText = viewModel.formatDuration(state.durationMs),
-                    currentSongId = state.currentSongId,
-                    currentArtistId = resolvedCurrentArtistId,
-                    currentCoverUrl = state.currentCoverUrl,
-                    showSongWikiInlineButton = true,
-                    enableEnterMotion = false,
+                val screenCallbacks = PlayerScreenCallbacks(
                     onPickAudio = {
                         pickAudioLauncher.launch(arrayOf("audio/*"))
                     },
@@ -169,6 +136,15 @@ class PlayerActivity : ComponentActivity() {
                     onFavoriteClick = viewModel::onFavoriteCurrentTrack,
                     onMoreClick = viewModel::onShowPlayerMoreActions
                 )
+                PlayerScreen(
+                    uiState = state,
+                    currentDurationText = viewModel.formatDuration(state.displayedSeekMs),
+                    totalDurationText = viewModel.formatDuration(state.durationMs),
+                    currentArtistId = resolvedCurrentArtistId,
+                    showSongWikiInlineButton = true,
+                    enableEnterMotion = false,
+                    callbacks = screenCallbacks
+                )
             }
         }
     }
@@ -185,13 +161,13 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun enqueueLaunchRequest(intent: Intent?) {
-        if (shouldOpenPlayerFromIntent(intent)) {
+        if (PlayerEntry.shouldOpenPlayerFromIntent(intent)) {
             pendingOpenPlayerLaunchRequests += 1
         }
-        if (shouldStartPlaybackFromIntent(intent)) {
+        if (PlayerEntry.shouldStartPlaybackFromIntent(intent)) {
             pendingStartPlaybackLaunchRequests += 1
         }
-        if (shouldOpenPlaylistFromIntent(intent)) {
+        if (PlayerEntry.shouldOpenPlaylistFromIntent(intent)) {
             pendingOpenPlaylistLaunchRequests += 1
         }
     }
@@ -202,7 +178,7 @@ class PlayerActivity : ComponentActivity() {
             openPlaylist: Boolean = false,
             startPlayback: Boolean = false
         ): Intent {
-            return PlaybackLaunchRequest.createPlayerActivityIntent(
+            return PlayerEntry.createIntent(
                 context = context,
                 openPlaylist = openPlaylist,
                 startPlayback = startPlayback
@@ -210,36 +186,15 @@ class PlayerActivity : ComponentActivity() {
         }
 
         fun shouldOpenPlaylistFromIntent(intent: Intent?): Boolean {
-            return PlaybackLaunchRequest.shouldOpenPlaylist(intent)
+            return PlayerEntry.shouldOpenPlaylistFromIntent(intent)
         }
 
         fun shouldOpenPlayerFromIntent(intent: Intent?): Boolean {
-            return PlaybackLaunchRequest.shouldOpenPlayer(intent)
+            return PlayerEntry.shouldOpenPlayerFromIntent(intent)
         }
 
         fun shouldStartPlaybackFromIntent(intent: Intent?): Boolean {
-            return PlaybackLaunchRequest.shouldStartPlayback(intent)
+            return PlayerEntry.shouldStartPlaybackFromIntent(intent)
         }
-    }
-}
-
-internal enum class PlaylistSheetLaunchAction {
-    NONE,
-    OPEN,
-    CLOSE
-}
-
-internal fun resolvePlaylistSheetLaunchAction(
-    hasOpenPlayerLaunchRequest: Boolean,
-    hasOpenPlaylistLaunchRequest: Boolean,
-    isPlaylistSheetVisible: Boolean
-): PlaylistSheetLaunchAction {
-    if (!hasOpenPlayerLaunchRequest) {
-        return PlaylistSheetLaunchAction.NONE
-    }
-    return when {
-        hasOpenPlaylistLaunchRequest && !isPlaylistSheetVisible -> PlaylistSheetLaunchAction.OPEN
-        !hasOpenPlaylistLaunchRequest && isPlaylistSheetVisible -> PlaylistSheetLaunchAction.CLOSE
-        else -> PlaylistSheetLaunchAction.NONE
     }
 }
