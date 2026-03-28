@@ -627,6 +627,7 @@ class HomeOverviewScreenRobolectricTest {
             .boundsInRoot
         val barHeightDp = with(composeRule.density) { barBounds.height.toDp() }
         val artworkWidthDp = with(composeRule.density) { artworkBounds.width.toDp() }
+        val artworkHeightDp = with(composeRule.density) { artworkBounds.height.toDp() }
         val playButtonWidthDp = with(composeRule.density) { playPauseBounds.width.toDp() }
         val playlistButtonWidthDp = with(composeRule.density) { playlistBounds.width.toDp() }
         val cardWidthRatio = cardBounds.width / rootBounds.width
@@ -643,16 +644,12 @@ class HomeOverviewScreenRobolectricTest {
         val artworkLeftInsetDp = with(composeRule.density) {
             (artworkBounds.left - barBounds.left).toDp()
         }
-        val songAreaLeftInsetDp = with(composeRule.density) {
-            (songAreaBounds.left - barBounds.left).toDp()
-        }
+        val songAreaLeftInsetDp = with(composeRule.density) { (songAreaBounds.left - barBounds.left).toDp() }
         val playlistRightInsetDp = with(composeRule.density) {
             (barBounds.right - playlistBounds.right).toDp()
         }
-        val horizontalInsetDeltaPx = kotlin.math.abs(
-            (artworkBounds.left - barBounds.left) - (barBounds.right - playlistBounds.right)
-        )
-        val horizontalInsetTolerancePx = with(composeRule.density) { 2.dp.toPx() }
+        val artworkHeightDeltaPx = kotlin.math.abs(artworkBounds.height - barBounds.height)
+        val artworkHeightTolerancePx = with(composeRule.density) { 2.dp.toPx() }
 
         assertTrue(
             "Expected mini player bar to keep the current slimmer height baseline, but was $barHeightDp",
@@ -671,8 +668,8 @@ class HomeOverviewScreenRobolectricTest {
             cardRightInsetDp in 14.dp..18.dp
         )
         assertTrue(
-            "Expected artwork to read as a fuller square cover inside the minibar, but was $artworkWidthDp",
-            artworkWidthDp in 30.dp..34.dp
+            "Expected artwork to keep a 7dp inset inside the minibar instead of filling the whole height, but was $artworkWidthDp x $artworkHeightDp",
+            artworkWidthDp in 42.dp..48.dp && artworkHeightDp in 42.dp..48.dp
         )
         assertTrue(
             "Expected play button to stay visually dominant like the reference minibar, but was $playButtonWidthDp",
@@ -707,20 +704,20 @@ class HomeOverviewScreenRobolectricTest {
             artworkCenterOffset <= verticalCenterTolerancePx
         )
         assertTrue(
-            "Expected artwork to leave a bit more breathing room from the left edge, but inset was $artworkLeftInsetDp",
-            artworkLeftInsetDp in 10.dp..14.dp
+            "Expected artwork to keep a compact 7dp left inset from the minibar edge, but inset was $artworkLeftInsetDp",
+            artworkLeftInsetDp in 6.dp..8.dp
         )
         assertTrue(
-            "Expected song text block to shift right together with the larger artwork, but inset was $songAreaLeftInsetDp",
-            songAreaLeftInsetDp in 46.dp..58.dp
+            "Expected song text block to start after the inset artwork block, but inset was $songAreaLeftInsetDp",
+            songAreaLeftInsetDp in 68.dp..72.dp
         )
         assertTrue(
             "Expected playlist button to leave matching breathing room on the right edge, but inset was $playlistRightInsetDp",
             playlistRightInsetDp in 10.dp..14.dp
         )
         assertTrue(
-            "Expected left artwork inset and right playlist inset to stay visually balanced, delta=$horizontalInsetDeltaPx",
-            horizontalInsetDeltaPx <= horizontalInsetTolerancePx
+            "Expected artwork block to leave visibly larger top and bottom breathing room inside the minibar, delta=$artworkHeightDeltaPx",
+            artworkHeightDeltaPx in with(composeRule.density) { 12.dp.toPx() }..with(composeRule.density) { 16.dp.toPx() }
         )
         assertTrue(
             "Expected song text block to stay to the right of artwork, artwork=$artworkBounds song=$songAreaBounds",

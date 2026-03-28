@@ -9,7 +9,7 @@ internal object HomeChromeLayoutSpec {
     val bottomBarShadowElevation = 6.dp
     val bottomBarOuterVerticalPadding = 4.dp
     val bottomBarOuterHorizontalPadding = 26.dp
-    val bottomBarBottomClearance = 18.dp
+    val bottomBarBottomClearance = 4.dp
     const val bottomBarWidthFraction = 0.76f
     val bottomBarMaxWidth = 296.dp
     val bottomBarOverlayHeight =
@@ -22,7 +22,7 @@ internal object HomeChromeLayoutSpec {
     val miniPlayerMinHeight = 60.dp
     const val miniPlayerWidthFraction = 1f
     val miniPlayerMaxWidth = 420.dp
-    val miniPlayerArtworkSize = 32.dp
+    val miniPlayerArtworkSize = miniPlayerMinHeight
     val miniPlayerPrimaryButtonSize = 34.dp
     val miniPlayerPrimaryIconSize = 18.dp
     val miniPlayerPlaylistButtonSize = 28.dp

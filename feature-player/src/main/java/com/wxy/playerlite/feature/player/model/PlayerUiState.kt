@@ -2,7 +2,9 @@ package com.wxy.playerlite.feature.player.model
 
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.feature.player.ParsedLyrics
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackSpeed
@@ -53,6 +55,28 @@ enum class PlayerMoreActionsPage {
     AUDIO_EFFECT
 }
 
+sealed interface PlayerAudioQualityCatalogUiState {
+    data object Placeholder : PlayerAudioQualityCatalogUiState
+    data object Loading : PlayerAudioQualityCatalogUiState
+
+    data class Content(
+        val catalog: SongAudioQualityCatalog
+    ) : PlayerAudioQualityCatalogUiState
+
+    data class Empty(
+        val message: String
+    ) : PlayerAudioQualityCatalogUiState
+
+    data class Unsupported(
+        val message: String
+    ) : PlayerAudioQualityCatalogUiState
+}
+
+data class PlayerCombinedStatusUi(
+    val audioQualityLabel: String?,
+    val audioEffectLabel: String?
+)
+
 data class PlayerUiState(
     val selectedFileName: String = "No audio selected",
     val currentTrackTitle: String = "No audio selected",
@@ -70,15 +94,19 @@ data class PlayerUiState(
     val showSongWikiSheet: Boolean = false,
     val showMoreActionsSheet: Boolean = false,
     val showAudioEffectPage: Boolean = false,
+    val showAudioQualitySheet: Boolean = false,
     val moreActionsPage: PlayerMoreActionsPage = PlayerMoreActionsPage.ROOT,
     val songWikiUiState: PlayerSongWikiUiState = PlayerSongWikiUiState.Placeholder,
     val lyricUiState: PlayerLyricUiState = PlayerLyricUiState.Placeholder,
+    val audioQualityCatalogUiState: PlayerAudioQualityCatalogUiState = PlayerAudioQualityCatalogUiState.Placeholder,
     val selectedTopTab: PlayerTopTab = PlayerTopTab.SONG,
     val isPreparing: Boolean = false,
     val playbackState: Int = AUDIO_TRACK_PLAYSTATE_UNAVAILABLE,
     val isSeekSupported: Boolean = false,
     val playbackSpeed: Float = PlaybackSpeed.DEFAULT.value,
     val playbackMode: PlaybackMode = PlaybackMode.LIST_LOOP,
+    val preferredAudioQuality: PlaybackAudioQuality = PlaybackAudioQuality.EXHIGH,
+    val appliedAudioQuality: PlaybackAudioQuality? = null,
     val audioEffectPreset: AudioEffectPreset = AudioEffectPreset.DEFAULT,
     val showOriginalOrderInShuffle: Boolean = false,
     val canReorderPlaylist: Boolean = true,
@@ -92,6 +120,28 @@ data class PlayerUiState(
 
     val currentAudioEffectDisplayName: String
         get() = audioEffectPreset.displayName
+
+    val currentPreferredAudioQualityDisplayName: String
+        get() = preferredAudioQuality.displayName
+
+    val currentAppliedAudioQualityDisplayName: String?
+        get() = appliedAudioQuality?.displayName
+
+    val combinedStatusUi: PlayerCombinedStatusUi?
+        get() {
+            val audioQualityLabel = currentAppliedAudioQualityDisplayName
+            val audioEffectLabel = audioEffectPreset
+                .takeIf { it != AudioEffectPreset.DEFAULT }
+                ?.displayName
+            return if (audioQualityLabel == null && audioEffectLabel == null) {
+                null
+            } else {
+                PlayerCombinedStatusUi(
+                    audioQualityLabel = audioQualityLabel,
+                    audioEffectLabel = audioEffectLabel
+                )
+            }
+        }
 
     val canSkipPrevious: Boolean
         get() = playlistItems.size > 1

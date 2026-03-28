@@ -2,29 +2,87 @@ package com.wxy.playerlite.feature.webplaylistimport
 
 import com.wxy.playerlite.feature.playlist.DEFAULT_DETAIL_TRACK_PAGE_SIZE
 import com.wxy.playerlite.feature.playlist.PlaylistDetailRepository
+import com.wxy.playerlite.feature.search.SearchRepository
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.last
 
 interface WebPlaylistImportRepository {
-    suspend fun fetchPlaylistSnapshot(rawUrl: String): ImportedPlaylistSnapshot
+    fun streamPlaylistSnapshots(rawUrl: String): Flow<ImportedPlaylistSnapshot>
+
+    suspend fun fetchPlaylistSnapshot(rawUrl: String): ImportedPlaylistSnapshot {
+        return streamPlaylistSnapshots(rawUrl).last()
+    }
 }
 
 class DefaultWebPlaylistImportRepository(
     private val urlParser: WebPlaylistImportUrlParser,
+    private val urlResolver: WebPlaylistImportUrlResolver = DefaultWebPlaylistImportUrlResolver(),
     private val playlistDetailRepository: PlaylistDetailRepository,
-    private val qqMusicRemoteDataSource: QqMusicPlaylistRemoteDataSource
+    private val qqMusicRemoteDataSource: QqMusicPlaylistRemoteDataSource,
+    private val searchRepository: SearchRepository
 ) : WebPlaylistImportRepository {
-    override suspend fun fetchPlaylistSnapshot(rawUrl: String): ImportedPlaylistSnapshot {
-        val ref = urlParser.parse(rawUrl)
-        return when (ref.source) {
-            ImportedPlaylistSource.NETEASE -> fetchNeteaseSnapshot(
-                ref = ref,
-                sourceUrl = rawUrl
+    override fun streamPlaylistSnapshots(rawUrl: String): Flow<ImportedPlaylistSnapshot> = flow {
+        val normalizedUrl = normalizeInputUrl(rawUrl)
+        val ref = urlParser.parse(normalizedUrl)
+        when (ref.source) {
+            ImportedPlaylistSource.NETEASE -> emit(
+                fetchNeteaseSnapshot(
+                    ref = ref,
+                    sourceUrl = normalizedUrl
+                )
             )
 
-            ImportedPlaylistSource.QQ_MUSIC -> QqMusicPlaylistJsonMapper.parseSnapshot(
-                payload = qqMusicRemoteDataSource.fetchPlaylistDetail(ref.playlistId),
-                ref = ref,
-                sourceUrl = rawUrl
+            ImportedPlaylistSource.QQ_MUSIC -> {
+                val snapshot = QqMusicPlaylistJsonMapper.parseSnapshot(
+                    payload = qqMusicRemoteDataSource.fetchPlaylistDetail(ref.playlistId),
+                    ref = ref,
+                    sourceUrl = normalizedUrl
+                )
+                val initialSnapshot = snapshot.asPendingPreview()
+                emit(initialSnapshot)
+                ImportTrackMatcher(searchRepository)
+                    .matchProgressively(initialSnapshot.tracks)
+                    .collect { update ->
+                        emit(
+                            snapshot.copy(
+                                tracks = update.tracks,
+                                matchingProgress = update.progress
+                            )
+                        )
+                    }
+            }
+        }
+    }
+
+    override suspend fun fetchPlaylistSnapshot(rawUrl: String): ImportedPlaylistSnapshot {
+        return streamPlaylistSnapshots(rawUrl).last()
+    }
+
+    private fun ImportedPlaylistSnapshot.asPendingPreview(): ImportedPlaylistSnapshot {
+        return copy(
+            tracks = tracks.map { track ->
+                if (track.resolution == ImportedTrackResolution.Unmatched) {
+                    track.copy(resolution = ImportedTrackResolution.Pending)
+                } else {
+                    track
+                }
+            },
+            matchingProgress = ImportedPlaylistMatchingProgress(
+                completedCount = tracks.count { track ->
+                    track.resolution != ImportedTrackResolution.Unmatched
+                },
+                totalCount = tracks.size
             )
+        )
+    }
+
+    private suspend fun normalizeInputUrl(rawUrl: String): String {
+        return runCatching {
+            urlParser.parse(rawUrl)
+            rawUrl.trim()
+        }.getOrElse {
+            urlResolver.resolve(rawUrl)
         }
     }
 

@@ -3,6 +3,7 @@ package com.wxy.playerlite.feature.webplaylistimport
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Link
@@ -39,14 +42,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import com.wxy.playerlite.feature.detail.createOpenPlayerAfterQueueReplacementIntent
 import com.wxy.playerlite.feature.user.LoginActivity
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
@@ -62,11 +69,34 @@ class WebPlaylistImportActivity : ComponentActivity() {
             PlayerLiteTheme {
                 val state = viewModel.uiStateFlow.collectAsStateWithLifecycle().value
                 BackHandler(onBack = ::finish)
+                LaunchedEffect(viewModel) {
+                    viewModel.uiEvents.collect { event ->
+                        when (event) {
+                            WebPlaylistImportUiEvent.OpenPlayer -> {
+                                startActivity(
+                                    createOpenPlayerAfterQueueReplacementIntent(
+                                        this@WebPlaylistImportActivity
+                                    )
+                                )
+                                finish()
+                            }
+
+                            is WebPlaylistImportUiEvent.ShowMessage -> {
+                                Toast.makeText(
+                                    this@WebPlaylistImportActivity,
+                                    event.message,
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    }
+                }
                 WebPlaylistImportScreen(
                     state = state,
                     onBack = ::finish,
                     onUrlChanged = viewModel::onUrlChanged,
                     onSubmit = viewModel::submitUrl,
+                    onConfirmImport = viewModel::confirmImport,
                     onOpenLogin = {
                         startActivity(LoginActivity.createIntent(this@WebPlaylistImportActivity))
                     }
@@ -89,6 +119,7 @@ internal fun WebPlaylistImportScreen(
     onBack: () -> Unit,
     onUrlChanged: (String) -> Unit,
     onSubmit: () -> Unit,
+    onConfirmImport: () -> Unit,
     onOpenLogin: () -> Unit
 ) {
     Scaffold(
@@ -134,7 +165,9 @@ internal fun WebPlaylistImportScreen(
             is WebPlaylistImportStage.Preview -> {
                 WebPlaylistImportPreviewContent(
                     innerPadding = innerPadding,
-                    snapshot = stage.snapshot
+                    snapshot = stage.snapshot,
+                    isImporting = stage.isImporting,
+                    onConfirmImport = onConfirmImport
                 )
             }
 
@@ -287,9 +320,13 @@ private fun WebPlaylistImportLoadingContent(
 @Composable
 private fun WebPlaylistImportPreviewContent(
     innerPadding: PaddingValues,
-    snapshot: ImportedPlaylistSnapshot
+    snapshot: ImportedPlaylistSnapshot,
+    isImporting: Boolean,
+    onConfirmImport: () -> Unit
 ) {
     val summary = snapshot.summary
+    val importableCount = summary.importableCount
+    val matchingProgress = snapshot.matchingProgress
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -304,6 +341,7 @@ private fun WebPlaylistImportPreviewContent(
                     modifier = Modifier.padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    ImportPreviewCover(coverUrl = snapshot.coverUrl)
                     Text(
                         text = snapshot.title,
                         style = MaterialTheme.typography.titleLarge,
@@ -335,6 +373,19 @@ private fun WebPlaylistImportPreviewContent(
                     value = summary.totalCount.toString()
                 )
                 ImportSummaryRow(
+                    tag = "web_playlist_import_progress",
+                    label = if (matchingProgress.isPaused) "匹配进度（已暂停）" else "匹配进度",
+                    value = matchingProgress.progressText
+                )
+                if (matchingProgress.isPaused) {
+                    Text(
+                        text = matchingProgress.pauseMessage ?: "匹配已暂停，请稍后重试",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("web_playlist_import_paused_notice")
+                    )
+                }
+                ImportSummaryRow(
                     tag = "web_playlist_import_summary_direct",
                     label = "直接可导入",
                     value = summary.directCount.toString()
@@ -354,6 +405,31 @@ private fun WebPlaylistImportPreviewContent(
                     label = "未匹配",
                     value = summary.unmatchedCount.toString()
                 )
+                Button(
+                    onClick = onConfirmImport,
+                    enabled = importableCount > 0 && !isImporting,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("web_playlist_import_confirm")
+                ) {
+                    Text(
+                        if (isImporting) {
+                            "正在导入..."
+                        } else if (importableCount > 0) {
+                            "导入 $importableCount 首到当前播放列表"
+                        } else {
+                            "当前没有可导入歌曲"
+                        }
+                    )
+                }
+                if (importableCount == 0) {
+                    Text(
+                        text = "当前仅会导入 direct 与 matched 条目",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("web_playlist_import_confirm_disabled_reason")
+                    )
+                }
             }
         }
         itemsIndexed(
@@ -392,6 +468,39 @@ private fun WebPlaylistImportPreviewContent(
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImportPreviewCover(
+    coverUrl: String?
+) {
+    Surface(
+        modifier = Modifier
+            .size(96.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .testTag("web_playlist_import_preview_cover"),
+        shape = RoundedCornerShape(20.dp),
+        tonalElevation = 1.dp
+    ) {
+        if (!coverUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = coverUrl,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -479,6 +588,7 @@ private fun WebPlaylistImportErrorContent(
 
 private fun ImportedTrackResolution.asLabel(): String {
     return when (this) {
+        ImportedTrackResolution.Pending -> "待匹配"
         is ImportedTrackResolution.Direct -> "可直接导入"
         is ImportedTrackResolution.Matched -> "已匹配"
         is ImportedTrackResolution.Ambiguous -> "存在歧义"

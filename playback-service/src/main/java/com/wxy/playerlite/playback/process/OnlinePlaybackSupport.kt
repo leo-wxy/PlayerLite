@@ -3,7 +3,11 @@ package com.wxy.playerlite.playback.process
 import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.CacheLookupSnapshot
 import com.wxy.playerlite.network.core.JsonHttpClient
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackPreviewClip
+import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
+import com.wxy.playerlite.playback.model.SongAudioQualityCatalogJsonMapper
+import com.wxy.playerlite.playback.model.SongAudioQualityOption
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -18,6 +22,7 @@ internal enum class OnlineClipMode(
 }
 
 internal data class OnlinePlaybackCacheKey(
+    val sourceIdentity: String = "",
     val songId: String,
     val level: String,
     val clipMode: OnlineClipMode
@@ -78,6 +83,11 @@ internal class ResolvedOnlineUrlMemoryCache(
         entries.remove(key)
     }
 
+    @Synchronized
+    fun clear() {
+        entries.clear()
+    }
+
     private companion object {
         private const val DEFAULT_MAX_ENTRIES = 10
     }
@@ -104,8 +114,27 @@ internal interface OnlinePlaybackRemoteDataSource {
     ): JsonObject
 }
 
+internal interface SongAudioQualityCatalogRemoteDataSource {
+    suspend fun fetchSongAudioQualityCatalog(
+        songId: String,
+        requestHeaders: Map<String, String>
+    ): JsonObject
+}
+
 internal class NeteaseOnlinePlaybackRemoteDataSource(
-    private val httpClient: JsonHttpClient
+    private val baseUrlProvider: () -> String,
+    private val httpGet: suspend (
+        baseUrl: String,
+        path: String,
+        queryParams: Map<String, String>,
+        headers: Map<String, String>
+    ) -> JsonObject = { baseUrl, path, queryParams, headers ->
+        JsonHttpClient(baseUrl = baseUrl).get(
+            path = path,
+            queryParams = queryParams,
+            headers = headers
+        )
+    }
 ) : OnlinePlaybackRemoteDataSource {
     override suspend fun fetchSongUrlV1(
         songIds: String,
@@ -113,14 +142,15 @@ internal class NeteaseOnlinePlaybackRemoteDataSource(
         requestHeaders: Map<String, String>,
         unblock: Boolean
     ): JsonObject {
-        return httpClient.get(
-            path = "/song/url/v1",
-            queryParams = mapOf(
+        return httpGet(
+            baseUrlProvider(),
+            "/song/url/v1",
+            mapOf(
                 "id" to songIds,
                 "level" to level,
                 "unblock" to unblock.toString()
             ),
-            headers = requestHeaders
+            requestHeaders
         )
     }
 
@@ -129,13 +159,14 @@ internal class NeteaseOnlinePlaybackRemoteDataSource(
         bitrate: Int,
         requestHeaders: Map<String, String>
     ): JsonObject {
-        return httpClient.get(
-            path = "/song/url",
-            queryParams = mapOf(
+        return httpGet(
+            baseUrlProvider(),
+            "/song/url",
+            mapOf(
                 "id" to songIds,
                 "br" to bitrate.toString()
             ),
-            headers = requestHeaders
+            requestHeaders
         )
     }
 
@@ -144,14 +175,104 @@ internal class NeteaseOnlinePlaybackRemoteDataSource(
         bitrate: Int,
         requestHeaders: Map<String, String>
     ): JsonObject {
-        return httpClient.get(
-            path = "/check/music",
-            queryParams = mapOf(
+        return httpGet(
+            baseUrlProvider(),
+            "/check/music",
+            mapOf(
                 "id" to songId,
                 "br" to bitrate.toString()
             ),
-            headers = requestHeaders
+            requestHeaders
         )
+    }
+}
+
+internal class NeteaseSongAudioQualityCatalogRemoteDataSource(
+    private val baseUrlProvider: () -> String,
+    private val httpGet: suspend (
+        baseUrl: String,
+        path: String,
+        queryParams: Map<String, String>,
+        headers: Map<String, String>
+    ) -> JsonObject = { baseUrl, path, queryParams, headers ->
+        JsonHttpClient(baseUrl = baseUrl).get(
+            path = path,
+            queryParams = queryParams,
+            headers = headers
+        )
+    }
+) : SongAudioQualityCatalogRemoteDataSource {
+    override suspend fun fetchSongAudioQualityCatalog(
+        songId: String,
+        requestHeaders: Map<String, String>
+    ): JsonObject {
+        return httpGet(
+            baseUrlProvider(),
+            "/song/music/detail",
+            mapOf("id" to songId),
+            buildPlaybackRequestHeaders(requestHeaders)
+        )
+    }
+}
+
+internal class CachedSongAudioQualityCatalogProvider(
+    private val remoteDataSource: SongAudioQualityCatalogRemoteDataSource,
+    private val sourceIdentityProvider: () -> String = { "" },
+    maxEntries: Int = DEFAULT_MAX_ENTRIES
+) {
+    private val entries = object : LinkedHashMap<String, SongAudioQualityCatalog>(
+        maxEntries,
+        0.75f,
+        true
+    ) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, SongAudioQualityCatalog>?
+        ): Boolean {
+            return size > maxEntries
+        }
+    }
+
+    suspend fun getCatalog(
+        songId: String,
+        requestHeaders: Map<String, String>
+    ): SongAudioQualityCatalog? {
+        val normalizedSongId = songId.trim().takeIf { it.isNotEmpty() } ?: return null
+        val cacheKey = buildSongAudioQualityCatalogCacheKey(
+            songId = normalizedSongId,
+            requestHeaders = requestHeaders,
+            sourceIdentity = sourceIdentityProvider()
+        )
+        synchronized(entries) {
+            entries[cacheKey]
+        }?.let { return it }
+
+        val payload = runCatching {
+            remoteDataSource.fetchSongAudioQualityCatalog(
+                songId = normalizedSongId,
+                requestHeaders = requestHeaders
+            )
+        }.getOrNull() ?: return null
+        val catalog = runCatching {
+            SongAudioQualityCatalogJsonMapper.parseCatalog(
+                payload = payload,
+                songId = normalizedSongId
+            )
+        }.getOrNull() ?: return null
+
+        synchronized(entries) {
+            entries[cacheKey] = catalog
+        }
+        return catalog
+    }
+
+    fun clear() {
+        synchronized(entries) {
+            entries.clear()
+        }
+    }
+
+    private companion object {
+        private const val DEFAULT_MAX_ENTRIES = 24
     }
 }
 
@@ -160,6 +281,7 @@ internal interface OnlinePlaybackResolver {
         songId: String,
         requestHeaders: Map<String, String>,
         requestedLevel: String,
+        fallbackBitrate: Int? = null,
         preferredClipMode: OnlineClipMode = OnlineClipMode.FULL,
         expectedDurationMs: Long = 0L
     ): Result<ResolvedOnlineStream>
@@ -168,18 +290,23 @@ internal interface OnlinePlaybackResolver {
 internal class OnlinePlaybackUrlResolver(
     private val remoteDataSource: OnlinePlaybackRemoteDataSource,
     private val memoryCache: ResolvedOnlineUrlMemoryCache = ResolvedOnlineUrlMemoryCache(),
+    private val sourceIdentityProvider: () -> String = { "" },
     private val nowMs: () -> Long = { System.currentTimeMillis() }
 ) : OnlinePlaybackResolver {
     override suspend fun resolve(
         songId: String,
         requestHeaders: Map<String, String>,
         requestedLevel: String,
+        fallbackBitrate: Int?,
         preferredClipMode: OnlineClipMode,
         expectedDurationMs: Long
     ): Result<ResolvedOnlineStream> {
         val preparedHeaders = buildPlaybackRequestHeaders(requestHeaders)
+        val legacyFallbackBitrate = fallbackBitrate?.takeIf { it > 0 } ?: DEFAULT_FALLBACK_BITRATE
+        val sourceIdentity = sourceIdentityProvider()
         if (preferredClipMode != OnlineClipMode.PREVIEW) {
             val primaryKey = OnlinePlaybackCacheKey(
+                sourceIdentity = sourceIdentity,
                 songId = songId,
                 level = requestedLevel,
                 clipMode = preferredClipMode
@@ -215,7 +342,7 @@ internal class OnlinePlaybackUrlResolver(
         val legacyAttempt = runCatching {
             remoteDataSource.fetchSongUrl(
                 songIds = songId,
-                bitrate = DEFAULT_FALLBACK_BITRATE,
+                bitrate = legacyFallbackBitrate,
                 requestHeaders = preparedHeaders
             )
         }.mapCatching { payload ->
@@ -231,7 +358,7 @@ internal class OnlinePlaybackUrlResolver(
         val checkMusicMessage = runCatching {
             remoteDataSource.checkMusic(
                 songId = songId,
-                bitrate = DEFAULT_FALLBACK_BITRATE,
+                bitrate = legacyFallbackBitrate,
                 requestHeaders = preparedHeaders
             )
         }.getOrNull()?.stringValue("message")
@@ -252,9 +379,18 @@ internal class OnlinePlaybackUrlResolver(
             return
         }
         memoryCache.put(
-            OnlinePlaybackCacheKey(songId = songId, level = level, clipMode = OnlineClipMode.FULL),
+            OnlinePlaybackCacheKey(
+                sourceIdentity = sourceIdentityProvider(),
+                songId = songId,
+                level = level,
+                clipMode = OnlineClipMode.FULL
+            ),
             resolved
         )
+    }
+
+    fun clear() {
+        memoryCache.clear()
     }
 
     private companion object {
@@ -266,6 +402,8 @@ internal data class OnlinePlaybackPlan(
     val resourceKey: String,
     val playbackUrl: String?,
     val requestHeaders: Map<String, String>,
+    val preferredAudioQuality: PlaybackAudioQuality,
+    val appliedAudioQuality: PlaybackAudioQuality,
     val durationHintMs: Long,
     val contentLengthHintBytes: Long?,
     val previewClip: PlaybackPreviewClip?,
@@ -275,18 +413,30 @@ internal data class OnlinePlaybackPlan(
 
 internal class OnlinePlaybackPreparationPlanner(
     private val cacheLookup: (String) -> Result<CacheLookupSnapshot?> = CacheCore::lookup,
-    private val resolver: OnlinePlaybackResolver,
+    private val resolver: OnlinePlaybackResolver? = null,
+    private val audioQualityCatalogProvider: suspend (String, Map<String, String>) -> SongAudioQualityCatalog? = { _, _ -> null },
+    private val sourceAdapterProvider: (() -> SourceAdapter)? = null,
     private val defaultLevel: String = DEFAULT_PLAYBACK_LEVEL
 ) {
-    suspend fun buildPlan(track: PlaybackTrack): Result<OnlinePlaybackPlan> {
+    suspend fun buildPlan(
+        track: PlaybackTrack,
+        preferredAudioQuality: PlaybackAudioQuality = PlaybackAudioQuality.EXHIGH
+    ): Result<OnlinePlaybackPlan> {
         val songId = track.songId?.takeIf { it.isNotBlank() }
             ?: return Result.failure(IllegalArgumentException("Missing songId for online track"))
-        val requestedMode = if (track.previewClip != null) {
+        val sourceAdapter = currentSourceAdapter()
+            ?: return Result.failure(IllegalStateException("Online playback source adapter unavailable"))
+        val actionContext = track.toSourceActionContext(preferredAudioQuality)
+        val preview = runCatching {
+            sourceAdapter.previewResolveMusicUrl(actionContext).getOrNull()
+        }.getOrNull()
+        val requestedMode = preview?.preferredClipMode ?: if (track.previewClip != null) {
             OnlineClipMode.PREVIEW
         } else {
             OnlineClipMode.FULL
         }
-        val initialKey = buildOnlineResourceKey(songId, defaultLevel, requestedMode)
+        val appliedLevel = (preview?.appliedAudioQuality ?: preferredAudioQuality).wireValue
+        val initialKey = buildOnlineResourceKey(songId, appliedLevel, requestedMode)
         val initialSnapshot = cacheLookup(initialKey)
             .getOrNull()
             ?.sanitizeForReuse(
@@ -299,6 +449,8 @@ internal class OnlinePlaybackPreparationPlanner(
                     resourceKey = initialKey,
                     playbackUrl = track.uri.takeIf { it.isNotBlank() },
                     requestHeaders = track.requestHeaders,
+                    preferredAudioQuality = preferredAudioQuality,
+                    appliedAudioQuality = preview?.appliedAudioQuality ?: preferredAudioQuality,
                     durationHintMs = firstPositive(track.durationHintMs, initialSnapshot?.durationMs),
                     contentLengthHintBytes = initialSnapshot?.contentLength?.takeIf { it > 0L },
                     previewClip = track.previewClip,
@@ -308,20 +460,25 @@ internal class OnlinePlaybackPreparationPlanner(
             )
         }
 
-        val resolved = resolver.resolve(
-            songId = songId,
-            requestHeaders = track.requestHeaders,
-            requestedLevel = defaultLevel,
-            preferredClipMode = requestedMode,
-            expectedDurationMs = track.durationHintMs
-        ).getOrElse { return Result.failure(it) }
+        val resolvedMusicUrl = sourceAdapter.handle(
+            action = SourceAction.ResolveMusicUrl,
+            context = actionContext
+        ).getOrElse { return Result.failure(it) } as? SourceActionResult.MusicUrl
+            ?: return Result.failure(
+                IllegalStateException("Source adapter returned unsupported music url result")
+            )
 
-        val actualMode = if (resolved.previewClip != null) {
+        val actualPreviewClip = resolvedMusicUrl.previewClip ?: track.previewClip
+        val actualMode = if (actualPreviewClip != null) {
             OnlineClipMode.PREVIEW
         } else {
             OnlineClipMode.FULL
         }
-        val finalKey = buildOnlineResourceKey(songId, defaultLevel, actualMode)
+        val finalKey = buildOnlineResourceKey(
+            songId = songId,
+            level = resolvedMusicUrl.appliedAudioQuality.wireValue,
+            clipMode = actualMode
+        )
         val finalSnapshot = if (finalKey != initialKey) {
             cacheLookup(finalKey).getOrNull()
         } else {
@@ -335,21 +492,123 @@ internal class OnlinePlaybackPreparationPlanner(
         return Result.success(
             OnlinePlaybackPlan(
                 resourceKey = finalKey,
-                playbackUrl = resolved.playbackUrl,
-                requestHeaders = resolved.requestHeaders,
-                durationHintMs = firstPositive(track.durationHintMs, resolved.durationMs, completeSnapshot?.durationMs),
+                playbackUrl = resolvedMusicUrl.playbackUrl,
+                requestHeaders = resolvedMusicUrl.requestHeaders,
+                preferredAudioQuality = preferredAudioQuality,
+                appliedAudioQuality = resolvedMusicUrl.appliedAudioQuality,
+                durationHintMs = firstPositive(
+                    track.durationHintMs,
+                    resolvedMusicUrl.durationMs,
+                    completeSnapshot?.durationMs
+                ),
                 contentLengthHintBytes = completeSnapshot?.contentLength?.takeIf { it > 0L }
-                    ?: resolved.contentLengthBytes,
-                previewClip = resolved.previewClip ?: track.previewClip,
+                    ?: resolvedMusicUrl.contentLengthBytes,
+                previewClip = actualPreviewClip,
                 useCacheOnlyProvider = completeSnapshot != null,
                 cacheExtraMetadata = OnlineCacheMetadata.buildExtraMetadata(actualMode)
             )
         )
     }
 
+    private fun currentSourceAdapter(): SourceAdapter? {
+        return sourceAdapterProvider?.invoke()
+            ?: resolver?.let { resolver ->
+                ResolverBackedSourceAdapter(
+                    resolver = resolver,
+                    audioQualityCatalogProvider = audioQualityCatalogProvider
+                )
+            }
+    }
+
     private companion object {
         private const val DEFAULT_PLAYBACK_LEVEL = "exhigh"
     }
+}
+
+private fun PlaybackTrack.toSourceActionContext(
+    preferredAudioQuality: PlaybackAudioQuality
+): SourceActionContext {
+    return SourceActionContext(
+        songId = songId,
+        title = displayName,
+        artistText = artistText,
+        albumTitle = playable.albumTitle,
+        durationMs = durationHintMs,
+        preferredAudioQuality = preferredAudioQuality,
+        requestHeaders = requestHeaders,
+        previewClip = previewClip
+    )
+}
+
+private data class SelectedOnlineAudioQuality(
+    val appliedAudioQuality: PlaybackAudioQuality,
+    val legacyFallbackBitrate: Int?
+)
+
+private fun selectAppliedAudioQuality(
+    preferredAudioQuality: PlaybackAudioQuality,
+    catalog: SongAudioQualityCatalog?
+): SelectedOnlineAudioQuality {
+    val options = catalog?.options.orEmpty()
+    if (options.isEmpty()) {
+        return SelectedOnlineAudioQuality(
+            appliedAudioQuality = preferredAudioQuality,
+            legacyFallbackBitrate = null
+        )
+    }
+
+    val uniqueOptions = options
+        .sortedWith(
+            compareByDescending<SongAudioQualityOption> { it.quality.sortOrder }
+                .thenBy { it.rawKey }
+        )
+        .distinctBy { it.quality }
+    val optionsByQuality = uniqueOptions.associateBy { it.quality }
+    val exactMatch = optionsByQuality[preferredAudioQuality]
+    val appliedOption = exactMatch
+        ?: resolveNearestLowerOption(preferredAudioQuality, optionsByQuality)
+        ?: uniqueOptions.first()
+
+    return SelectedOnlineAudioQuality(
+        appliedAudioQuality = appliedOption.quality,
+        legacyFallbackBitrate = resolveLegacyFallbackBitrate(
+            appliedOption = appliedOption,
+            uniqueOptions = uniqueOptions
+        )
+    )
+}
+
+private fun resolveNearestLowerOption(
+    preferredAudioQuality: PlaybackAudioQuality,
+    optionsByQuality: Map<PlaybackAudioQuality, SongAudioQualityOption>
+): SongAudioQualityOption? {
+    val preferenceOrder = PlaybackAudioQuality.descendingPreference
+    val preferredIndex = preferenceOrder.indexOf(preferredAudioQuality)
+    if (preferredIndex < 0) {
+        return null
+    }
+    return preferenceOrder
+        .drop(preferredIndex + 1)
+        .firstNotNullOfOrNull { optionsByQuality[it] }
+}
+
+private fun resolveLegacyFallbackBitrate(
+    appliedOption: SongAudioQualityOption,
+    uniqueOptions: List<SongAudioQualityOption>
+): Int? {
+    if (appliedOption.bitRate <= 0) {
+        return null
+    }
+    if (appliedOption.quality.sortOrder <= PlaybackAudioQuality.LOSSLESS.sortOrder) {
+        return appliedOption.bitRate
+    }
+    return uniqueOptions
+        .firstOrNull { option ->
+            option.bitRate > 0 &&
+                option.quality.sortOrder <= PlaybackAudioQuality.LOSSLESS.sortOrder
+        }
+        ?.bitRate
+        ?: appliedOption.bitRate
 }
 
 internal fun buildOnlineResourceKey(
@@ -550,6 +809,44 @@ private fun JsonObject.longValue(key: String): Long {
 
 private fun JsonObject.intValue(key: String): Int {
     return stringValue(key)?.toIntOrNull() ?: 0
+}
+
+private fun buildSongAudioQualityCatalogCacheKey(
+    songId: String,
+    requestHeaders: Map<String, String>,
+    sourceIdentity: String = ""
+): String {
+    val normalizedSourceIdentity = sourceIdentity.trim().trimEnd('/')
+    if (requestHeaders.isEmpty()) {
+        return if (normalizedSourceIdentity.isBlank()) {
+            songId
+        } else {
+            "$normalizedSourceIdentity::$songId"
+        }
+    }
+    val identity = requestHeaders.entries
+        .mapNotNull { (key, value) ->
+            val normalizedKey = key.trim().lowercase()
+            val normalizedValue = value.trim()
+            if (normalizedKey.isEmpty() || normalizedValue.isEmpty()) {
+                null
+            } else {
+                "$normalizedKey=$normalizedValue"
+            }
+        }
+        .sorted()
+        .joinToString(separator = "&")
+    return buildString {
+        if (normalizedSourceIdentity.isNotBlank()) {
+            append(normalizedSourceIdentity)
+            append("::")
+        }
+        append(songId)
+        if (identity.isNotBlank()) {
+            append("::")
+            append(identity)
+        }
+    }
 }
 
 private val emptyJsonObject = JsonObject(emptyMap())

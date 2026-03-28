@@ -328,7 +328,8 @@ internal object SearchItemMapper {
             artistText = artistText,
             albumTitle = albumTitle,
             coverUrl = albumObject.stringValue("picUrl"),
-            routeTarget = SearchResultRouteMapper.song(id)
+            routeTarget = SearchResultRouteMapper.song(id),
+            durationMs = intValue("dt")?.toLong() ?: 0L
         )
     }
 

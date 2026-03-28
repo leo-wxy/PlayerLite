@@ -31,6 +31,7 @@ import com.wxy.playerlite.feature.main.MainShellScaffold
 import com.wxy.playerlite.feature.main.MainShellState
 import com.wxy.playerlite.feature.main.MainTab
 import com.wxy.playerlite.feature.main.RecentSongsActivity
+import com.wxy.playerlite.feature.main.SettingsActivity
 import com.wxy.playerlite.feature.main.UserCenterScreen
 import com.wxy.playerlite.feature.main.UserCenterViewModel
 import com.wxy.playerlite.feature.main.resolveContentEntryLaunch
@@ -187,6 +188,11 @@ class MainActivity : ComponentActivity() {
                                     onOpenPlaylistImport = {
                                         startActivity(
                                             WebPlaylistImportActivity.createIntent(this@MainActivity)
+                                        )
+                                    },
+                                    onOpenSettings = {
+                                        startActivity(
+                                            SettingsActivity.createIntent(this@MainActivity)
                                         )
                                     },
                                     onLoginClick = {

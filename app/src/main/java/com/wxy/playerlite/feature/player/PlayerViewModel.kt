@@ -9,9 +9,11 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import com.wxy.playerlite.core.AppContainer
 import com.wxy.playerlite.core.playback.AppPlaybackGraph
+import com.wxy.playerlite.core.playback.SongAudioQualityRepository
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
+import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.PlayerUiState
@@ -19,6 +21,7 @@ import com.wxy.playerlite.feature.user.model.UserSessionUiState
 import com.wxy.playerlite.feature.user.model.toUserSessionUiState
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.LocalMusicInfo
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.orchestrator.PlaybackQueueController
 import com.wxy.playerlite.playback.orchestrator.PlaybackSettingsController
@@ -49,6 +52,7 @@ internal class PlayerViewModel(
     private val userRepository: com.wxy.playerlite.user.UserRepository = AppContainer.userRepository(application.applicationContext),
     private val songWikiRepository: SongWikiRepository = AppContainer.songWikiRepository(application.applicationContext),
     private val lyricRepository: LyricRepository = AppContainer.lyricRepository(application.applicationContext),
+    private val songAudioQualityRepository: SongAudioQualityRepository = AppContainer.songAudioQualityRepository(application.applicationContext),
     private val serviceBridge: PlayerServiceController = AppPlaybackGraph.playerServiceController(
         context = application.applicationContext,
         onControllerError = { errorMessage ->
@@ -65,10 +69,12 @@ internal class PlayerViewModel(
     private val remoteSyncJob: Job
     private val uiProgressJob: Job
     private val userStateJob: Job
+    private val audioQualityTargetJob: Job
     private val lyricTargetJob: Job
     private val displayMetadataJob: Job
     private var songWikiJob: Job? = null
     private var lyricJob: Job? = null
+    private var audioQualityJob: Job? = null
     private var playbackModeToast: Toast? = null
     private var playbackModeToastDismissJob: Job? = null
     private val _userSessionUiState = MutableStateFlow(UserSessionUiState(isBusy = true))
@@ -106,6 +112,7 @@ internal class PlayerViewModel(
         userRepository = AppContainer.userRepository(application.applicationContext),
         songWikiRepository = AppContainer.songWikiRepository(application.applicationContext),
         lyricRepository = AppContainer.lyricRepository(application.applicationContext),
+        songAudioQualityRepository = AppContainer.songAudioQualityRepository(application.applicationContext),
         serviceBridge = AppPlaybackGraph.playerServiceController(
             context = application.applicationContext,
             onControllerError = { errorMessage ->
@@ -124,6 +131,15 @@ internal class PlayerViewModel(
         serviceBridge.prewarmConnection()
         userStateJob = viewModelScope.launch {
             userRepository.loginStateFlow.collect(::publishUserState)
+        }
+        audioQualityTargetJob = viewModelScope.launch {
+            uiStateFlow.map { state ->
+                AudioQualityLoadTarget(
+                    songId = state.currentSongId,
+                    hasSelection = state.hasSelection
+                )
+            }.distinctUntilChanged()
+                .collect(::scheduleAudioQualityCatalogForTarget)
         }
         lyricTargetJob = viewModelScope.launch {
             uiStateFlow.map { state ->
@@ -261,6 +277,14 @@ internal class PlayerViewModel(
         )
     }
 
+    fun updatePreferredAudioQuality(audioQuality: PlaybackAudioQuality) {
+        val previousQuality = uiStateFlow.value.preferredAudioQuality
+        playbackSettingsController.updatePreferredAudioQuality(
+            audioQuality = audioQuality,
+            previousAudioQuality = previousQuality
+        )
+    }
+
     fun cyclePlaybackMode() {
         val nextMode = uiStateFlow.value.playbackMode.nextPlaybackMode()
         updatePlaybackMode(nextMode)
@@ -372,8 +396,16 @@ internal class PlayerViewModel(
         runtime.showAudioEffectSettings()
     }
 
+    fun showAudioQualitySettings() {
+        runtime.showAudioQualitySettings()
+    }
+
     fun dismissAudioEffectSettings() {
         runtime.dismissAudioEffectSettings()
+    }
+
+    fun dismissAudioQualitySettings() {
+        runtime.dismissAudioQualitySettings()
     }
 
     fun returnToPlayerMoreActionsRoot() {
@@ -464,6 +496,45 @@ internal class PlayerViewModel(
         }
     }
 
+    private fun scheduleAudioQualityCatalogForTarget(target: AudioQualityLoadTarget) {
+        audioQualityJob?.cancel()
+        val songId = target.songId
+        if (songId.isNullOrBlank()) {
+            runtime.updateAudioQualityCatalogUiState(
+                if (target.hasSelection) {
+                    PlayerAudioQualityCatalogUiState.Unsupported("当前音源不支持音质切换")
+                } else {
+                    PlayerAudioQualityCatalogUiState.Placeholder
+                }
+            )
+            return
+        }
+        runtime.updateAudioQualityCatalogUiState(PlayerAudioQualityCatalogUiState.Loading)
+        audioQualityJob = viewModelScope.launch {
+            val nextState = runCatching {
+                songAudioQualityRepository.fetchCatalog(songId)
+            }.fold(
+                onSuccess = { catalog ->
+                    when {
+                        catalog == null || catalog.options.isEmpty() -> {
+                            PlayerAudioQualityCatalogUiState.Empty("当前歌曲暂无可切换音质")
+                        }
+
+                        else -> {
+                            PlayerAudioQualityCatalogUiState.Content(catalog)
+                        }
+                    }
+                },
+                onFailure = {
+                    PlayerAudioQualityCatalogUiState.Empty("音质目录加载失败")
+                }
+            )
+            if (uiStateFlow.value.currentSongId == songId) {
+                runtime.updateAudioQualityCatalogUiState(nextState)
+            }
+        }
+    }
+
     private fun loadLyricsNow(songId: String, showLoading: Boolean) {
         lyricJob?.cancel()
         lyricJob = viewModelScope.launch {
@@ -502,6 +573,8 @@ internal class PlayerViewModel(
         playbackModeToastDismissJob?.cancel()
         playbackModeToast?.cancel()
         lyricJob?.cancel()
+        audioQualityJob?.cancel()
+        audioQualityTargetJob.cancel()
         lyricTargetJob.cancel()
         displayMetadataJob.cancel()
         userStateJob.cancel()
@@ -558,8 +631,15 @@ internal class PlayerViewModel(
     }
 
     private fun publishUserState(loginState: LoginState) {
+        songAudioQualityRepository.clear()
         _userSessionUiState.value = loginState.toUserSessionUiState(
             isBusy = _userSessionUiState.value.isBusy
+        )
+        scheduleAudioQualityCatalogForTarget(
+            AudioQualityLoadTarget(
+                songId = uiStateFlow.value.currentSongId,
+                hasSelection = uiStateFlow.value.hasSelection
+            )
         )
     }
 
@@ -579,6 +659,11 @@ private data class LyricLoadTarget(
     val songId: String?,
     val hasSelection: Boolean,
     val shouldLoad: Boolean
+)
+
+private data class AudioQualityLoadTarget(
+    val songId: String?,
+    val hasSelection: Boolean
 )
 
 private data class DisplayMetadataTarget(

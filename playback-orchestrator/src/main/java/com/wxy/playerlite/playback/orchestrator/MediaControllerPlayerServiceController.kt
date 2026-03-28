@@ -3,6 +3,7 @@ package com.wxy.playerlite.playback.orchestrator
 import android.content.Context
 import com.wxy.playerlite.playback.client.PlayerServiceBridge
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioEffectPreset
@@ -44,6 +45,13 @@ class MediaControllerPlayerServiceController(
 
     override fun clearCache(): Boolean = delegate.clearCache()
 
+    override fun setPlaybackCacheLimitBytes(
+        maxBytes: Long,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean {
+        return delegate.setPlaybackCacheLimitBytes(maxBytes, onResult)
+    }
+
     override fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)?): Boolean {
         return delegate.setPlaybackSpeed(speed, onResult)
     }
@@ -53,6 +61,20 @@ class MediaControllerPlayerServiceController(
         onResult: ((Boolean) -> Unit)?
     ): Boolean {
         return delegate.setAudioEffectPreset(audioEffectPreset, onResult)
+    }
+
+    override fun setPreferredAudioQuality(
+        audioQuality: PlaybackAudioQuality,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean {
+        return delegate.setPreferredAudioQuality(audioQuality, onResult)
+    }
+
+    override fun setActiveAudioSourceConfigJson(
+        configJson: String?,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean {
+        return delegate.setActiveAudioSourceConfigJson(configJson, onResult)
     }
 
     override fun setPlaybackMode(playbackMode: PlaybackMode, onResult: ((Boolean) -> Unit)?): Boolean {

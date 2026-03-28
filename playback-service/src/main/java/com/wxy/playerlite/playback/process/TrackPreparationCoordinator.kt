@@ -5,6 +5,7 @@ import android.util.Log
 import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.provider.RangeDataProvider
 import com.wxy.playerlite.cache.core.session.SessionCacheConfig
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.source.IPlaysource
 import com.wxy.playerlite.playback.process.source.CachedNetworkSource
@@ -15,13 +16,23 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+internal interface TrackPreparer {
+    suspend fun prepare(
+        item: PlaybackTrack,
+        preferredAudioQuality: PlaybackAudioQuality = PlaybackAudioQuality.EXHIGH
+    ): PreparationResult
+}
+
 internal class TrackPreparationCoordinator(
     private val sourceRepository: MediaSourceRepository,
     private val playbackCoordinator: PlaybackCoordinator,
     private val onlinePreparationPlanner: OnlinePlaybackPreparationPlanner? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
-) {
-    suspend fun prepare(item: PlaybackTrack): PreparationResult {
+) : TrackPreparer {
+    override suspend fun prepare(
+        item: PlaybackTrack,
+        preferredAudioQuality: PlaybackAudioQuality
+    ): PreparationResult {
         val sourceUri = try {
             Uri.parse(item.uri)
         } catch (_: IllegalArgumentException) {
@@ -30,7 +41,10 @@ internal class TrackPreparationCoordinator(
 
         val scheme = sourceUri.scheme?.lowercase()
         if (scheme == "http" || scheme == "https" || !item.songId.isNullOrBlank()) {
-            return prepareNetworkSource(item)
+            return prepareNetworkSource(
+                item = item,
+                preferredAudioQuality = preferredAudioQuality
+            )
         }
 
         if (sourceUri.scheme == "content" && !sourceRepository.hasPersistedReadPermission(sourceUri)) {
@@ -61,7 +75,8 @@ internal class TrackPreparationCoordinator(
             PreparationResult.Ready(
                 source = source,
                 mediaMeta = mediaMeta,
-                isSeekSupported = seekSupported
+                isSeekSupported = seekSupported,
+                appliedAudioQuality = null
             )
         } catch (cancel: CancellationException) {
             source.abort()
@@ -78,7 +93,10 @@ internal class TrackPreparationCoordinator(
         }
     }
 
-    private suspend fun prepareNetworkSource(item: PlaybackTrack): PreparationResult {
+    private suspend fun prepareNetworkSource(
+        item: PlaybackTrack,
+        preferredAudioQuality: PlaybackAudioQuality
+    ): PreparationResult {
         val planner = if (!item.songId.isNullOrBlank()) {
             onlinePreparationPlanner
                 ?: return PreparationResult.Invalid("Online playback planner unavailable")
@@ -88,7 +106,10 @@ internal class TrackPreparationCoordinator(
         var validationAttempt = 0
         while (true) {
             val plan = if (planner != null) {
-                planner.buildPlan(item).getOrElse { error ->
+                planner.buildPlan(
+                    track = item,
+                    preferredAudioQuality = preferredAudioQuality
+                ).getOrElse { error ->
                     return PreparationResult.Invalid(error.message ?: "Failed to resolve online stream")
                 }
             } else {
@@ -96,6 +117,8 @@ internal class TrackPreparationCoordinator(
                     resourceKey = item.id.ifBlank { item.uri },
                     playbackUrl = item.uri,
                     requestHeaders = item.requestHeaders,
+                    preferredAudioQuality = preferredAudioQuality,
+                    appliedAudioQuality = preferredAudioQuality,
                     durationHintMs = item.durationHintMs,
                     contentLengthHintBytes = null,
                     previewClip = item.previewClip,
@@ -166,7 +189,7 @@ internal class TrackPreparationCoordinator(
                 }
                 return PreparationResult.Invalid("Resolved online stream is shorter than expected")
             }
-            return ready
+            return ready.copy(appliedAudioQuality = plan.appliedAudioQuality)
         }
     }
 
@@ -261,7 +284,8 @@ internal suspend fun prepareNetworkSourceInternal(
                 return PreparationResult.Ready(
                     source = freshSource,
                     isSeekSupported = freshSource.supportFastSeek(),
-                    mediaMeta = mediaMeta
+                    mediaMeta = mediaMeta,
+                    appliedAudioQuality = null
                 )
             }
             logError("prepareNetworkSource reopen failed after rewind failure: code=${freshOpenCode.code}, key=${item.id}")
@@ -276,7 +300,8 @@ internal suspend fun prepareNetworkSourceInternal(
         return PreparationResult.Ready(
             source = source,
             isSeekSupported = source.supportFastSeek(),
-            mediaMeta = mediaMeta
+            mediaMeta = mediaMeta,
+            appliedAudioQuality = null
         )
     }
 
@@ -312,7 +337,8 @@ internal sealed interface PreparationResult {
     data class Ready(
         val source: IPlaysource,
         val mediaMeta: AudioMetaDisplay,
-        val isSeekSupported: Boolean
+        val isSeekSupported: Boolean,
+        val appliedAudioQuality: PlaybackAudioQuality?
     ) : PreparationResult
 
     data class Invalid(val message: String) : PreparationResult

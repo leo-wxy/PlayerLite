@@ -183,6 +183,83 @@ class MusicDetailScaffoldRobolectricTest {
     }
 
     @Test
+    fun detailMiniPlayerBar_shouldUseFullHeightArtworkAlignedToLeftEdge() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.fillMaxSize().testTag("detail_mini_player_root")) {
+                    DetailMiniPlayerHost(bottomPadding = 0.dp) { hostModifier ->
+                        DetailMiniPlayerBar(
+                            playerState = PlayerUiState(
+                                hasSelection = true,
+                                currentTrackTitle = "尘大师 Lightly",
+                                currentTrackArtist = "陈奕迅",
+                                currentCoverUrl = "https://example.com/lightly.jpg",
+                                playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING
+                            ),
+                            onOpenPlayer = {},
+                            onTogglePlayback = {},
+                            onOpenPlaylist = {},
+                            onSkipPrevious = {},
+                            onSkipNext = {},
+                            modifier = hostModifier
+                        )
+                    }
+                }
+            }
+        }
+
+        val barBounds = composeRule
+            .onNodeWithTag("detail_mini_player_bar", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val artworkBounds = composeRule
+            .onNodeWithTag("detail_mini_player_artwork", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val songAreaBounds = composeRule
+            .onNodeWithTag("detail_mini_player_song_area", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val playlistBounds = composeRule
+            .onNodeWithTag("detail_mini_player_playlist_button")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        val artworkWidthDp = with(composeRule.density) { artworkBounds.width.toDp() }
+        val artworkHeightDp = with(composeRule.density) { artworkBounds.height.toDp() }
+        val artworkLeftInsetDp = with(composeRule.density) { (artworkBounds.left - barBounds.left).toDp() }
+        val songAreaLeftInsetDp = with(composeRule.density) { (songAreaBounds.left - barBounds.left).toDp() }
+        val playlistRightInsetDp = with(composeRule.density) { (barBounds.right - playlistBounds.right).toDp() }
+        val artworkHeightDeltaPx = kotlin.math.abs(artworkBounds.height - barBounds.height)
+        val artworkHeightTolerancePx = with(composeRule.density) { 2.dp.toPx() }
+
+        assertTrue(
+            "Expected detail minibar artwork to keep a 7dp inset inside the bar instead of filling the whole height, but was $artworkWidthDp x $artworkHeightDp",
+            artworkWidthDp in 42.dp..48.dp && artworkHeightDp in 42.dp..48.dp
+        )
+        assertTrue(
+            "Expected detail minibar artwork to keep a compact 7dp left inset, but inset was $artworkLeftInsetDp",
+            artworkLeftInsetDp in 6.dp..8.dp
+        )
+        assertTrue(
+            "Expected detail song text block to start after the inset artwork block, but inset was $songAreaLeftInsetDp",
+            songAreaLeftInsetDp in 68.dp..72.dp
+        )
+        assertTrue(
+            "Expected detail playlist button to keep compact right breathing room, but inset was $playlistRightInsetDp",
+            playlistRightInsetDp in 10.dp..14.dp
+        )
+        assertTrue(
+            "Expected detail artwork to leave visibly larger top and bottom breathing room inside the minibar, delta=$artworkHeightDeltaPx",
+            artworkHeightDeltaPx in with(composeRule.density) { 12.dp.toPx() }..with(composeRule.density) { 16.dp.toPx() }
+        )
+        assertTrue(
+            "Expected detail song text block to stay to the right of artwork, artwork=$artworkBounds song=$songAreaBounds",
+            songAreaBounds.left > artworkBounds.right
+        )
+    }
+
+    @Test
     fun detailMiniPlayerBar_clickCard_shouldDispatchOpenPlayer() {
         var openPlayerCount = 0
 

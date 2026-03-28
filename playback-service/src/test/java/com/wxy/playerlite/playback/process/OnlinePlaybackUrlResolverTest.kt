@@ -12,6 +12,44 @@ import org.junit.Test
 
 class OnlinePlaybackUrlResolverTest {
     @Test
+    fun remoteDataSource_shouldUseLatestBaseUrlProviderAcrossRequests() = runBlocking {
+        var currentBaseUrl = "https://source-a.example.com"
+        val recordedRequests = mutableListOf<Pair<String, String>>()
+        val remote = NeteaseOnlinePlaybackRemoteDataSource(
+            baseUrlProvider = { currentBaseUrl },
+            httpGet = { baseUrl, path, _, _ ->
+                recordedRequests += baseUrl to path
+                songUrlPayload(
+                    url = "https://media.example.com/source.mp3",
+                    size = 8_798_445L,
+                    expiSeconds = 1200,
+                    durationMs = 219_893L
+                )
+            }
+        )
+
+        remote.fetchSongUrlV1(
+            songIds = "1969519579",
+            level = "exhigh",
+            requestHeaders = emptyMap()
+        )
+        currentBaseUrl = "https://source-b.example.com"
+        remote.fetchSongUrl(
+            songIds = "1969519579",
+            bitrate = 320_000,
+            requestHeaders = emptyMap()
+        )
+
+        assertEquals(
+            listOf(
+                "https://source-a.example.com" to "/song/url/v1",
+                "https://source-b.example.com" to "/song/url"
+            ),
+            recordedRequests
+        )
+    }
+
+    @Test
     fun resolveFallsBackToLegacySongUrlAndCachesFreshResult() = runBlocking {
         val remote = FakeOnlinePlaybackRemoteDataSource(
             songUrlV1Payload = songUrlPayload(url = null, size = 0L, expiSeconds = 1200, durationMs = 0L),
@@ -46,6 +84,34 @@ class OnlinePlaybackUrlResolverTest {
         assertEquals(first, second)
         assertEquals(1, remote.songUrlV1Calls)
         assertEquals(1, remote.songUrlCalls)
+    }
+
+    @Test
+    fun resolve_shouldUseProvidedLegacyFallbackBitrateWhenV1Fails() = runBlocking {
+        val remote = FakeOnlinePlaybackRemoteDataSource(
+            songUrlV1Payload = songUrlPayload(url = null, size = 0L, expiSeconds = 1200, durationMs = 0L),
+            songUrlPayload = songUrlPayload(
+                url = "https://example.com/lossless.flac",
+                size = 21_321_000L,
+                expiSeconds = 1200,
+                durationMs = 219_893L
+            )
+        )
+        val resolver = OnlinePlaybackUrlResolver(
+            remoteDataSource = remote,
+            memoryCache = ResolvedOnlineUrlMemoryCache(maxEntries = 10),
+            nowMs = { 1_000L }
+        )
+
+        val resolved = resolver.resolve(
+            songId = "1969519579",
+            requestHeaders = emptyMap(),
+            requestedLevel = "lossless",
+            fallbackBitrate = 999_000
+        ).getOrThrow()
+
+        assertEquals("https://example.com/lossless.flac", resolved.playbackUrl)
+        assertEquals(999_000, remote.lastSongUrlBitrate)
     }
 
     @Test
@@ -236,6 +302,94 @@ class OnlinePlaybackUrlResolverTest {
         assertEquals("https://example.com/suspicious-short.mp3", second.playbackUrl)
     }
 
+    @Test
+    fun resolve_shouldIsolateMemoryCacheBySourceIdentity() = runBlocking {
+        var sourceIdentity = "source-a"
+        val remote = FakeOnlinePlaybackRemoteDataSource(
+            songUrlV1Payload = songUrlPayload(
+                url = "https://example.com/source-a.mp3",
+                size = 8_798_445L,
+                expiSeconds = 1200,
+                durationMs = 219_893L
+            ),
+            songUrlPayload = songUrlPayload(
+                url = "https://example.com/source-a.mp3",
+                size = 8_798_445L,
+                expiSeconds = 1200,
+                durationMs = 219_893L
+            )
+        )
+        val resolver = OnlinePlaybackUrlResolver(
+            remoteDataSource = remote,
+            memoryCache = ResolvedOnlineUrlMemoryCache(maxEntries = 10),
+            sourceIdentityProvider = { sourceIdentity },
+            nowMs = { 1_000L }
+        )
+
+        resolver.resolve(
+            songId = "1969519579",
+            requestHeaders = emptyMap(),
+            requestedLevel = "exhigh"
+        ).getOrThrow()
+        resolver.resolve(
+            songId = "1969519579",
+            requestHeaders = emptyMap(),
+            requestedLevel = "exhigh"
+        ).getOrThrow()
+        sourceIdentity = "source-b"
+        resolver.resolve(
+            songId = "1969519579",
+            requestHeaders = emptyMap(),
+            requestedLevel = "exhigh"
+        ).getOrThrow()
+
+        assertEquals(2, remote.songUrlV1Calls)
+    }
+
+    @Test
+    fun clear_shouldDropResolvedUrlMemoryCache() = runBlocking {
+        val remote = FakeOnlinePlaybackRemoteDataSource(
+            songUrlV1Payload = songUrlPayload(
+                url = "https://example.com/source-a.mp3",
+                size = 8_798_445L,
+                expiSeconds = 1200,
+                durationMs = 219_893L
+            ),
+            songUrlPayload = songUrlPayload(
+                url = "https://example.com/source-a.mp3",
+                size = 8_798_445L,
+                expiSeconds = 1200,
+                durationMs = 219_893L
+            )
+        )
+        val resolver = OnlinePlaybackUrlResolver(
+            remoteDataSource = remote,
+            memoryCache = ResolvedOnlineUrlMemoryCache(maxEntries = 10),
+            nowMs = { 1_000L }
+        )
+
+        resolver.resolve(
+            songId = "1969519579",
+            requestHeaders = emptyMap(),
+            requestedLevel = "exhigh"
+        ).getOrThrow()
+        resolver.resolve(
+            songId = "1969519579",
+            requestHeaders = emptyMap(),
+            requestedLevel = "exhigh"
+        ).getOrThrow()
+
+        resolver.clear()
+
+        resolver.resolve(
+            songId = "1969519579",
+            requestHeaders = emptyMap(),
+            requestedLevel = "exhigh"
+        ).getOrThrow()
+
+        assertEquals(2, remote.songUrlV1Calls)
+    }
+
     private class FakeOnlinePlaybackRemoteDataSource(
         private val songUrlV1Payload: JsonObject,
         private val songUrlPayload: JsonObject,
@@ -247,6 +401,8 @@ class OnlinePlaybackUrlResolverTest {
         var songUrlV1Calls: Int = 0
         var songUrlCalls: Int = 0
         var checkMusicCalls: Int = 0
+        var lastSongUrlBitrate: Int? = null
+        var lastCheckMusicBitrate: Int? = null
 
         override suspend fun fetchSongUrlV1(
             songIds: String,
@@ -264,6 +420,7 @@ class OnlinePlaybackUrlResolverTest {
             requestHeaders: Map<String, String>
         ): JsonObject {
             songUrlCalls += 1
+            lastSongUrlBitrate = bitrate
             return songUrlPayload
         }
 
@@ -273,6 +430,7 @@ class OnlinePlaybackUrlResolverTest {
             requestHeaders: Map<String, String>
         ): JsonObject {
             checkMusicCalls += 1
+            lastCheckMusicBitrate = bitrate
             return checkMusicPayload
         }
     }

@@ -44,6 +44,10 @@ internal class PlayerSessionPlayer(
                 PlaybackMetadataExtras.writePlaybackSpeed(extras, runtimeState.playbackSpeed)
                 PlaybackMetadataExtras.writePlaybackMode(extras, runtimeState.playbackMode)
                 PlaybackMetadataExtras.writeAudioEffectPreset(extras, runtimeState.audioEffectPreset)
+                PlaybackMetadataExtras.writePreferredAudioQuality(extras, runtimeState.preferredAudioQuality)
+                runtimeState.appliedAudioQuality?.let { appliedAudioQuality ->
+                    PlaybackMetadataExtras.writeAppliedAudioQuality(extras, appliedAudioQuality)
+                }
                 runtimeState.audioMeta?.let { audioMeta ->
                     PlaybackMetadataExtras.writeAudioMeta(extras, audioMeta)
                 }

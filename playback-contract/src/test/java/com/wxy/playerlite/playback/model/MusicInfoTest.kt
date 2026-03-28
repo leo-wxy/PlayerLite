@@ -5,9 +5,11 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class MusicInfoTest {
     @Test
     fun toPlayableItem_projectsSemanticMusicFields() {

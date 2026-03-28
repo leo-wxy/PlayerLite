@@ -4,6 +4,7 @@ import androidx.media3.common.C
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
@@ -165,6 +166,10 @@ private class FakeTransportRuntime(
 
     override fun revertPendingAudioEffectPreset(audioEffectPreset: AudioEffectPreset) = Unit
 
+    override fun updateLocalPreferredAudioQuality(audioQuality: PlaybackAudioQuality) = Unit
+
+    override fun revertPendingPreferredAudioQuality(audioQuality: PlaybackAudioQuality) = Unit
+
     override fun updateRemotePlaybackState(
         playbackState: Int,
         positionMs: Long,
@@ -178,7 +183,9 @@ private class FakeTransportRuntime(
         currentPlayable: PlayableItemSnapshot?,
         playbackOutputInfo: PlaybackOutputInfo?,
         audioMeta: AudioMetaDisplay?,
-        audioEffectPreset: AudioEffectPreset?
+        audioEffectPreset: AudioEffectPreset?,
+        preferredAudioQuality: PlaybackAudioQuality?,
+        appliedAudioQuality: PlaybackAudioQuality?
     ) = Unit
 
     override fun syncActiveItemById(itemId: String?) = Unit
@@ -257,7 +264,22 @@ private class FakeTransportServiceController(
         return clearCacheResult
     }
 
+    override fun setPlaybackCacheLimitBytes(maxBytes: Long, onResult: ((Boolean) -> Unit)?): Boolean {
+        actions += "setPlaybackCacheLimitBytes($maxBytes)"
+        return true
+    }
+
     override fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)?): Boolean = true
+
+    override fun setPreferredAudioQuality(
+        audioQuality: PlaybackAudioQuality,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean = true
+
+    override fun setActiveAudioSourceConfigJson(
+        configJson: String?,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean = true
 
     override fun setAudioEffectPreset(
         audioEffectPreset: AudioEffectPreset,

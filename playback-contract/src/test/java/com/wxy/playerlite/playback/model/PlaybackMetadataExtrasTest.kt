@@ -6,9 +6,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class PlaybackMetadataExtrasTest {
     @Test
     fun readPlaybackSpeed_returnsNullWhenAbsent() {
@@ -31,6 +33,36 @@ class PlaybackMetadataExtrasTest {
         PlaybackMetadataExtras.writePlaybackMode(extras, PlaybackMode.SHUFFLE)
 
         assertEquals(PlaybackMode.SHUFFLE, PlaybackMetadataExtras.readPlaybackMode(extras))
+    }
+
+    @Test
+    fun writePreferredAudioQuality_roundTripsValue() {
+        val extras = Bundle()
+
+        PlaybackMetadataExtras.writePreferredAudioQuality(
+            extras,
+            PlaybackAudioQuality.HIRES
+        )
+
+        assertEquals(
+            PlaybackAudioQuality.HIRES,
+            PlaybackMetadataExtras.readPreferredAudioQuality(extras)
+        )
+    }
+
+    @Test
+    fun writeAppliedAudioQuality_roundTripsValue() {
+        val extras = Bundle()
+
+        PlaybackMetadataExtras.writeAppliedAudioQuality(
+            extras,
+            PlaybackAudioQuality.JYMASTER
+        )
+
+        assertEquals(
+            PlaybackAudioQuality.JYMASTER,
+            PlaybackMetadataExtras.readAppliedAudioQuality(extras)
+        )
     }
 
     @Test

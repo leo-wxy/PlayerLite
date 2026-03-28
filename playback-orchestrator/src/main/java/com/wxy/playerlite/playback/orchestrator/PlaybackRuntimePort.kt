@@ -1,6 +1,7 @@
 package com.wxy.playerlite.playback.orchestrator
 
 import com.wxy.playerlite.core.playlist.PlaylistItem
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioEffectPreset
@@ -23,6 +24,8 @@ interface PlaybackRuntimePort {
     fun revertPendingPlaybackSpeed(playbackSpeed: Float)
     fun updateLocalAudioEffectPreset(audioEffectPreset: AudioEffectPreset)
     fun revertPendingAudioEffectPreset(audioEffectPreset: AudioEffectPreset)
+    fun updateLocalPreferredAudioQuality(audioQuality: PlaybackAudioQuality)
+    fun revertPendingPreferredAudioQuality(audioQuality: PlaybackAudioQuality)
 
     fun updateRemotePlaybackState(
         playbackState: Int,
@@ -37,7 +40,9 @@ interface PlaybackRuntimePort {
         currentPlayable: PlayableItemSnapshot?,
         playbackOutputInfo: PlaybackOutputInfo?,
         audioMeta: AudioMetaDisplay?,
-        audioEffectPreset: AudioEffectPreset? = null
+        audioEffectPreset: AudioEffectPreset? = null,
+        preferredAudioQuality: PlaybackAudioQuality? = null,
+        appliedAudioQuality: PlaybackAudioQuality? = null
     )
 
     fun syncActiveItemById(itemId: String?)

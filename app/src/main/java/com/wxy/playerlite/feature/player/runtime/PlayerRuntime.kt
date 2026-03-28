@@ -6,13 +6,16 @@ import android.os.SystemClock
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
+import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.emptyAudioMeta
+import com.wxy.playerlite.feature.player.model.withAudioQuality
 import com.wxy.playerlite.feature.player.model.withAudioEffectPreset
 import com.wxy.playerlite.feature.player.model.withPlaybackSpeed
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.orchestrator.AudioEffectPresetSyncResolver
@@ -50,6 +53,7 @@ internal class PlayerRuntime(
     private var remoteProgressShouldAdvance: Boolean = false
     private var pendingPlaybackSpeed: Float? = null
     private var pendingPlaybackMode: PlaybackMode? = null
+    private var pendingPreferredAudioQuality: PlaybackAudioQuality? = null
     private var pendingAudioEffectPreset: AudioEffectPreset? = null
 
     private var uiState: PlayerUiState
@@ -78,6 +82,7 @@ internal class PlayerRuntime(
             showSongWikiSheet = if (nextVisible) false else uiState.showSongWikiSheet,
             showMoreActionsSheet = if (nextVisible) false else uiState.showMoreActionsSheet,
             showAudioEffectPage = if (nextVisible) false else uiState.showAudioEffectPage,
+            showAudioQualitySheet = if (nextVisible) false else uiState.showAudioQualitySheet,
             moreActionsPage = if (nextVisible) PlayerMoreActionsPage.ROOT else uiState.moreActionsPage
         )
     }
@@ -95,6 +100,7 @@ internal class PlayerRuntime(
             showPlaylistSheet = false,
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
+            showAudioQualitySheet = false,
             moreActionsPage = PlayerMoreActionsPage.ROOT
         )
     }
@@ -109,6 +115,7 @@ internal class PlayerRuntime(
             showSongWikiSheet = false,
             showMoreActionsSheet = true,
             showAudioEffectPage = false,
+            showAudioQualitySheet = false,
             moreActionsPage = PlayerMoreActionsPage.ROOT
         )
     }
@@ -117,6 +124,7 @@ internal class PlayerRuntime(
         uiState = uiState.copy(
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
+            showAudioQualitySheet = false,
             moreActionsPage = PlayerMoreActionsPage.ROOT
         )
     }
@@ -125,6 +133,7 @@ internal class PlayerRuntime(
         uiState = uiState.copy(
             showMoreActionsSheet = true,
             showAudioEffectPage = false,
+            showAudioQualitySheet = false,
             moreActionsPage = PlayerMoreActionsPage.SPEED
         )
     }
@@ -133,6 +142,16 @@ internal class PlayerRuntime(
         uiState = uiState.copy(
             showMoreActionsSheet = false,
             showAudioEffectPage = true,
+            showAudioQualitySheet = false,
+            moreActionsPage = PlayerMoreActionsPage.ROOT
+        )
+    }
+
+    fun showAudioQualitySettings() {
+        uiState = uiState.copy(
+            showMoreActionsSheet = false,
+            showAudioEffectPage = false,
+            showAudioQualitySheet = true,
             moreActionsPage = PlayerMoreActionsPage.ROOT
         )
     }
@@ -141,12 +160,21 @@ internal class PlayerRuntime(
         uiState = uiState.copy(
             showMoreActionsSheet = true,
             showAudioEffectPage = false,
+            showAudioQualitySheet = false,
             moreActionsPage = PlayerMoreActionsPage.ROOT
         )
     }
 
     fun dismissAudioEffectSettings() {
         uiState = uiState.copy(showAudioEffectPage = false)
+    }
+
+    fun dismissAudioQualitySettings() {
+        uiState = uiState.copy(showAudioQualitySheet = false)
+    }
+
+    fun updateAudioQualityCatalogUiState(audioQualityCatalogUiState: PlayerAudioQualityCatalogUiState) {
+        uiState = uiState.copy(audioQualityCatalogUiState = audioQualityCatalogUiState)
     }
 
     fun updateSongWikiUiState(songWikiUiState: com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState) {
@@ -214,6 +242,7 @@ internal class PlayerRuntime(
                 showPlaylistSheet = false,
                 showMoreActionsSheet = false,
                 showAudioEffectPage = false,
+                showAudioQualitySheet = false,
                 moreActionsPage = PlayerMoreActionsPage.ROOT
             )
             return
@@ -228,6 +257,7 @@ internal class PlayerRuntime(
             showPlaylistSheet = false,
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
+            showAudioQualitySheet = false,
             moreActionsPage = PlayerMoreActionsPage.ROOT,
             statusText = "已切换到: ${target.displayName}"
         )
@@ -247,6 +277,7 @@ internal class PlayerRuntime(
                 showSongWikiSheet = false,
                 showMoreActionsSheet = false,
                 showAudioEffectPage = false,
+                showAudioQualitySheet = false,
                 moreActionsPage = PlayerMoreActionsPage.ROOT
             )
             return
@@ -260,6 +291,7 @@ internal class PlayerRuntime(
                 showSongWikiSheet = false,
                 showMoreActionsSheet = false,
                 showAudioEffectPage = false,
+                showAudioQualitySheet = false,
                 moreActionsPage = PlayerMoreActionsPage.ROOT
             )
             return
@@ -271,6 +303,7 @@ internal class PlayerRuntime(
             showSongWikiSheet = false,
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
+            showAudioQualitySheet = false,
             moreActionsPage = PlayerMoreActionsPage.ROOT
         )
     }
@@ -283,6 +316,7 @@ internal class PlayerRuntime(
                 showSongWikiSheet = false,
                 showMoreActionsSheet = false,
                 showAudioEffectPage = false,
+                showAudioQualitySheet = false,
                 moreActionsPage = PlayerMoreActionsPage.ROOT
             )
             return
@@ -341,7 +375,9 @@ internal class PlayerRuntime(
         currentPlayable: PlayableItemSnapshot?,
         playbackOutputInfo: PlaybackOutputInfo?,
         audioMeta: AudioMetaDisplay?,
-        audioEffectPreset: AudioEffectPreset?
+        audioEffectPreset: AudioEffectPreset?,
+        preferredAudioQuality: PlaybackAudioQuality?,
+        appliedAudioQuality: PlaybackAudioQuality?
     ) {
         val speedResolution = PlaybackSpeedSyncResolver.onRemoteUpdate(
             remoteSpeed = playbackSpeed,
@@ -470,7 +506,15 @@ internal class PlayerRuntime(
             ),
             playbackMode = playlistSession.state.playbackMode
         ).withPlaybackSpeed(speedResolution.resolvedSpeed)
+            .withAudioQuality(
+                preferredAudioQuality = preferredAudioQuality ?: pendingPreferredAudioQuality
+                    ?: uiState.preferredAudioQuality,
+                appliedAudioQuality = appliedAudioQuality
+            )
             .withAudioEffectPreset(resolvedAudioEffectPreset)
+        if (preferredAudioQuality != null && preferredAudioQuality == pendingPreferredAudioQuality) {
+            pendingPreferredAudioQuality = null
+        }
         if (audioEffectPreset != null) {
             persistAudioEffectPreset(resolvedAudioEffectPreset)
         }
@@ -503,7 +547,9 @@ internal class PlayerRuntime(
             currentPlayable = currentPlayable,
             playbackOutputInfo = playbackOutputInfo,
             audioMeta = audioMeta,
-            audioEffectPreset = null
+            audioEffectPreset = null,
+            preferredAudioQuality = null,
+            appliedAudioQuality = null
         )
     }
 
@@ -534,7 +580,9 @@ internal class PlayerRuntime(
             currentPlayable = currentPlayable,
             playbackOutputInfo = playbackOutputInfo,
             audioMeta = audioMeta,
-            audioEffectPreset = null
+            audioEffectPreset = null,
+            preferredAudioQuality = null,
+            appliedAudioQuality = null
         )
     }
 
@@ -547,6 +595,37 @@ internal class PlayerRuntime(
         updateRemoteProgressAnchor(uiState.displayedSeekMs)
     }
 
+    override fun updateLocalPreferredAudioQuality(audioQuality: PlaybackAudioQuality) {
+        pendingPreferredAudioQuality = audioQuality
+        uiState = uiState.withAudioQuality(
+            preferredAudioQuality = audioQuality,
+            appliedAudioQuality = uiState.appliedAudioQuality
+        ).copy(showAudioQualitySheet = false)
+    }
+
+    override fun revertPendingPreferredAudioQuality(audioQuality: PlaybackAudioQuality) {
+        pendingPreferredAudioQuality = null
+        uiState = uiState.withAudioQuality(
+            preferredAudioQuality = audioQuality,
+            appliedAudioQuality = uiState.appliedAudioQuality
+        )
+    }
+
+    fun syncRemoteAudioQualityState(
+        preferredAudioQuality: PlaybackAudioQuality?,
+        appliedAudioQuality: PlaybackAudioQuality?
+    ) {
+        val resolvedPreferredAudioQuality = preferredAudioQuality ?: pendingPreferredAudioQuality
+            ?: uiState.preferredAudioQuality
+        if (preferredAudioQuality != null && preferredAudioQuality == pendingPreferredAudioQuality) {
+            pendingPreferredAudioQuality = null
+        }
+        uiState = uiState.withAudioQuality(
+            preferredAudioQuality = resolvedPreferredAudioQuality,
+            appliedAudioQuality = appliedAudioQuality
+        )
+    }
+
     override fun revertPendingPlaybackSpeed(playbackSpeed: Float) {
         val speedResolution = PlaybackSpeedSyncResolver.onCommandRejected(playbackSpeed)
         pendingPlaybackSpeed = speedResolution.pendingSpeed
@@ -557,7 +636,7 @@ internal class PlayerRuntime(
         val effectResolution = AudioEffectPresetSyncResolver.onLocalRequest(audioEffectPreset)
         pendingAudioEffectPreset = effectResolution.pendingPreset
         uiState = uiState.withAudioEffectPreset(effectResolution.resolvedPreset)
-            .copy(showAudioEffectPage = false)
+            .copy(showAudioEffectPage = false, showAudioQualitySheet = false)
         persistAudioEffectPreset(effectResolution.resolvedPreset)
     }
 
@@ -589,6 +668,7 @@ internal class PlayerRuntime(
         remoteProgressShouldAdvance = false
         pendingPlaybackSpeed = null
         pendingPlaybackMode = null
+        pendingPreferredAudioQuality = null
         pendingAudioEffectPreset = null
         resetRemoteProgressAnchor()
         uiState = uiState.copy(
@@ -603,11 +683,13 @@ internal class PlayerRuntime(
             seekPositionMs = 0L,
             seekDragPositionMs = 0L,
             isSeekDragging = false,
+            appliedAudioQuality = null,
             isPreparing = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
             showSongWikiSheet = false,
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
+            showAudioQualitySheet = false,
             moreActionsPage = PlayerMoreActionsPage.ROOT,
             lyricUiState = PlayerLyricUiState.Placeholder,
             selectedTopTab = PlayerTopTab.SONG,
@@ -675,6 +757,7 @@ internal class PlayerRuntime(
             showSongWikiSheet = false,
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
+            showAudioQualitySheet = false,
             moreActionsPage = PlayerMoreActionsPage.ROOT,
             statusText = if (replacedQueue) {
                 "已替换播放列表"
@@ -741,6 +824,7 @@ internal class PlayerRuntime(
 
     private fun resetPlaybackProjection() {
         remoteProgressShouldAdvance = false
+        pendingPreferredAudioQuality = null
         resetRemoteProgressAnchor()
         uiState = uiState.copy(
             audioMeta = emptyAudioMeta(),
@@ -750,13 +834,20 @@ internal class PlayerRuntime(
             seekPositionMs = 0L,
             seekDragPositionMs = 0L,
             isSeekDragging = false,
+            appliedAudioQuality = null,
             isPreparing = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
             showSongWikiSheet = false,
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
+            showAudioQualitySheet = false,
             moreActionsPage = PlayerMoreActionsPage.ROOT,
-            lyricUiState = PlayerLyricUiState.Placeholder
+            lyricUiState = PlayerLyricUiState.Placeholder,
+            audioQualityCatalogUiState = if (uiState.currentSongId.isNullOrBlank()) {
+                PlayerAudioQualityCatalogUiState.Placeholder
+            } else {
+                PlayerAudioQualityCatalogUiState.Loading
+            }
         )
     }
 

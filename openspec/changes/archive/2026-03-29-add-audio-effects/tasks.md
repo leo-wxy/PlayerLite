@@ -22,5 +22,5 @@
 
 - [x] 4.1 为播放页三点浮层、倍速内联展开、音效设置子页面和进度条下方当前音效名称展示补充或更新 UI / ViewModel 测试
 - [x] 4.2 为共享契约、metadata extras、远端快照映射、音效状态同步和失败回退补充或更新单元测试
-- [ ] 4.3 为播放服务与 native 链路补充或更新“切歌 / Seek / 后台播放保持音效”、“倍速与音效同时生效”以及“滤镜失败回退原声”的回归验证
+- [x] 4.3 为播放服务与 native 链路补充或更新“切歌 / Seek / 后台播放保持音效”、“倍速与音效同时生效”以及“滤镜失败回退原声”的回归验证
 - [x] 4.4 运行 `./gradlew :playback-service:testDebugUnitTest`、`./gradlew :app:testDebugUnitTest`、`./gradlew :app:assembleDebug`

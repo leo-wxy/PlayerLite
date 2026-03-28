@@ -7,11 +7,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.wxy.playerlite.core.AppContainer
+import com.wxy.playerlite.core.playback.AppPlaybackGraph
+import com.wxy.playerlite.feature.player.runtime.DetailPlaybackGateway
+import com.wxy.playerlite.feature.player.runtime.DetailPlaybackRequest
 import com.wxy.playerlite.user.UserRepository
 import com.wxy.playerlite.user.model.LoginState
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 
 internal data class WebPlaylistImportUiState(
@@ -20,6 +27,14 @@ internal data class WebPlaylistImportUiState(
     val isLoggedIn: Boolean = false,
     val stage: WebPlaylistImportStage = WebPlaylistImportStage.Input
 )
+
+internal sealed interface WebPlaylistImportUiEvent {
+    data object OpenPlayer : WebPlaylistImportUiEvent
+
+    data class ShowMessage(
+        val message: String
+    ) : WebPlaylistImportUiEvent
+}
 
 internal sealed interface WebPlaylistImportStage {
     data object Input : WebPlaylistImportStage
@@ -31,7 +46,8 @@ internal sealed interface WebPlaylistImportStage {
     ) : WebPlaylistImportStage
 
     data class Preview(
-        val snapshot: ImportedPlaylistSnapshot
+        val snapshot: ImportedPlaylistSnapshot,
+        val isImporting: Boolean = false
     ) : WebPlaylistImportStage
 
     data class Error(
@@ -43,14 +59,18 @@ internal sealed interface WebPlaylistImportStage {
 internal class WebPlaylistImportViewModel(
     application: Application,
     private val repository: WebPlaylistImportRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val playbackGateway: DetailPlaybackGateway
 ) : AndroidViewModel(application) {
+    private var loadJob: Job? = null
     private val _uiState = MutableStateFlow(
         WebPlaylistImportUiState(
             isLoggedIn = userRepository.currentSession() != null
         )
     )
     val uiStateFlow: StateFlow<WebPlaylistImportUiState> = _uiState.asStateFlow()
+    private val _uiEvents = MutableSharedFlow<WebPlaylistImportUiEvent>(extraBufferCapacity = 1)
+    val uiEvents: SharedFlow<WebPlaylistImportUiEvent> = _uiEvents.asSharedFlow()
 
     init {
         viewModelScope.launch {
@@ -98,19 +118,61 @@ internal class WebPlaylistImportViewModel(
             inputErrorMessage = null,
             stage = WebPlaylistImportStage.Loading()
         )
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             runCatching {
-                repository.fetchPlaylistSnapshot(rawUrl)
-            }.onSuccess { snapshot ->
-                _uiState.value = _uiState.value.copy(
-                    stage = WebPlaylistImportStage.Preview(snapshot)
-                )
+                repository.streamPlaylistSnapshots(rawUrl).collect { snapshot ->
+                    val previewStage = _uiState.value.stage as? WebPlaylistImportStage.Preview
+                    _uiState.value = _uiState.value.copy(
+                        stage = WebPlaylistImportStage.Preview(
+                            snapshot = snapshot,
+                            isImporting = previewStage?.isImporting ?: false
+                        )
+                    )
+                }
+            }.onSuccess {
+                Unit
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
                     stage = error.toImportErrorStage()
                 )
             }
         }
+    }
+
+    fun confirmImport() {
+        val previewStage = _uiState.value.stage as? WebPlaylistImportStage.Preview ?: return
+        if (previewStage.isImporting) {
+            return
+        }
+        val importableItems = previewStage.snapshot.toImportPlaylistItems()
+        if (importableItems.isEmpty()) {
+            _uiEvents.tryEmit(WebPlaylistImportUiEvent.ShowMessage("当前没有可导入歌曲"))
+            return
+        }
+        _uiState.value = _uiState.value.copy(
+            stage = previewStage.copy(isImporting = true)
+        )
+        val started = playbackGateway.play(
+            DetailPlaybackRequest(
+                items = importableItems,
+                activeIndex = 0
+            )
+        )
+        if (started) {
+            _uiEvents.tryEmit(WebPlaylistImportUiEvent.OpenPlayer)
+        } else {
+            _uiState.value = _uiState.value.copy(
+                stage = previewStage.copy(isImporting = false)
+            )
+            _uiEvents.tryEmit(WebPlaylistImportUiEvent.ShowMessage("导入失败，请稍后重试"))
+        }
+    }
+
+    override fun onCleared() {
+        loadJob?.cancel()
+        playbackGateway.close()
+        super.onCleared()
     }
 
     companion object {
@@ -123,7 +185,8 @@ internal class WebPlaylistImportViewModel(
                     return WebPlaylistImportViewModel(
                         application = application,
                         repository = AppContainer.webPlaylistImportRepository(appContext),
-                        userRepository = AppContainer.userRepository(appContext)
+                        userRepository = AppContainer.userRepository(appContext),
+                        playbackGateway = AppPlaybackGraph.detailPlaybackGateway(appContext)
                     ) as T
                 }
             }

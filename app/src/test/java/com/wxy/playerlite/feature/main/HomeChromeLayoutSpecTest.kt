@@ -24,7 +24,7 @@ class HomeChromeLayoutSpecTest {
 
     @Test
     fun bottomBar_shouldReserveIndependentBottomClearanceForGestureHandle() {
-        assertEquals(18.dp, HomeChromeLayoutSpec.bottomBarBottomClearance)
+        assertEquals(4.dp, HomeChromeLayoutSpec.bottomBarBottomClearance)
     }
 
     @Test

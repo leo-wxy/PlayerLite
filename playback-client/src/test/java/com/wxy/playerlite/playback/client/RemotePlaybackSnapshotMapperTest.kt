@@ -2,6 +2,7 @@ package com.wxy.playerlite.playback.client
 
 import android.os.Bundle
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioMetaDisplay
@@ -78,6 +79,8 @@ class RemotePlaybackSnapshotMapperTest {
     fun map_fallsBackToSessionAudioEffectPresetAndLeavesMissingPresetUnset() {
         val sessionExtras = Bundle().apply {
             PlaybackMetadataExtras.writeAudioEffectPreset(this, AudioEffectPreset.WARM)
+            PlaybackMetadataExtras.writePreferredAudioQuality(this, PlaybackAudioQuality.HIRES)
+            PlaybackMetadataExtras.writeAppliedAudioQuality(this, PlaybackAudioQuality.LOSSLESS)
         }
 
         val snapshotFromSession = RemotePlaybackSnapshotMapper.map(
@@ -112,6 +115,10 @@ class RemotePlaybackSnapshotMapperTest {
         )
 
         assertEquals(AudioEffectPreset.WARM, snapshotFromSession.audioEffectPreset)
+        assertEquals(PlaybackAudioQuality.HIRES, snapshotFromSession.preferredAudioQuality)
+        assertEquals(PlaybackAudioQuality.LOSSLESS, snapshotFromSession.appliedAudioQuality)
         assertNull(defaultSnapshot.audioEffectPreset)
+        assertNull(defaultSnapshot.preferredAudioQuality)
+        assertNull(defaultSnapshot.appliedAudioQuality)
     }
 }

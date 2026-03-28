@@ -37,12 +37,16 @@ import com.wxy.playerlite.feature.player.LyricLine
 import com.wxy.playerlite.feature.player.ParsedLyrics
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
+import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.demoSongWikiSummary
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
+import com.wxy.playerlite.playback.model.SongAudioQualityOption
 import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 import org.junit.Assert.assertEquals
@@ -475,9 +479,10 @@ class PlayerScreenRobolectricTest {
     }
 
     @Test
-    fun activePlayback_audioEffectSelection_shouldUseStandalonePageContainer() {
+    fun activePlayback_audioEffectSelection_shouldUseBottomSheetAndUpdateCombinedStatusRow() {
         var showMoreActionsSheet by mutableStateOf(false)
         var showAudioEffectPage by mutableStateOf(false)
+        var showAudioQualitySheet by mutableStateOf(false)
         var moreActionsPage by mutableStateOf(PlayerMoreActionsPage.ROOT)
         var playbackSpeed by mutableStateOf(1.0f)
         var audioEffectPreset by mutableStateOf(AudioEffectPreset.OFF)
@@ -494,6 +499,7 @@ class PlayerScreenRobolectricTest {
                     showSongWikiSheet = false,
                     showMoreActionsSheet = showMoreActionsSheet,
                     showAudioEffectPage = showAudioEffectPage,
+                    showAudioQualitySheet = showAudioQualitySheet,
                     moreActionsPage = moreActionsPage,
                     songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
@@ -501,6 +507,28 @@ class PlayerScreenRobolectricTest {
                     isSeekSupported = true,
                     playbackSpeed = playbackSpeed,
                     playbackMode = PlaybackMode.LIST_LOOP,
+                    appliedAudioQuality = PlaybackAudioQuality.EXHIGH,
+                    audioQualityCatalogUiState = PlayerAudioQualityCatalogUiState.Content(
+                        SongAudioQualityCatalog(
+                            songId = "347230",
+                            options = listOf(
+                                SongAudioQualityOption(
+                                    quality = PlaybackAudioQuality.EXHIGH,
+                                    rawKey = "exhigh",
+                                    bitRate = 320_000,
+                                    sampleRate = 44_100,
+                                    sizeBytes = 8_798_445L
+                                ),
+                                SongAudioQualityOption(
+                                    quality = PlaybackAudioQuality.HIRES,
+                                    rawKey = "hires",
+                                    bitRate = 999_000,
+                                    sampleRate = 96_000,
+                                    sizeBytes = 24_000_000L
+                                )
+                            )
+                        )
+                    ),
                     audioEffectPreset = audioEffectPreset,
                     showOriginalOrderInShuffle = false,
                     canReorderPlaylist = true,
@@ -538,12 +566,21 @@ class PlayerScreenRobolectricTest {
                     onDismissAudioEffectPage = {
                         showAudioEffectPage = false
                     },
+                    onDismissAudioQualitySheet = {
+                        showAudioQualitySheet = false
+                    },
                     onShowPlaybackSpeedSettings = {
                         moreActionsPage = PlayerMoreActionsPage.SPEED
                     },
                     onShowAudioEffectSettings = {
                         showMoreActionsSheet = false
+                        showAudioQualitySheet = false
                         showAudioEffectPage = true
+                    },
+                    onShowAudioQualitySettings = {
+                        showMoreActionsSheet = false
+                        showAudioEffectPage = false
+                        showAudioQualitySheet = true
                     },
                     onReturnToMoreActionsRoot = {
                         moreActionsPage = PlayerMoreActionsPage.ROOT
@@ -552,12 +589,14 @@ class PlayerScreenRobolectricTest {
                     onSelectAudioEffectPreset = {
                         audioEffectPreset = it
                         showAudioEffectPage = false
-                    }
+                    },
+                    onSelectAudioQuality = {}
                 )
             }
         }
 
-        composeRule.onNodeWithTag("player_screen_audio_effect_name").assertTextEquals("原声")
+        composeRule.onNodeWithTag("player_screen_audio_quality_name").assertTextEquals("极高")
+        composeRule.onAllNodesWithTag("player_screen_audio_effect_name").assertCountEquals(0)
 
         composeRule.onNodeWithTag("player_screen_more_button").performClick()
         composeRule.mainClock.advanceTimeBy(400)
@@ -568,10 +607,9 @@ class PlayerScreenRobolectricTest {
         ).assert(hasClickAction()).performSemanticsAction(SemanticsActions.OnClick)
         composeRule.waitForIdle()
         assertTrue(showAudioEffectPage)
+        assertFalse(showAudioQualitySheet)
         composeRule.onAllNodesWithTag("player_more_actions_sheet_surface").assertCountEquals(0)
-        composeRule.onNodeWithTag("player_screen_audio_effect_page").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_audio_effect_page_back_button").assertIsDisplayed()
-        composeRule.onAllNodesWithTag("player_more_actions_sheet_audio_page").assertCountEquals(0)
+        composeRule.onNodeWithTag("player_screen_audio_effect_sheet").assertIsDisplayed()
         composeRule.onNodeWithTag(
             "player_screen_audio_effect_option_bright",
             useUnmergedTree = true
@@ -579,26 +617,273 @@ class PlayerScreenRobolectricTest {
             .performSemanticsAction(SemanticsActions.OnClick)
 
         composeRule.onAllNodesWithTag("player_more_actions_sheet_surface").assertCountEquals(0)
-        composeRule.onAllNodesWithTag("player_screen_audio_effect_page").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_audio_effect_sheet").assertCountEquals(0)
+        composeRule.onNodeWithTag("player_screen_audio_quality_name").assertTextEquals("极高")
         composeRule.onNodeWithTag("player_screen_audio_effect_name").assertTextEquals("清亮高频")
+    }
 
-        val currentTimeBounds = composeRule
-            .onNodeWithTag("player_screen_current_duration")
-            .fetchSemanticsNode()
-            .boundsInRoot
-        val audioEffectBounds = composeRule
-            .onNodeWithTag("player_screen_audio_effect_name")
-            .fetchSemanticsNode()
-            .boundsInRoot
-        val totalTimeBounds = composeRule
-            .onNodeWithTag("player_screen_total_duration")
-            .fetchSemanticsNode()
-            .boundsInRoot
+    @Test
+    fun combinedStatusRow_clickingQualityAndEffectSegmentsShouldToggleSheetsMutuallyExclusive() {
+        var showAudioEffectPage by mutableStateOf(false)
+        var showAudioQualitySheet by mutableStateOf(false)
 
-        assertTrue(abs(currentTimeBounds.top - audioEffectBounds.top) < 4f)
-        assertTrue(abs(totalTimeBounds.top - audioEffectBounds.top) < 4f)
-        assertTrue(currentTimeBounds.center.x < audioEffectBounds.center.x)
-        assertTrue(audioEffectBounds.center.x < totalTimeBounds.center.x)
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "周杰伦 - 夜曲.mp3",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylist,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    showSongWikiSheet = false,
+                    showMoreActionsSheet = false,
+                    showAudioEffectPage = showAudioEffectPage,
+                    showAudioQualitySheet = showAudioQualitySheet,
+                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    appliedAudioQuality = PlaybackAudioQuality.HIRES,
+                    audioQualityCatalogUiState = PlayerAudioQualityCatalogUiState.Content(
+                        SongAudioQualityCatalog(
+                            songId = "347230",
+                            options = listOf(
+                                SongAudioQualityOption(
+                                    quality = PlaybackAudioQuality.EXHIGH,
+                                    rawKey = "exhigh",
+                                    bitRate = 320_000,
+                                    sampleRate = 44_100,
+                                    sizeBytes = 8_798_445L
+                                ),
+                                SongAudioQualityOption(
+                                    quality = PlaybackAudioQuality.HIRES,
+                                    rawKey = "hires",
+                                    bitRate = 999_000,
+                                    sampleRate = 96_000,
+                                    sizeBytes = 24_000_000L
+                                )
+                            )
+                        )
+                    ),
+                    audioEffectPreset = AudioEffectPreset.WARM,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 12_000L,
+                    currentDurationText = "00:12",
+                    durationMs = 120_000L,
+                    totalDurationText = "02:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onShowSongWiki = {},
+                    onDismissSongWiki = {},
+                    onRetrySongWiki = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {},
+                    onDismissAudioEffectPage = {
+                        showAudioEffectPage = false
+                    },
+                    onDismissAudioQualitySheet = {
+                        showAudioQualitySheet = false
+                    },
+                    onShowAudioEffectSettings = {
+                        showAudioEffectPage = true
+                        showAudioQualitySheet = false
+                    },
+                    onShowAudioQualitySettings = {
+                        showAudioQualitySheet = true
+                        showAudioEffectPage = false
+                    },
+                    onSelectAudioEffectPreset = {},
+                    onSelectAudioQuality = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(
+            "player_screen_audio_quality_name",
+            useUnmergedTree = true
+        ).assert(hasClickAction()).performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.onNodeWithTag("player_screen_audio_quality_sheet").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("player_screen_audio_effect_sheet").assertCountEquals(0)
+
+        composeRule.onNodeWithTag(
+            "player_screen_audio_effect_name",
+            useUnmergedTree = true
+        ).assert(hasClickAction()).performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.waitForIdle()
+        assertTrue(showAudioEffectPage)
+        assertFalse(showAudioQualitySheet)
+        composeRule.onAllNodesWithTag("player_screen_audio_quality_sheet").assertCountEquals(0)
+        composeRule.onNodeWithTag("player_screen_audio_effect_sheet").assertIsDisplayed()
+    }
+
+    @Test
+    fun combinedStatusRow_shouldShowPreferredQualityWhilePreparingQualitySwitch() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "周杰伦 - 夜曲.mp3",
+                    status = "切换音质中",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylist,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    showSongWikiSheet = false,
+                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                    isPreparing = true,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    preferredAudioQuality = PlaybackAudioQuality.LOSSLESS,
+                    appliedAudioQuality = null,
+                    audioQualityCatalogUiState = PlayerAudioQualityCatalogUiState.Content(
+                        SongAudioQualityCatalog(
+                            songId = "347230",
+                            options = listOf(
+                                SongAudioQualityOption(
+                                    quality = PlaybackAudioQuality.LOSSLESS,
+                                    rawKey = "sq",
+                                    bitRate = 810_381,
+                                    sampleRate = 44_100,
+                                    sizeBytes = 25_048_891L
+                                ),
+                                SongAudioQualityOption(
+                                    quality = PlaybackAudioQuality.EXHIGH,
+                                    rawKey = "h",
+                                    bitRate = 320_000,
+                                    sampleRate = 44_100,
+                                    sizeBytes = 8_798_445L
+                                )
+                            )
+                        )
+                    ),
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 12_000L,
+                    currentDurationText = "00:12",
+                    durationMs = 120_000L,
+                    totalDurationText = "02:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onShowSongWiki = {},
+                    onDismissSongWiki = {},
+                    onRetrySongWiki = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("player_screen_audio_quality_name").assertTextEquals("无损...")
+    }
+
+    @Test
+    fun audioQualitySheet_shouldDescribeRequestedAndAppliedQualitiesSeparatelyWhenFallbackApplied() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "周杰伦 - 夜曲.mp3",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylist,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    showSongWikiSheet = false,
+                    showAudioQualitySheet = true,
+                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    preferredAudioQuality = PlaybackAudioQuality.HIRES,
+                    appliedAudioQuality = PlaybackAudioQuality.LOSSLESS,
+                    audioQualityCatalogUiState = PlayerAudioQualityCatalogUiState.Content(
+                        SongAudioQualityCatalog(
+                            songId = "347230",
+                            options = listOf(
+                                SongAudioQualityOption(
+                                    quality = PlaybackAudioQuality.HIRES,
+                                    rawKey = "hr",
+                                    bitRate = 999_000,
+                                    sampleRate = 96_000,
+                                    sizeBytes = 24_000_000L
+                                ),
+                                SongAudioQualityOption(
+                                    quality = PlaybackAudioQuality.LOSSLESS,
+                                    rawKey = "sq",
+                                    bitRate = 810_381,
+                                    sampleRate = 44_100,
+                                    sizeBytes = 25_048_891L
+                                ),
+                                SongAudioQualityOption(
+                                    quality = PlaybackAudioQuality.EXHIGH,
+                                    rawKey = "h",
+                                    bitRate = 320_000,
+                                    sampleRate = 44_100,
+                                    sizeBytes = 8_798_445L
+                                )
+                            )
+                        )
+                    ),
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 12_000L,
+                    currentDurationText = "00:12",
+                    durationMs = 120_000L,
+                    totalDurationText = "02:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onShowSongWiki = {},
+                    onDismissSongWiki = {},
+                    onRetrySongWiki = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {},
+                    onDismissAudioQualitySheet = {},
+                    onSelectAudioQuality = {}
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("已选择", substring = true).assertCountEquals(1)
+        composeRule.onAllNodesWithText("当前实际使用", substring = true).assertCountEquals(1)
     }
 
     @Test

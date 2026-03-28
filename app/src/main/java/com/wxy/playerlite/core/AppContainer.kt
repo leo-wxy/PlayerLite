@@ -2,7 +2,10 @@ package com.wxy.playerlite.core
 
 import android.content.Context
 import com.wxy.playerlite.core.playback.DefaultSongDetailRepository
+import com.wxy.playerlite.core.playback.DefaultSongAudioQualityRepository
+import com.wxy.playerlite.core.playback.NeteaseSongAudioQualityRemoteDataSource
 import com.wxy.playerlite.core.playback.NeteaseSongDetailRemoteDataSource
+import com.wxy.playerlite.core.playback.SongAudioQualityRepository
 import com.wxy.playerlite.core.playback.SongDetailRepository
 import com.wxy.playerlite.feature.album.AlbumDetailRepository
 import com.wxy.playerlite.feature.album.DefaultAlbumDetailRepository
@@ -88,6 +91,10 @@ internal object AppContainer {
         return getServices(context).songDetailRepository
     }
 
+    fun songAudioQualityRepository(context: Context): SongAudioQualityRepository {
+        return getServices(context).songAudioQualityRepository
+    }
+
     fun webPlaylistImportRepository(context: Context): WebPlaylistImportRepository {
         return getServices(context).webPlaylistImportRepository
     }
@@ -121,6 +128,13 @@ internal object AppContainer {
         val playlistDetailRepository = DefaultPlaylistDetailRepository(
             remoteDataSource = NeteasePlaylistDetailRemoteDataSource(httpClient)
         )
+        val searchRepository = SearchFeatureServiceFactory.createRepository(
+            httpClient = httpClient,
+            historyPreferences = context.getSharedPreferences(
+                SEARCH_HISTORY_PREFS,
+                Context.MODE_PRIVATE
+            )
+        )
         return Services(
             userRepository = DefaultUserRepository(
                 storage = storage,
@@ -129,13 +143,7 @@ internal object AppContainer {
             homeDiscoveryRepository = DefaultHomeDiscoveryRepository(
                 remoteDataSource = NeteaseHomeDiscoveryRemoteDataSource(httpClient)
             ),
-            searchRepository = SearchFeatureServiceFactory.createRepository(
-                httpClient = httpClient,
-                historyPreferences = context.getSharedPreferences(
-                    SEARCH_HISTORY_PREFS,
-                    Context.MODE_PRIVATE
-                )
-            ),
+            searchRepository = searchRepository,
             userCenterRepository = DefaultUserCenterRepository(
                 remoteDataSource = NeteaseUserCenterRemoteDataSource(httpClient)
             ),
@@ -148,13 +156,17 @@ internal object AppContainer {
                 playlistDetailRepository = playlistDetailRepository,
                 qqMusicRemoteDataSource = DefaultQqMusicPlaylistRemoteDataSource(
                     httpClient = qqMusicHttpClient
-                )
+                ),
+                searchRepository = searchRepository
             ),
             albumDetailRepository = DefaultAlbumDetailRepository(
                 remoteDataSource = NeteaseAlbumDetailRemoteDataSource(httpClient)
             ),
             songDetailRepository = DefaultSongDetailRepository(
                 remoteDataSource = NeteaseSongDetailRemoteDataSource(httpClient)
+            ),
+            songAudioQualityRepository = DefaultSongAudioQualityRepository(
+                remoteDataSource = NeteaseSongAudioQualityRemoteDataSource(httpClient)
             ),
             songWikiRepository = DefaultSongWikiRepository(
                 remoteDataSource = NeteaseSongWikiRemoteDataSource(httpClient)
@@ -178,6 +190,7 @@ internal object AppContainer {
         val webPlaylistImportRepository: WebPlaylistImportRepository,
         val albumDetailRepository: AlbumDetailRepository,
         val songDetailRepository: SongDetailRepository,
+        val songAudioQualityRepository: SongAudioQualityRepository,
         val songWikiRepository: SongWikiRepository,
         val lyricRepository: LyricRepository
     )

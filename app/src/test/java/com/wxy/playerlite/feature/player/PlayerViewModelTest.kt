@@ -3,18 +3,23 @@ package com.wxy.playerlite.feature.player
 import android.app.Application
 import android.content.Context
 import androidx.media3.common.C
+import com.wxy.playerlite.core.playback.SongAudioQualityRepository
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.feature.main.MainDispatcherRule
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
+import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.feature.player.runtime.AudioEffectPresetStorage
 import com.wxy.playerlite.feature.player.runtime.PlayerRuntime
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
+import com.wxy.playerlite.playback.model.SongAudioQualityOption
 import com.wxy.playerlite.playback.orchestrator.PlayerServiceController
 import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.user.UserRepository
@@ -345,6 +350,89 @@ class PlayerViewModelTest {
                 listOf("connectIfNeeded", "setAudioEffectPreset(bright)"),
                 bridge.actions
             )
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun updatePreferredAudioQuality_shouldSendCommandAndUpdateLocalRuntimeState() = runTest {
+        val runtime = PlayerRuntime(application)
+        val bridge = FakePlayerControlBridge(currentSnapshot = null)
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            songWikiRepository = FakeSongWikiRepository(),
+            songAudioQualityRepository = FakeSongAudioQualityRepository(),
+            serviceBridge = bridge,
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 60_000L,
+            uiProgressIntervalMs = 60_000L
+        )
+        try {
+            runCurrent()
+            bridge.clearActions()
+
+            viewModel.updatePreferredAudioQuality(PlaybackAudioQuality.HIRES)
+
+            assertEquals(PlaybackAudioQuality.HIRES, viewModel.uiStateFlow.value.preferredAudioQuality)
+            assertEquals(
+                listOf("connectIfNeeded", "setPreferredAudioQuality(hires)"),
+                bridge.actions
+            )
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun currentSongChange_shouldLoadAudioQualityCatalogIntoUiState() = runTest {
+        val runtime = PlayerRuntime(application)
+        val bridge = FakePlayerControlBridge(currentSnapshot = null)
+        val repository = FakeSongAudioQualityRepository(
+            catalogBySongId = mapOf(
+                "track-1" to SongAudioQualityCatalog(
+                    songId = "track-1",
+                    options = listOf(
+                        SongAudioQualityOption(
+                            quality = PlaybackAudioQuality.HIRES,
+                            rawKey = "hires",
+                            bitRate = 999_000,
+                            sizeBytes = 24_000_000L,
+                            sampleRate = 96_000
+                        )
+                    )
+                )
+            )
+        )
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            songWikiRepository = FakeSongWikiRepository(),
+            songAudioQualityRepository = repository,
+            serviceBridge = bridge,
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 60_000L,
+            uiProgressIntervalMs = 60_000L
+        )
+        try {
+            runCurrent()
+
+            runtime.applyExternalQueueSelection(
+                items = listOf(onlineItem(index = 0, songId = "track-1", title = "第一首")),
+                activeIndex = 0
+            )
+            runCurrent()
+            runCurrent()
+
+            val state = viewModel.uiStateFlow.value.audioQualityCatalogUiState
+            val content = state as PlayerAudioQualityCatalogUiState.Content
+            assertEquals(listOf("track-1"), repository.calls)
+            assertEquals(listOf(PlaybackAudioQuality.HIRES), content.catalog.options.map { it.quality })
         } finally {
             clearViewModel(viewModel)
             runCurrent()
@@ -887,6 +975,8 @@ private class FakePlayerControlBridge(
 
     override fun clearCache(): Boolean = true
 
+    override fun setPlaybackCacheLimitBytes(maxBytes: Long, onResult: ((Boolean) -> Unit)?): Boolean = true
+
     override fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)?): Boolean = true
 
     override fun setAudioEffectPreset(
@@ -896,6 +986,19 @@ private class FakePlayerControlBridge(
         actions += "setAudioEffectPreset(${audioEffectPreset.wireValue})"
         return true
     }
+
+    override fun setPreferredAudioQuality(
+        audioQuality: PlaybackAudioQuality,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean {
+        actions += "setPreferredAudioQuality(${audioQuality.wireValue})"
+        return true
+    }
+
+    override fun setActiveAudioSourceConfigJson(
+        configJson: String?,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean = true
 
     override fun setPlaybackMode(playbackMode: PlaybackMode, onResult: ((Boolean) -> Unit)?): Boolean = true
 
@@ -935,6 +1038,21 @@ private class FakeUserRepository : UserRepository {
 
 private class FakeSongWikiRepository : SongWikiRepository {
     override suspend fun fetchSongWiki(songId: String) = null
+}
+
+private class FakeSongAudioQualityRepository(
+    private val catalogBySongId: Map<String, SongAudioQualityCatalog> = emptyMap()
+) : SongAudioQualityRepository {
+    val calls = mutableListOf<String>()
+
+    override suspend fun fetchCatalog(songId: String): SongAudioQualityCatalog? {
+        calls += songId
+        return catalogBySongId[songId]
+    }
+
+    override fun clear() = Unit
+
+    override fun peekCachedCatalog(songId: String): SongAudioQualityCatalog? = null
 }
 
 private class FakeLyricRepository(

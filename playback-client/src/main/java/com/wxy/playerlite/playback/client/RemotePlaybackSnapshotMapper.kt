@@ -36,6 +36,12 @@ internal object RemotePlaybackSnapshotMapper {
         val audioEffectPreset = PlaybackMetadataExtras.readAudioEffectPreset(currentMetadataExtras)
             ?: PlaybackMetadataExtras.readAudioEffectPreset(sessionExtras)
             ?: PlaybackMetadataExtras.readAudioEffectPreset(rootMetadataExtras)
+        val preferredAudioQuality = PlaybackMetadataExtras.readPreferredAudioQuality(currentMetadataExtras)
+            ?: PlaybackMetadataExtras.readPreferredAudioQuality(sessionExtras)
+            ?: PlaybackMetadataExtras.readPreferredAudioQuality(rootMetadataExtras)
+        val appliedAudioQuality = PlaybackMetadataExtras.readAppliedAudioQuality(currentMetadataExtras)
+            ?: PlaybackMetadataExtras.readAppliedAudioQuality(sessionExtras)
+            ?: PlaybackMetadataExtras.readAppliedAudioQuality(rootMetadataExtras)
         return RemotePlaybackSnapshot(
             playbackState = playbackState,
             playWhenReady = playWhenReady,
@@ -46,6 +52,8 @@ internal object RemotePlaybackSnapshotMapper {
             playbackSpeed = playbackSpeed,
             playbackMode = playbackMode,
             audioEffectPreset = audioEffectPreset,
+            preferredAudioQuality = preferredAudioQuality,
+            appliedAudioQuality = appliedAudioQuality,
             statusText = statusText,
             currentPlayable = currentPlayable,
             currentMediaId = currentMediaId,

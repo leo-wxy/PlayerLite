@@ -130,7 +130,8 @@ sealed interface SearchResultUiModel {
         val artistText: String,
         val albumTitle: String,
         override val coverUrl: String?,
-        override val routeTarget: SearchRouteTarget
+        override val routeTarget: SearchRouteTarget,
+        val durationMs: Long = 0L
     ) : SearchResultUiModel {
         override val resultType: SearchResultType = SearchResultType.SONG
     }

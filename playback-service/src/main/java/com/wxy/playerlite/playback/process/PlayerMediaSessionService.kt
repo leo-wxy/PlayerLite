@@ -11,11 +11,13 @@ import androidx.core.app.NotificationCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionResult
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.wxy.playerlite.playback.service.R
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackLaunchRequest
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
@@ -187,14 +189,9 @@ class PlayerMediaSessionService : MediaSessionService() {
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
             val baseResult = super.onConnect(session, controller)
-            val sessionCommands = baseResult.availableSessionCommands
-                .buildUpon()
-                .add(SessionCommand(PlaybackSessionCommands.ACTION_CLEAR_CACHE, Bundle.EMPTY))
-                .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_SPEED, Bundle.EMPTY))
-                .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_MODE, Bundle.EMPTY))
-                .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_AUDIO_EFFECT_PRESET, Bundle.EMPTY))
-                .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_DISPLAY_METADATA, Bundle.EMPTY))
-                .build()
+            val sessionCommands = appendSupportedPlaybackSessionCommands(
+                baseResult.availableSessionCommands
+            )
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
                 .setAvailablePlayerCommands(baseResult.availablePlayerCommands)
@@ -207,63 +204,118 @@ class PlayerMediaSessionService : MediaSessionService() {
             customCommand: SessionCommand,
             args: Bundle
         ): ListenableFuture<SessionResult> {
-            return when (customCommand.customAction) {
-                PlaybackSessionCommands.ACTION_CLEAR_CACHE -> {
-                    val success = runtime.clearCache()
-                    val resultCode = if (success) {
-                        SessionResult.RESULT_SUCCESS
-                    } else {
-                        SessionResult.RESULT_ERROR_UNKNOWN
-                    }
-                    Futures.immediateFuture(SessionResult(resultCode))
-                }
+            val handled = handlePlaybackCustomCommand(
+                runtime = runtime,
+                customAction = customCommand.customAction,
+                args = args
+            )
+            return handled?.let(Futures::immediateFuture)
+                ?: super.onCustomCommand(session, controller, customCommand, args)
+        }
+    }
+}
 
-                PlaybackSessionCommands.ACTION_SET_PLAYBACK_SPEED -> {
-                    val requested = args.getFloat(
-                        PlaybackSessionCommands.EXTRA_PLAYBACK_SPEED,
-                        PlaybackSpeed.DEFAULT.value
-                    )
-                    val success = runtime.setPlaybackSpeed(requested)
-                    val resultCode = if (success) {
-                        SessionResult.RESULT_SUCCESS
-                    } else {
-                        SessionResult.RESULT_ERROR_BAD_VALUE
-                    }
-                    Futures.immediateFuture(SessionResult(resultCode))
-                }
+internal fun appendSupportedPlaybackSessionCommands(
+    baseCommands: SessionCommands
+): SessionCommands {
+    return baseCommands
+        .buildUpon()
+        .add(SessionCommand(PlaybackSessionCommands.ACTION_CLEAR_CACHE, Bundle.EMPTY))
+        .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_CACHE_LIMIT, Bundle.EMPTY))
+        .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_SPEED, Bundle.EMPTY))
+        .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_MODE, Bundle.EMPTY))
+        .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_AUDIO_EFFECT_PRESET, Bundle.EMPTY))
+        .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PREFERRED_AUDIO_QUALITY, Bundle.EMPTY))
+        .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_ACTIVE_AUDIO_SOURCE_CONFIG, Bundle.EMPTY))
+        .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_DISPLAY_METADATA, Bundle.EMPTY))
+        .build()
+}
 
-                PlaybackSessionCommands.ACTION_SET_PLAYBACK_MODE -> {
-                    val requested = PlaybackMode.fromWireValue(
-                        args.getString(PlaybackSessionCommands.EXTRA_PLAYBACK_MODE)
-                    )
-                    runtime.setPlaybackMode(requested)
-                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-                }
+internal fun handlePlaybackCustomCommand(
+    runtime: PlaybackProcessRuntime,
+    customAction: String,
+    args: Bundle
+): SessionResult? {
+    return when (customAction) {
+        PlaybackSessionCommands.ACTION_CLEAR_CACHE -> {
+            val success = runtime.clearCache()
+            SessionResult(
+                if (success) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_UNKNOWN
+            )
+        }
 
-                PlaybackSessionCommands.ACTION_SET_AUDIO_EFFECT_PRESET -> {
-                    val requested = AudioEffectPreset.fromWireValue(
-                        args.getString(PlaybackSessionCommands.EXTRA_AUDIO_EFFECT_PRESET)
-                    )
-                    val success = runtime.setAudioEffectPreset(requested)
-                    val resultCode = if (success) {
-                        SessionResult.RESULT_SUCCESS
-                    } else {
-                        SessionResult.RESULT_ERROR_BAD_VALUE
-                    }
-                    Futures.immediateFuture(SessionResult(resultCode))
-                }
+        PlaybackSessionCommands.ACTION_SET_PLAYBACK_CACHE_LIMIT -> {
+            val requested = args.getLong(
+                PlaybackSessionCommands.EXTRA_PLAYBACK_CACHE_LIMIT_BYTES,
+                0L
+            )
+            val success = runtime.setPlaybackCacheLimitBytes(requested)
+            SessionResult(
+                if (success) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_BAD_VALUE
+            )
+        }
 
-                PlaybackSessionCommands.ACTION_SET_DISPLAY_METADATA -> {
-                    runtime.setDisplayMetadata(
-                        title = args.getString(PlaybackSessionCommands.EXTRA_DISPLAY_TITLE),
-                        subtitle = args.getString(PlaybackSessionCommands.EXTRA_DISPLAY_SUBTITLE)
-                    )
-                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-                }
+        PlaybackSessionCommands.ACTION_SET_PLAYBACK_SPEED -> {
+            val requested = args.getFloat(
+                PlaybackSessionCommands.EXTRA_PLAYBACK_SPEED,
+                PlaybackSpeed.DEFAULT.value
+            )
+            val success = runtime.setPlaybackSpeed(requested)
+            SessionResult(
+                if (success) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_BAD_VALUE
+            )
+        }
 
-                else -> super.onCustomCommand(session, controller, customCommand, args)
+        PlaybackSessionCommands.ACTION_SET_PLAYBACK_MODE -> {
+            val requested = PlaybackMode.fromWireValue(
+                args.getString(PlaybackSessionCommands.EXTRA_PLAYBACK_MODE)
+            )
+            runtime.setPlaybackMode(requested)
+            SessionResult(SessionResult.RESULT_SUCCESS)
+        }
+
+        PlaybackSessionCommands.ACTION_SET_AUDIO_EFFECT_PRESET -> {
+            val requested = AudioEffectPreset.fromWireValue(
+                args.getString(PlaybackSessionCommands.EXTRA_AUDIO_EFFECT_PRESET)
+            )
+            val success = runtime.setAudioEffectPreset(requested)
+            SessionResult(
+                if (success) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_BAD_VALUE
+            )
+        }
+
+        PlaybackSessionCommands.ACTION_SET_PREFERRED_AUDIO_QUALITY -> {
+            val requested = PlaybackAudioQuality.fromWireValue(
+                args.getString(PlaybackSessionCommands.EXTRA_PREFERRED_AUDIO_QUALITY)
+            )
+            if (requested == null) {
+                SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE)
+            } else {
+                val success = runtime.setPreferredAudioQuality(requested)
+                SessionResult(
+                    if (success) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_BAD_VALUE
+                )
             }
         }
+
+        PlaybackSessionCommands.ACTION_SET_ACTIVE_AUDIO_SOURCE_CONFIG -> {
+            val success = runtime.setActiveAudioSourceConfigJson(
+                args.getString(PlaybackSessionCommands.EXTRA_ACTIVE_AUDIO_SOURCE_CONFIG_JSON)
+            )
+            SessionResult(
+                if (success) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_BAD_VALUE
+            )
+        }
+
+        PlaybackSessionCommands.ACTION_SET_DISPLAY_METADATA -> {
+            runtime.setDisplayMetadata(
+                title = args.getString(PlaybackSessionCommands.EXTRA_DISPLAY_TITLE),
+                subtitle = args.getString(PlaybackSessionCommands.EXTRA_DISPLAY_SUBTITLE)
+            )
+            SessionResult(SessionResult.RESULT_SUCCESS)
+        }
+
+        else -> null
     }
 }
 
@@ -274,6 +326,10 @@ internal fun buildSessionExtras(state: PlaybackProcessState): Bundle {
         PlaybackMetadataExtras.writePlaybackSpeed(this, state.playbackSpeed)
         PlaybackMetadataExtras.writePlaybackMode(this, state.playbackMode)
         PlaybackMetadataExtras.writeAudioEffectPreset(this, state.audioEffectPreset)
+        PlaybackMetadataExtras.writePreferredAudioQuality(this, state.preferredAudioQuality)
+        state.appliedAudioQuality?.let { appliedAudioQuality ->
+            PlaybackMetadataExtras.writeAppliedAudioQuality(this, appliedAudioQuality)
+        }
         state.audioMeta?.let { audioMeta ->
             PlaybackMetadataExtras.writeAudioMeta(this, audioMeta)
         }

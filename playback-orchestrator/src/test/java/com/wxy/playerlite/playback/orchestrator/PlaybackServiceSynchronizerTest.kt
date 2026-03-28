@@ -4,6 +4,7 @@ import androidx.media3.common.C
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.MusicInfo
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
@@ -139,6 +140,8 @@ class PlaybackServiceSynchronizerTest {
             playbackSpeed = 1.25f,
             playbackMode = PlaybackMode.SINGLE_LOOP,
             audioEffectPreset = AudioEffectPreset.WARM,
+            preferredAudioQuality = PlaybackAudioQuality.HIRES,
+            appliedAudioQuality = PlaybackAudioQuality.LOSSLESS,
             statusText = "Playing",
             currentPlayable = PlayableItemSnapshot(
                 id = "playlist:test:0:track-1",
@@ -172,6 +175,8 @@ class PlaybackServiceSynchronizerTest {
         assertEquals(200_000L, remoteUpdate.durationMs)
         assertEquals(PlaybackMode.SINGLE_LOOP, remoteUpdate.playbackMode)
         assertEquals(AudioEffectPreset.WARM, remoteUpdate.audioEffectPreset)
+        assertEquals(PlaybackAudioQuality.HIRES, remoteUpdate.preferredAudioQuality)
+        assertEquals(PlaybackAudioQuality.LOSSLESS, remoteUpdate.appliedAudioQuality)
         assertEquals("playlist:test:0:track-1", runtime.lastSyncedActiveItemId)
         assertEquals("Playing", runtime.reportedStatusText)
     }
@@ -239,6 +244,10 @@ private class FakePlaybackRuntime(
 
     override fun revertPendingAudioEffectPreset(audioEffectPreset: AudioEffectPreset) = Unit
 
+    override fun updateLocalPreferredAudioQuality(audioQuality: PlaybackAudioQuality) = Unit
+
+    override fun revertPendingPreferredAudioQuality(audioQuality: PlaybackAudioQuality) = Unit
+
     override fun updateRemotePlaybackState(
         playbackState: Int,
         positionMs: Long,
@@ -252,7 +261,9 @@ private class FakePlaybackRuntime(
         currentPlayable: PlayableItemSnapshot?,
         playbackOutputInfo: PlaybackOutputInfo?,
         audioMeta: AudioMetaDisplay?,
-        audioEffectPreset: AudioEffectPreset?
+        audioEffectPreset: AudioEffectPreset?,
+        preferredAudioQuality: PlaybackAudioQuality?,
+        appliedAudioQuality: PlaybackAudioQuality?
     ) {
         lastRemoteUpdate = RemoteUpdate(
             playbackState = playbackState,
@@ -267,7 +278,9 @@ private class FakePlaybackRuntime(
             currentPlayable = currentPlayable,
             playbackOutputInfo = playbackOutputInfo,
             audioMeta = audioMeta,
-            audioEffectPreset = audioEffectPreset
+            audioEffectPreset = audioEffectPreset,
+            preferredAudioQuality = preferredAudioQuality,
+            appliedAudioQuality = appliedAudioQuality
         )
     }
 
@@ -321,10 +334,22 @@ private class FakePlayerServiceController(
 
     override fun clearCache(): Boolean = true
 
+    override fun setPlaybackCacheLimitBytes(maxBytes: Long, onResult: ((Boolean) -> Unit)?): Boolean = true
+
     override fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)?): Boolean = true
 
     override fun setAudioEffectPreset(
         audioEffectPreset: AudioEffectPreset,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean = true
+
+    override fun setPreferredAudioQuality(
+        audioQuality: PlaybackAudioQuality,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean = true
+
+    override fun setActiveAudioSourceConfigJson(
+        configJson: String?,
         onResult: ((Boolean) -> Unit)?
     ): Boolean = true
 
@@ -353,5 +378,7 @@ private data class RemoteUpdate(
     val currentPlayable: PlayableItemSnapshot?,
     val playbackOutputInfo: PlaybackOutputInfo?,
     val audioMeta: AudioMetaDisplay?,
-    val audioEffectPreset: AudioEffectPreset?
+    val audioEffectPreset: AudioEffectPreset?,
+    val preferredAudioQuality: PlaybackAudioQuality?,
+    val appliedAudioQuality: PlaybackAudioQuality?
 )

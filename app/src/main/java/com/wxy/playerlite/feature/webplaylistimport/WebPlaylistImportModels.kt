@@ -12,10 +12,31 @@ data class ImportedPlaylistSnapshot(
     val creatorName: String,
     val description: String,
     val coverUrl: String?,
-    val tracks: List<ImportedPlaylistTrack>
+    val tracks: List<ImportedPlaylistTrack>,
+    val matchingProgress: ImportedPlaylistMatchingProgress =
+        ImportedPlaylistMatchingProgress.completed(tracks.size)
 ) {
     val summary: ImportedPlaylistSummary
         get() = ImportedPlaylistSummary.fromTracks(tracks)
+}
+
+data class ImportedPlaylistMatchingProgress(
+    val completedCount: Int,
+    val totalCount: Int,
+    val isPaused: Boolean = false,
+    val pauseMessage: String? = null
+) {
+    val progressText: String
+        get() = "$completedCount / $totalCount"
+
+    companion object {
+        fun completed(totalCount: Int): ImportedPlaylistMatchingProgress {
+            return ImportedPlaylistMatchingProgress(
+                completedCount = totalCount,
+                totalCount = totalCount
+            )
+        }
+    }
 }
 
 data class ImportedPlaylistTrack(
@@ -33,6 +54,7 @@ data class ImportedPlaylistTrack(
             is ImportedTrackResolution.Direct -> current.song
             is ImportedTrackResolution.Matched -> current.song
             is ImportedTrackResolution.Ambiguous -> null
+            ImportedTrackResolution.Pending -> null
             ImportedTrackResolution.Unmatched -> null
         }
 
@@ -47,6 +69,9 @@ data class ImportedPlaylistSummary(
     val ambiguousCount: Int,
     val unmatchedCount: Int
 ) {
+    val importableCount: Int
+        get() = directCount + matchedCount
+
     companion object {
         fun fromTracks(tracks: List<ImportedPlaylistTrack>): ImportedPlaylistSummary {
             var directCount = 0
@@ -58,6 +83,7 @@ data class ImportedPlaylistSummary(
                     is ImportedTrackResolution.Direct -> directCount += 1
                     is ImportedTrackResolution.Matched -> matchedCount += 1
                     is ImportedTrackResolution.Ambiguous -> ambiguousCount += 1
+                    ImportedTrackResolution.Pending -> Unit
                     ImportedTrackResolution.Unmatched -> unmatchedCount += 1
                 }
             }
@@ -83,6 +109,8 @@ data class ResolvedImportedSong(
 )
 
 sealed interface ImportedTrackResolution {
+    data object Pending : ImportedTrackResolution
+
     data class Direct(
         val song: ResolvedImportedSong
     ) : ImportedTrackResolution
@@ -104,7 +132,8 @@ fun SearchResultUiModel.Song.toResolvedImportedSong(): ResolvedImportedSong {
         title = title,
         artistText = artistText,
         albumTitle = albumTitle,
-        coverUrl = coverUrl
+        coverUrl = coverUrl,
+        durationMs = durationMs
     )
 }
 
@@ -131,4 +160,19 @@ fun ImportedPlaylistTrack.toPlaylistItem(
         contextId = contextId,
         contextTitle = playlistTitle
     )
+}
+
+fun ImportedPlaylistSnapshot.toImportPlaylistItems(): List<PlaylistItem> {
+    return tracks.mapIndexedNotNull { index, track ->
+        track.toPlaylistItem(
+            source = source,
+            playlistId = playlistId,
+            playlistTitle = title,
+            index = index
+        )
+    }
+}
+
+internal fun ImportedTrackResolution.isPending(): Boolean {
+    return this == ImportedTrackResolution.Pending
 }

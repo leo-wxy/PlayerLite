@@ -27,7 +27,9 @@ class PlaybackServiceSynchronizer(
             currentPlayable = snapshot.currentPlayable,
             playbackOutputInfo = snapshot.playbackOutputInfo,
             audioMeta = snapshot.audioMeta,
-            audioEffectPreset = snapshot.audioEffectPreset
+            audioEffectPreset = snapshot.audioEffectPreset,
+            preferredAudioQuality = snapshot.preferredAudioQuality,
+            appliedAudioQuality = snapshot.appliedAudioQuality
         )
         runtime.syncActiveItemById(snapshot.currentMediaId)
         snapshot.statusText

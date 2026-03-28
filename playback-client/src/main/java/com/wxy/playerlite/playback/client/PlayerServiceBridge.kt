@@ -17,6 +17,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.wxy.playerlite.playback.contract.PlaybackServiceContract
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
@@ -277,6 +278,44 @@ class PlayerServiceBridge(
         }
     }
 
+    fun setPlaybackCacheLimitBytes(
+        maxBytes: Long,
+        onResult: ((Boolean) -> Unit)? = null
+    ): Boolean {
+        val args = Bundle().apply {
+            putLong(PlaybackSessionCommands.EXTRA_PLAYBACK_CACHE_LIMIT_BYTES, maxBytes)
+        }
+        return withController { activeController ->
+            val future = activeController.sendCustomCommand(
+                SessionCommand(
+                    PlaybackSessionCommands.ACTION_SET_PLAYBACK_CACHE_LIMIT,
+                    Bundle.EMPTY
+                ),
+                args
+            )
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess { result ->
+                            if (result.resultCode != SessionResult.RESULT_SUCCESS) {
+                                onControllerError("Set cache limit rejected: ${result.resultCode}")
+                                onResult?.invoke(false)
+                            } else {
+                                onResult?.invoke(true)
+                            }
+                        }
+                        .onFailure { error ->
+                            onControllerError(
+                                "Set cache limit failed: ${error.message ?: "unknown"}"
+                            )
+                            onResult?.invoke(false)
+                        }
+                },
+                mainExecutor
+            )
+        }
+    }
+
     fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)? = null): Boolean {
         val args = Bundle().apply {
             putFloat(PlaybackSessionCommands.EXTRA_PLAYBACK_SPEED, speed)
@@ -388,6 +427,85 @@ class PlayerServiceBridge(
                         .onFailure { error ->
                             onControllerError(
                                 "Set audio effect failed: ${error.message ?: "unknown"}"
+                            )
+                            onResult?.invoke(false)
+                        }
+                },
+                mainExecutor
+            )
+        }
+    }
+
+    fun setPreferredAudioQuality(
+        audioQuality: PlaybackAudioQuality,
+        onResult: ((Boolean) -> Unit)? = null
+    ): Boolean {
+        val args = Bundle().apply {
+            putString(
+                PlaybackSessionCommands.EXTRA_PREFERRED_AUDIO_QUALITY,
+                audioQuality.wireValue
+            )
+        }
+        return withController { activeController ->
+            val future = activeController.sendCustomCommand(
+                SessionCommand(
+                    PlaybackSessionCommands.ACTION_SET_PREFERRED_AUDIO_QUALITY,
+                    Bundle.EMPTY
+                ),
+                args
+            )
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess { result ->
+                            if (result.resultCode != SessionResult.RESULT_SUCCESS) {
+                                onControllerError("Set preferred audio quality rejected: ${result.resultCode}")
+                                onResult?.invoke(false)
+                            } else {
+                                onResult?.invoke(true)
+                            }
+                        }
+                        .onFailure { error ->
+                            onControllerError(
+                                "Set preferred audio quality failed: ${error.message ?: "unknown"}"
+                            )
+                            onResult?.invoke(false)
+                        }
+                },
+                mainExecutor
+            )
+        }
+    }
+
+    fun setActiveAudioSourceConfigJson(
+        configJson: String?,
+        onResult: ((Boolean) -> Unit)? = null
+    ): Boolean {
+        val args = Bundle().apply {
+            putString(PlaybackSessionCommands.EXTRA_ACTIVE_AUDIO_SOURCE_CONFIG_JSON, configJson)
+        }
+        return withController { activeController ->
+            val future = activeController.sendCustomCommand(
+                SessionCommand(
+                    PlaybackSessionCommands.ACTION_SET_ACTIVE_AUDIO_SOURCE_CONFIG,
+                    Bundle.EMPTY
+                ),
+                args
+            )
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess { result ->
+                            if (result.resultCode != SessionResult.RESULT_SUCCESS) {
+                                onControllerError("Set audio source rejected: ${result.resultCode}")
+                                onResult?.invoke(false)
+                            } else {
+                                onResult?.invoke(true)
+                            }
+                        }
+                        .onFailure { error ->
+                            onControllerError(
+                                "Set audio source failed: ${error.message ?: "unknown"}"
                             )
                             onResult?.invoke(false)
                         }

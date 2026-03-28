@@ -1,6 +1,7 @@
 package com.wxy.playerlite.feature.player.ui
 
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.player.AudioEffectPreset
 
 class PlayerScreenCallbacks(
@@ -27,10 +28,13 @@ class PlayerScreenCallbacks(
     val onSeekFinished: () -> Unit,
     val onDismissMoreActionsSheet: () -> Unit = {},
     val onDismissAudioEffectPage: () -> Unit = {},
+    val onDismissAudioQualitySheet: () -> Unit = {},
     val onShowPlaybackSpeedSettings: () -> Unit = {},
     val onShowAudioEffectSettings: () -> Unit = {},
+    val onShowAudioQualitySettings: () -> Unit = {},
     val onReturnToMoreActionsRoot: () -> Unit = {},
     val onSelectPlaybackSpeed: (Float) -> Unit = {},
+    val onSelectAudioQuality: (PlaybackAudioQuality) -> Unit = {},
     val onSelectAudioEffectPreset: (AudioEffectPreset) -> Unit = {},
     val onBackClick: () -> Unit = {},
     val onShareClick: () -> Unit = {},

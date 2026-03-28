@@ -18,6 +18,8 @@ object PlaybackMetadataExtras {
     private const val KEY_PLAYBACK_SPEED = "playback_speed"
     private const val KEY_PLAYBACK_MODE = "playback_mode"
     private const val KEY_AUDIO_EFFECT_PRESET = "audio_effect_preset"
+    private const val KEY_PREFERRED_AUDIO_QUALITY = "preferred_audio_quality"
+    private const val KEY_APPLIED_AUDIO_QUALITY = "applied_audio_quality"
     private const val KEY_AUDIO_META_CODEC = "audio_meta_codec"
     private const val KEY_AUDIO_META_SAMPLE_RATE = "audio_meta_sample_rate"
     private const val KEY_AUDIO_META_CHANNELS = "audio_meta_channels"
@@ -52,6 +54,14 @@ object PlaybackMetadataExtras {
 
     fun writeAudioEffectPreset(extras: Bundle, audioEffectPreset: AudioEffectPreset) {
         extras.putString(KEY_AUDIO_EFFECT_PRESET, audioEffectPreset.wireValue)
+    }
+
+    fun writePreferredAudioQuality(extras: Bundle, audioQuality: PlaybackAudioQuality) {
+        extras.putString(KEY_PREFERRED_AUDIO_QUALITY, audioQuality.wireValue)
+    }
+
+    fun writeAppliedAudioQuality(extras: Bundle, audioQuality: PlaybackAudioQuality) {
+        extras.putString(KEY_APPLIED_AUDIO_QUALITY, audioQuality.wireValue)
     }
 
     fun writeAudioMeta(extras: Bundle, audioMeta: AudioMetaDisplay) {
@@ -92,6 +102,20 @@ object PlaybackMetadataExtras {
             return null
         }
         return AudioEffectPreset.fromWireValue(extras.getString(KEY_AUDIO_EFFECT_PRESET))
+    }
+
+    fun readPreferredAudioQuality(extras: Bundle?): PlaybackAudioQuality? {
+        if (extras == null || !extras.containsKey(KEY_PREFERRED_AUDIO_QUALITY)) {
+            return null
+        }
+        return PlaybackAudioQuality.fromWireValue(extras.getString(KEY_PREFERRED_AUDIO_QUALITY))
+    }
+
+    fun readAppliedAudioQuality(extras: Bundle?): PlaybackAudioQuality? {
+        if (extras == null || !extras.containsKey(KEY_APPLIED_AUDIO_QUALITY)) {
+            return null
+        }
+        return PlaybackAudioQuality.fromWireValue(extras.getString(KEY_APPLIED_AUDIO_QUALITY))
     }
 
     fun readAudioMeta(extras: Bundle?): AudioMetaDisplay? {

@@ -2,6 +2,7 @@ package com.wxy.playerlite.playback.orchestrator
 
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
@@ -54,11 +55,34 @@ class PlaybackSettingsControllerTest {
             serviceController.actions
         )
     }
+
+    @Test
+    fun updatePreferredAudioQuality_shouldApplyLocalChoiceAndForwardCommand() {
+        val runtime = FakeSettingsRuntime()
+        val serviceController = FakeSettingsServiceController()
+        val controller = PlaybackSettingsController(
+            runtime = runtime,
+            serviceController = serviceController
+        )
+
+        val accepted = controller.updatePreferredAudioQuality(
+            audioQuality = PlaybackAudioQuality.HIRES,
+            previousAudioQuality = PlaybackAudioQuality.EXHIGH
+        )
+
+        assertTrue(accepted)
+        assertEquals(PlaybackAudioQuality.HIRES, runtime.localPreferredAudioQuality)
+        assertEquals(
+            listOf("connectIfNeeded", "setPreferredAudioQuality(hires)"),
+            serviceController.actions
+        )
+    }
 }
 
 private class FakeSettingsRuntime : PlaybackRuntimePort {
     var localPlaybackSpeed: Float = 1.0f
     var localAudioEffectPreset: AudioEffectPreset = AudioEffectPreset.OFF
+    var localPreferredAudioQuality: PlaybackAudioQuality = PlaybackAudioQuality.EXHIGH
     var reportedStatusText: String? = null
 
     override fun playbackQueueItems(): List<PlaylistItem> = emptyList()
@@ -99,6 +123,14 @@ private class FakeSettingsRuntime : PlaybackRuntimePort {
         localAudioEffectPreset = audioEffectPreset
     }
 
+    override fun updateLocalPreferredAudioQuality(audioQuality: PlaybackAudioQuality) {
+        localPreferredAudioQuality = audioQuality
+    }
+
+    override fun revertPendingPreferredAudioQuality(audioQuality: PlaybackAudioQuality) {
+        localPreferredAudioQuality = audioQuality
+    }
+
     override fun updateRemotePlaybackState(
         playbackState: Int,
         positionMs: Long,
@@ -112,7 +144,9 @@ private class FakeSettingsRuntime : PlaybackRuntimePort {
         currentPlayable: PlayableItemSnapshot?,
         playbackOutputInfo: PlaybackOutputInfo?,
         audioMeta: AudioMetaDisplay?,
-        audioEffectPreset: AudioEffectPreset?
+        audioEffectPreset: AudioEffectPreset?,
+        preferredAudioQuality: PlaybackAudioQuality?,
+        appliedAudioQuality: PlaybackAudioQuality?
     ) = Unit
 
     override fun syncActiveItemById(itemId: String?) = Unit
@@ -124,7 +158,8 @@ private class FakeSettingsRuntime : PlaybackRuntimePort {
 
 private class FakeSettingsServiceController(
     private val playbackSpeedAccepted: Boolean = true,
-    private val audioEffectAccepted: Boolean = true
+    private val audioEffectAccepted: Boolean = true,
+    private val audioQualityAccepted: Boolean = true
 ) : PlayerServiceController {
     val actions = mutableListOf<String>()
 
@@ -157,6 +192,11 @@ private class FakeSettingsServiceController(
 
     override fun clearCache(): Boolean = true
 
+    override fun setPlaybackCacheLimitBytes(maxBytes: Long, onResult: ((Boolean) -> Unit)?): Boolean {
+        actions += "setPlaybackCacheLimitBytes($maxBytes)"
+        return true
+    }
+
     override fun setPlaybackSpeed(speed: Float, onResult: ((Boolean) -> Unit)?): Boolean {
         actions += "setPlaybackSpeed($speed)"
         return playbackSpeedAccepted
@@ -168,6 +208,22 @@ private class FakeSettingsServiceController(
     ): Boolean {
         actions += "setAudioEffectPreset(${audioEffectPreset.name.lowercase()})"
         return audioEffectAccepted
+    }
+
+    override fun setPreferredAudioQuality(
+        audioQuality: PlaybackAudioQuality,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean {
+        actions += "setPreferredAudioQuality(${audioQuality.wireValue})"
+        return audioQualityAccepted
+    }
+
+    override fun setActiveAudioSourceConfigJson(
+        configJson: String?,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean {
+        actions += "setActiveAudioSourceConfigJson(${configJson.orEmpty()})"
+        return true
     }
 
     override fun setPlaybackMode(playbackMode: PlaybackMode, onResult: ((Boolean) -> Unit)?): Boolean = true

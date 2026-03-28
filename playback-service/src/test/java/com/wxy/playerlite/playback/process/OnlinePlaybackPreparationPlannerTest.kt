@@ -3,7 +3,10 @@ package com.wxy.playerlite.playback.process
 import com.wxy.playerlite.cache.core.CacheCompletedRange
 import com.wxy.playerlite.cache.core.CacheLookupSnapshot
 import com.wxy.playerlite.playback.model.MusicInfo
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackPreviewClip
+import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
+import com.wxy.playerlite.playback.model.SongAudioQualityOption
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
@@ -12,6 +15,104 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OnlinePlaybackPreparationPlannerTest {
+    @Test
+    fun buildPlan_shouldConsumeMusicUrlFromCurrentSourceAdapter() = runBlocking {
+        val adapter = FakePlanningSourceAdapter(
+            Result.success(
+                SourceActionResult.MusicUrl(
+                    playbackUrl = "https://example.com/from-adapter.flac",
+                    requestHeaders = mapOf("Cookie" to "MUSIC_U=demo"),
+                    contentLengthBytes = 21_321_000L,
+                    durationMs = 219_893L,
+                    expiresAtMs = 5_000L,
+                    previewClip = null,
+                    appliedAudioQuality = PlaybackAudioQuality.LOSSLESS
+                )
+            )
+        )
+        val planner = OnlinePlaybackPreparationPlanner(
+            cacheLookup = { Result.success(null) },
+            sourceAdapterProvider = { adapter }
+        )
+
+        val plan = planner.buildPlan(
+            track = PlaybackTrack(
+                playable = MusicInfo(
+                    id = "queue-online-adapter",
+                    songId = "1969519579",
+                    title = "夜曲",
+                    durationMs = 219_893L,
+                    playbackUri = ""
+                )
+            ),
+            preferredAudioQuality = PlaybackAudioQuality.HIRES
+        ).getOrThrow()
+
+        assertEquals("song_1969519579_lossless_full", plan.resourceKey)
+        assertEquals("https://example.com/from-adapter.flac", plan.playbackUrl)
+        assertEquals(PlaybackAudioQuality.HIRES, adapter.lastContext?.preferredAudioQuality)
+        assertEquals(PlaybackAudioQuality.LOSSLESS, plan.appliedAudioQuality)
+    }
+
+    @Test
+    fun buildPlan_shouldApplyNearestAvailableAudioQualityWhenPreferredIsUnavailable() = runBlocking {
+        val resolver = CapturingResolver(
+            Result.success(
+                ResolvedOnlineStream(
+                    playbackUrl = "https://example.com/lossless.flac",
+                    requestHeaders = emptyMap(),
+                    contentLengthBytes = 21_321_000L,
+                    durationMs = 219_893L,
+                    expiresAtMs = 5_000L
+                )
+            )
+        )
+        val planner = OnlinePlaybackPreparationPlanner(
+            cacheLookup = { Result.success(null) },
+            resolver = resolver,
+            audioQualityCatalogProvider = { _, _ ->
+                SongAudioQualityCatalog(
+                    songId = "1969519579",
+                    options = listOf(
+                        SongAudioQualityOption(
+                            quality = PlaybackAudioQuality.LOSSLESS,
+                            rawKey = "lossless",
+                            bitRate = 999_000,
+                            sizeBytes = 21_321_000L,
+                            sampleRate = 44_100
+                        ),
+                        SongAudioQualityOption(
+                            quality = PlaybackAudioQuality.STANDARD,
+                            rawKey = "standard",
+                            bitRate = 128_000,
+                            sizeBytes = 3_210_000L,
+                            sampleRate = 44_100
+                        )
+                    )
+                )
+            }
+        )
+
+        val plan = planner.buildPlan(
+            track = PlaybackTrack(
+                playable = MusicInfo(
+                    id = "queue-online-quality",
+                    songId = "1969519579",
+                    title = "夜曲",
+                    durationMs = 219_893L,
+                    playbackUri = ""
+                )
+            ),
+            preferredAudioQuality = PlaybackAudioQuality.HIRES
+        ).getOrThrow()
+
+        assertEquals("song_1969519579_lossless_full", plan.resourceKey)
+        assertEquals(PlaybackAudioQuality.HIRES, plan.preferredAudioQuality)
+        assertEquals(PlaybackAudioQuality.LOSSLESS, plan.appliedAudioQuality)
+        assertEquals("lossless", resolver.lastRequestedLevel)
+        assertEquals(999_000, resolver.lastFallbackBitrate)
+    }
+
     @Test
     fun buildPlanUsesCompleteCacheBeforeResolvingUrl() {
         runBlocking {
@@ -244,11 +345,53 @@ class OnlinePlaybackPreparationPlannerTest {
             songId: String,
             requestHeaders: Map<String, String>,
             requestedLevel: String,
+            fallbackBitrate: Int?,
             preferredClipMode: OnlineClipMode,
             expectedDurationMs: Long
         ): Result<ResolvedOnlineStream> {
             calls += 1
             return result
+        }
+    }
+
+    private class CapturingResolver(
+        private val result: Result<ResolvedOnlineStream>
+    ) : OnlinePlaybackResolver {
+        var lastRequestedLevel: String? = null
+        var lastFallbackBitrate: Int? = null
+
+        override suspend fun resolve(
+            songId: String,
+            requestHeaders: Map<String, String>,
+            requestedLevel: String,
+            fallbackBitrate: Int?,
+            preferredClipMode: OnlineClipMode,
+            expectedDurationMs: Long
+        ): Result<ResolvedOnlineStream> {
+            lastRequestedLevel = requestedLevel
+            lastFallbackBitrate = fallbackBitrate
+            return result
+        }
+    }
+
+    private class FakePlanningSourceAdapter(
+        private val result: Result<SourceActionResult.MusicUrl>
+    ) : SourceAdapter {
+        override val metadata: SourceMetadata = SourceMetadata(
+            id = "fake-planning-source",
+            name = "Fake Planning Source"
+        )
+        override val normalizedConfigJson: String? = null
+        var lastContext: SourceActionContext? = null
+
+        override fun init(): Result<SourceState> = Result.success(SourceState())
+
+        override suspend fun handle(
+            action: SourceAction,
+            context: SourceActionContext
+        ): Result<SourceActionResult> {
+            lastContext = context
+            return result.map { it as SourceActionResult }
         }
     }
 

@@ -1,5 +1,6 @@
 package com.wxy.playerlite.playback.orchestrator
 
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.player.AudioEffectPreset
 
 class PlaybackSettingsController(
@@ -38,6 +39,24 @@ class PlaybackSettingsController(
         if (!accepted) {
             runtime.revertPendingAudioEffectPreset(previousAudioEffectPreset)
             runtime.setStatusText("音效设置失败：后台播放进程未连接")
+        }
+        return accepted
+    }
+
+    fun updatePreferredAudioQuality(
+        audioQuality: PlaybackAudioQuality,
+        previousAudioQuality: PlaybackAudioQuality
+    ): Boolean {
+        runtime.updateLocalPreferredAudioQuality(audioQuality)
+        serviceController.connectIfNeeded()
+        val accepted = serviceController.setPreferredAudioQuality(audioQuality) { success ->
+            if (!success) {
+                runtime.revertPendingPreferredAudioQuality(previousAudioQuality)
+            }
+        }
+        if (!accepted) {
+            runtime.revertPendingPreferredAudioQuality(previousAudioQuality)
+            runtime.setStatusText("音质设置失败：后台播放进程未连接")
         }
         return accepted
     }

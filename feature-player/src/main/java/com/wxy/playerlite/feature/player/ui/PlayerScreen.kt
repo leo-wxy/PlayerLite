@@ -1,5 +1,6 @@
 package com.wxy.playerlite.feature.player.ui
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
 import android.content.Context
@@ -17,9 +18,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -44,6 +49,7 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,6 +92,7 @@ import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.toArgb
@@ -105,6 +112,7 @@ import com.wxy.playerlite.feature.player.resolveActiveLyricLineProjection
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
+import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState
@@ -114,6 +122,7 @@ import com.wxy.playerlite.feature.player.model.SongWikiSummary
 import com.wxy.playerlite.feature.player.ui.components.PlaybackControls
 import com.wxy.playerlite.feature.player.ui.components.PlayerMoreActionsSheet
 import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackSpeed
@@ -154,6 +163,7 @@ fun PlayerScreen(
         showSongWikiSheet = uiState.showSongWikiSheet,
         showMoreActionsSheet = uiState.showMoreActionsSheet,
         showAudioEffectPage = uiState.showAudioEffectPage,
+        showAudioQualitySheet = uiState.showAudioQualitySheet,
         moreActionsPage = uiState.moreActionsPage,
         songWikiUiState = uiState.songWikiUiState,
         lyricUiState = uiState.lyricUiState,
@@ -163,6 +173,9 @@ fun PlayerScreen(
         isSeekSupported = uiState.isSeekSupported,
         playbackSpeed = uiState.playbackSpeed,
         playbackMode = uiState.playbackMode,
+        preferredAudioQuality = uiState.preferredAudioQuality,
+        appliedAudioQuality = uiState.appliedAudioQuality,
+        audioQualityCatalogUiState = uiState.audioQualityCatalogUiState,
         audioEffectPreset = uiState.audioEffectPreset,
         canSkipPrevious = uiState.canSkipPrevious,
         canSkipNext = uiState.canSkipNext,
@@ -201,10 +214,13 @@ fun PlayerScreen(
         onSeekFinished = callbacks.onSeekFinished,
         onDismissMoreActionsSheet = callbacks.onDismissMoreActionsSheet,
         onDismissAudioEffectPage = callbacks.onDismissAudioEffectPage,
+        onDismissAudioQualitySheet = callbacks.onDismissAudioQualitySheet,
         onShowPlaybackSpeedSettings = callbacks.onShowPlaybackSpeedSettings,
         onShowAudioEffectSettings = callbacks.onShowAudioEffectSettings,
+        onShowAudioQualitySettings = callbacks.onShowAudioQualitySettings,
         onReturnToMoreActionsRoot = callbacks.onReturnToMoreActionsRoot,
         onSelectPlaybackSpeed = callbacks.onSelectPlaybackSpeed,
+        onSelectAudioQuality = callbacks.onSelectAudioQuality,
         onSelectAudioEffectPreset = callbacks.onSelectAudioEffectPreset,
         onBackClick = callbacks.onBackClick,
         onShareClick = callbacks.onShareClick,
@@ -226,6 +242,7 @@ fun PlayerScreen(
     showSongWikiSheet: Boolean,
     showMoreActionsSheet: Boolean = false,
     showAudioEffectPage: Boolean = false,
+    showAudioQualitySheet: Boolean = false,
     moreActionsPage: PlayerMoreActionsPage = PlayerMoreActionsPage.ROOT,
     songWikiUiState: PlayerSongWikiUiState,
     lyricUiState: PlayerLyricUiState = PlayerLyricUiState.Placeholder,
@@ -235,6 +252,9 @@ fun PlayerScreen(
     isSeekSupported: Boolean,
     playbackSpeed: Float = PlaybackSpeed.DEFAULT.value,
     playbackMode: PlaybackMode,
+    preferredAudioQuality: PlaybackAudioQuality = PlaybackAudioQuality.EXHIGH,
+    appliedAudioQuality: PlaybackAudioQuality? = null,
+    audioQualityCatalogUiState: PlayerAudioQualityCatalogUiState = PlayerAudioQualityCatalogUiState.Placeholder,
     audioEffectPreset: AudioEffectPreset = AudioEffectPreset.DEFAULT,
     canSkipPrevious: Boolean = playlistItems.size > 1,
     canSkipNext: Boolean = playlistItems.size > 1,
@@ -282,10 +302,13 @@ fun PlayerScreen(
     onSeekFinished: () -> Unit,
     onDismissMoreActionsSheet: () -> Unit = {},
     onDismissAudioEffectPage: () -> Unit = {},
+    onDismissAudioQualitySheet: () -> Unit = {},
     onShowPlaybackSpeedSettings: () -> Unit = {},
     onShowAudioEffectSettings: () -> Unit = {},
+    onShowAudioQualitySettings: () -> Unit = {},
     onReturnToMoreActionsRoot: () -> Unit = {},
     onSelectPlaybackSpeed: (Float) -> Unit = {},
+    onSelectAudioQuality: (PlaybackAudioQuality) -> Unit = {},
     onSelectAudioEffectPreset: (AudioEffectPreset) -> Unit = {},
     onBackClick: () -> Unit = {},
     onShareClick: () -> Unit = {},
@@ -303,6 +326,31 @@ fun PlayerScreen(
         durationMs.toFloat()
     } else {
         maxOf(300_000L, seekValueMs + 30_000L).toFloat()
+    }
+    val combinedStatusUi = remember(
+        preferredAudioQuality,
+        appliedAudioQuality,
+        audioEffectPreset,
+        isPreparing,
+        audioQualityCatalogUiState
+    ) {
+        val audioQualityLabel = when {
+            appliedAudioQuality != null -> appliedAudioQuality.displayName
+            isPreparing && audioQualityCatalogUiState is PlayerAudioQualityCatalogUiState.Content ->
+                "${preferredAudioQuality.displayName}..."
+            else -> null
+        }
+        val audioEffectLabel = audioEffectPreset
+            .takeIf { it != AudioEffectPreset.DEFAULT }
+            ?.displayName
+        if (audioQualityLabel == null && audioEffectLabel == null) {
+            null
+        } else {
+            com.wxy.playerlite.feature.player.model.PlayerCombinedStatusUi(
+                audioQualityLabel = audioQualityLabel,
+                audioEffectLabel = audioEffectLabel
+            )
+        }
     }
     val sliderValue = seekValueMs.coerceIn(0L, sliderMax.toLong()).toFloat()
     val seekEnabled = isSeekSupported && (isPlaying || isPaused)
@@ -341,6 +389,7 @@ fun PlayerScreen(
         enableEnterMotion = enableEnterMotion,
         hasRevealed = reveal
     )
+    val showSettingsSheet = showAudioEffectPage || showAudioQualitySheet
     val contentAlpha by animateFloatAsState(
         targetValue = motionState.alpha,
         animationSpec = tween(durationMillis = 550),
@@ -392,7 +441,8 @@ fun PlayerScreen(
                 currentDurationText = currentDurationText,
                 totalDurationText = totalDurationText,
                 currentArtistId = resolvedArtistId,
-                audioEffectDisplayName = audioEffectPreset.displayName,
+                combinedStatusUi = combinedStatusUi,
+                showInlineCombinedStatusRow = !showSettingsSheet,
                 onSeekValueChange = onSeekValueChange,
                 onSeekFinished = onSeekFinished,
                 onBackClick = onBackClick,
@@ -409,6 +459,8 @@ fun PlayerScreen(
                 onRetryLyrics = onRetryLyrics,
                 onSelectTopTab = handleSelectTopTab,
                 onBackdropColorChange = { backdropColor = it },
+                onShowAudioQualitySettings = onShowAudioQualitySettings,
+                onShowAudioEffectSettings = onShowAudioEffectSettings,
                 onFavoriteClick = onFavoriteClick,
                 onMoreClick = onMoreClick,
                 visualTokens = visualTokens,
@@ -454,13 +506,45 @@ fun PlayerScreen(
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
 
-            if (showAudioEffectPage) {
-                PlayerAudioEffectPage(
-                    audioEffectPreset = audioEffectPreset,
-                    onDismiss = onDismissAudioEffectPage,
-                    onSelectAudioEffectPreset = onSelectAudioEffectPreset,
-                    modifier = Modifier.fillMaxSize()
-                )
+            PlayerAudioEffectPage(
+                visible = showAudioEffectPage && !showAudioQualitySheet,
+                audioEffectPreset = audioEffectPreset,
+                onDismiss = onDismissAudioEffectPage,
+                onSelectAudioEffectPreset = onSelectAudioEffectPreset,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            PlayerAudioQualitySheet(
+                visible = showAudioQualitySheet && !showAudioEffectPage,
+                preferredAudioQuality = preferredAudioQuality,
+                appliedAudioQuality = appliedAudioQuality,
+                isPreparing = isPreparing,
+                catalogUiState = audioQualityCatalogUiState,
+                onDismiss = onDismissAudioQualitySheet,
+                onSelectAudioQuality = onSelectAudioQuality,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            if (showSettingsSheet && combinedStatusUi != null) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 72.dp, start = 16.dp, end = 16.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    color = Color(0xFF14171D).copy(alpha = 0.94f),
+                    tonalElevation = 6.dp,
+                    shadowElevation = 12.dp
+                ) {
+                    PlayerCombinedStatusRow(
+                        combinedStatusUi = combinedStatusUi,
+                        onShowAudioQualitySettings = onShowAudioQualitySettings,
+                        onShowAudioEffectSettings = onShowAudioEffectSettings,
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                            .testTag("player_screen_combined_status_row")
+                    )
+                }
             }
         }
     }
@@ -495,70 +579,167 @@ internal fun PlayerSongWikiButton(
 
 @Composable
 private fun PlayerAudioEffectPage(
+    visible: Boolean,
     audioEffectPreset: AudioEffectPreset,
     onDismiss: () -> Unit,
     onSelectAudioEffectPreset: (AudioEffectPreset) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        modifier = modifier.testTag("player_screen_audio_effect_page"),
-        color = Color(0xFF14171D).copy(alpha = 0.98f)
+    PlayerSettingsBottomSheet(
+        visible = visible,
+        surfaceTag = "player_screen_audio_effect_sheet",
+        title = "音效设置",
+        subtitle = "选择后立即生效",
+        onDismiss = onDismiss,
+        modifier = modifier
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.testTag("player_screen_audio_effect_page_back_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = "返回播放页"
-                    )
-                }
-                Text(
-                    text = "音效设置",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.size(48.dp))
-            }
-
-            Text(
-                text = "选择后立即生效，并返回播放页主视图",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.68f)
-            )
-
-            Column(
+        AudioEffectPreset.entries.forEach { preset ->
+            val selected = preset == audioEffectPreset
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .testTag("player_screen_audio_effect_option_${preset.wireValue.replace('-', '_')}"),
+                onClick = { onSelectAudioEffectPreset(preset) },
+                shape = RoundedCornerShape(24.dp),
+                color = if (selected) {
+                    PlayerLiteVisualTheme.colors.accentStrong.copy(alpha = 0.12f)
+                } else {
+                    Color.White.copy(alpha = 0.08f)
+                }
             ) {
-                AudioEffectPreset.entries.forEach { preset ->
-                    val selected = preset == audioEffectPreset
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = preset.displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (selected) {
+                            PlayerLiteVisualTheme.colors.accentStrong
+                        } else {
+                            Color.White
+                        }
+                    )
+                    Text(
+                        text = if (selected) "当前使用中" else "点击后立即切换",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.64f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerAudioQualitySheet(
+    visible: Boolean,
+    preferredAudioQuality: PlaybackAudioQuality,
+    appliedAudioQuality: PlaybackAudioQuality?,
+    isPreparing: Boolean,
+    catalogUiState: PlayerAudioQualityCatalogUiState,
+    onDismiss: () -> Unit,
+    onSelectAudioQuality: (PlaybackAudioQuality) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    PlayerSettingsBottomSheet(
+        visible = visible,
+        surfaceTag = "player_screen_audio_quality_sheet",
+        title = "音质选择",
+        subtitle = "仅展示当前歌曲真实可用档位",
+        onDismiss = onDismiss,
+        modifier = modifier
+    ) {
+        when (catalogUiState) {
+            PlayerAudioQualityCatalogUiState.Placeholder -> {
+                PlayerSheetMessage(text = "等待当前歌曲音质目录")
+            }
+
+            PlayerAudioQualityCatalogUiState.Loading -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "音质目录加载中...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.84f)
+                    )
+                }
+            }
+
+            is PlayerAudioQualityCatalogUiState.Empty -> {
+                PlayerSheetMessage(text = catalogUiState.message)
+            }
+
+            is PlayerAudioQualityCatalogUiState.Unsupported -> {
+                PlayerSheetMessage(text = catalogUiState.message)
+            }
+
+            is PlayerAudioQualityCatalogUiState.Content -> {
+                catalogUiState.catalog.options.forEach { option ->
+                    val isRequested = option.quality == preferredAudioQuality
+                    val isApplied = option.quality == appliedAudioQuality
+                    val statusText = resolveAudioQualityOptionStatusText(
+                        optionQuality = option.quality,
+                        preferredAudioQuality = preferredAudioQuality,
+                        appliedAudioQuality = appliedAudioQuality,
+                        isPreparing = isPreparing
+                    )
+                    val borderStroke = when {
+                        isRequested && !isApplied -> BorderStroke(
+                            width = 1.dp,
+                            color = PlayerLiteVisualTheme.colors.accentStrong.copy(alpha = 0.42f)
+                        )
+
+                        isApplied && !isRequested -> BorderStroke(
+                            width = 1.dp,
+                            color = Color.White.copy(alpha = 0.18f)
+                        )
+
+                        else -> null
+                    }
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("player_screen_audio_effect_option_${preset.wireValue.replace('-', '_')}"),
-                        onClick = { onSelectAudioEffectPreset(preset) },
+                            .then(
+                                if (borderStroke == null) {
+                                    Modifier
+                                } else {
+                                    Modifier.border(
+                                        border = borderStroke,
+                                        shape = RoundedCornerShape(24.dp)
+                                    )
+                                }
+                            )
+                            .testTag("player_screen_audio_quality_option_${option.quality.wireValue}"),
+                        onClick = { onSelectAudioQuality(option.quality) },
                         shape = RoundedCornerShape(24.dp),
-                        color = if (selected) {
-                            PlayerLiteVisualTheme.colors.accentStrong.copy(alpha = 0.12f)
-                        } else {
-                            Color.White.copy(alpha = 0.08f)
+                        color = when {
+                            isRequested && isApplied -> {
+                                PlayerLiteVisualTheme.colors.accentStrong.copy(alpha = 0.12f)
+                            }
+
+                            isRequested -> {
+                                PlayerLiteVisualTheme.colors.accentStrong.copy(alpha = 0.10f)
+                            }
+
+                            isApplied -> {
+                                Color.White.copy(alpha = 0.12f)
+                            }
+
+                            else -> {
+                                Color.White.copy(alpha = 0.08f)
+                            }
                         }
                     ) {
                         Column(
@@ -568,17 +749,20 @@ private fun PlayerAudioEffectPage(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = preset.displayName,
+                                text = option.quality.displayName,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (selected) {
+                                color = if (isRequested) {
                                     PlayerLiteVisualTheme.colors.accentStrong
                                 } else {
                                     Color.White
                                 }
                             )
                             Text(
-                                text = if (selected) "当前使用中" else "点击后立即切换",
+                                text = listOfNotNull(
+                                    statusText,
+                                    formatAudioQualityOptionMeta(option)
+                                ).joinToString(separator = " · "),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.64f)
                             )
@@ -587,6 +771,216 @@ private fun PlayerAudioEffectPage(
                 }
             }
         }
+    }
+}
+
+private fun resolveAudioQualityOptionStatusText(
+    optionQuality: PlaybackAudioQuality,
+    preferredAudioQuality: PlaybackAudioQuality,
+    appliedAudioQuality: PlaybackAudioQuality?,
+    isPreparing: Boolean
+): String? {
+    return when {
+        optionQuality == preferredAudioQuality && optionQuality == appliedAudioQuality -> {
+            "当前使用中"
+        }
+
+        optionQuality == preferredAudioQuality && appliedAudioQuality == null && isPreparing -> {
+            "已选择，等待切换"
+        }
+
+        optionQuality == preferredAudioQuality && appliedAudioQuality == null -> {
+            "已选择"
+        }
+
+        optionQuality == preferredAudioQuality && appliedAudioQuality != preferredAudioQuality -> {
+            "已选择"
+        }
+
+        optionQuality == appliedAudioQuality && appliedAudioQuality != preferredAudioQuality -> {
+            "当前实际使用"
+        }
+
+        else -> null
+    }
+}
+
+@Composable
+private fun PlayerSettingsBottomSheet(
+    visible: Boolean,
+    surfaceTag: String,
+    title: String,
+    subtitle: String,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    if (!visible) {
+        return
+    }
+    Box(modifier = modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.26f))
+                .clickable(onClick = onDismiss)
+        )
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .fillMaxHeight(0.58f)
+                .testTag(surfaceTag),
+            shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+            color = Color(0xFF14171D).copy(alpha = 0.98f)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .size(width = 42.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.16f))
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Spacer(modifier = Modifier.size(40.dp))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.68f)
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "关闭设置浮层",
+                            tint = Color.White
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    content = content
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerSheetMessage(text: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.72f)
+        )
+    }
+}
+
+@Composable
+private fun PlayerCombinedStatusRow(
+    combinedStatusUi: com.wxy.playerlite.feature.player.model.PlayerCombinedStatusUi?,
+    onShowAudioQualitySettings: () -> Unit,
+    onShowAudioEffectSettings: () -> Unit,
+    textStyle: TextStyle = MaterialTheme.typography.labelLarge,
+    modifier: Modifier = Modifier
+) {
+    val state = combinedStatusUi ?: return
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        state.audioQualityLabel?.let { audioQualityLabel ->
+            Text(
+                text = audioQualityLabel,
+                style = textStyle,
+                color = Color.White.copy(alpha = 0.78f),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .clickable(onClick = onShowAudioQualitySettings)
+                    .testTag("player_screen_audio_quality_name")
+            )
+        }
+        if (state.audioQualityLabel != null && state.audioEffectLabel != null) {
+            Text(
+                text = " · ",
+                style = textStyle,
+                color = Color.White.copy(alpha = 0.46f),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip
+            )
+        }
+        state.audioEffectLabel?.let { audioEffectLabel ->
+            Text(
+                text = audioEffectLabel,
+                style = textStyle,
+                color = Color.White.copy(alpha = 0.78f),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .clickable(onClick = onShowAudioEffectSettings)
+                    .testTag("player_screen_audio_effect_name")
+            )
+        }
+    }
+}
+
+private fun formatAudioQualityOptionMeta(option: com.wxy.playerlite.playback.model.SongAudioQualityOption): String {
+    val parts = buildList {
+        if (option.bitRate > 0) {
+            add("${option.bitRate / 1000} kbps")
+        }
+        option.sampleRate?.takeIf { it > 0 }?.let { sampleRate ->
+            add("${sampleRate / 1000} kHz")
+        }
+        option.sizeBytes?.takeIf { it > 0L }?.let { sizeBytes ->
+            add(formatBytesToMegabytes(sizeBytes))
+        }
+    }
+    return if (parts.isEmpty()) {
+        "当前歌曲可用音质"
+    } else {
+        parts.joinToString(separator = " · ")
+    }
+}
+
+private fun formatBytesToMegabytes(sizeBytes: Long): String {
+    val megaBytes = sizeBytes / 1_048_576.0
+    return if (megaBytes >= 100) {
+        "${megaBytes.toInt()} MB"
+    } else {
+        String.format("%.1f MB", megaBytes)
     }
 }
 
@@ -1361,6 +1755,7 @@ private fun SongWikiSummaryContent(
     }
 }
 
+@SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 private fun PlayerScreenContent(
     fileName: String,
@@ -1384,7 +1779,8 @@ private fun PlayerScreenContent(
     currentDurationText: String,
     totalDurationText: String,
     currentArtistId: String?,
-    audioEffectDisplayName: String,
+    combinedStatusUi: com.wxy.playerlite.feature.player.model.PlayerCombinedStatusUi?,
+    showInlineCombinedStatusRow: Boolean,
     onSeekValueChange: (Long) -> Unit,
     onSeekFinished: () -> Unit,
     onBackClick: () -> Unit,
@@ -1401,6 +1797,8 @@ private fun PlayerScreenContent(
     onRetryLyrics: () -> Unit,
     onSelectTopTab: (PlayerTopTab) -> Unit,
     onBackdropColorChange: (Color) -> Unit,
+    onShowAudioQualitySettings: () -> Unit,
+    onShowAudioEffectSettings: () -> Unit,
     onFavoriteClick: () -> Unit,
     onMoreClick: () -> Unit,
     visualTokens: com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTokens,
@@ -1647,6 +2045,12 @@ private fun PlayerScreenContent(
                                         .testTag("player_screen_progress_section"),
                                     verticalArrangement = Arrangement.spacedBy(layoutMetrics.progressSectionSpacing)
                                 ) {
+                                    val progressTimeTextStyle = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = layoutMetrics.progressTimeFontSizeSp.sp
+                                    )
+                                    val combinedStatusTextStyle = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = layoutMetrics.progressTimeFontSizeSp.sp
+                                    )
                                     PlayerProgressBarSlider(
                                         value = sliderValue,
                                         max = sliderMax,
@@ -1655,40 +2059,68 @@ private fun PlayerScreenContent(
                                         onValueChangeFinished = onSeekFinished,
                                         modifier = Modifier.fillMaxWidth()
                                     )
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = currentDurationText,
-                                            style = MaterialTheme.typography.labelMedium.copy(
-                                                fontSize = layoutMetrics.progressTimeFontSizeSp.sp
-                                            ),
-                                            color = Color.White.copy(alpha = 0.62f),
-                                            modifier = Modifier
-                                            .testTag("player_screen_current_duration")
-                                        )
-                                        Text(
-                                            text = audioEffectDisplayName,
-                                            style = MaterialTheme.typography.labelMedium.copy(
-                                                fontSize = layoutMetrics.progressTimeFontSizeSp.sp
-                                            ),
-                                            color = Color.White.copy(alpha = 0.74f),
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .testTag("player_screen_audio_effect_name")
-                                        )
-                                        Text(
-                                            text = totalDurationText,
-                                            style = MaterialTheme.typography.labelMedium.copy(
-                                                fontSize = layoutMetrics.progressTimeFontSizeSp.sp
-                                            ),
-                                            color = Color.White.copy(alpha = 0.62f),
-                                            modifier = Modifier
-                                                .testTag("player_screen_total_duration")
-                                        )
+                                    if (showInlineCombinedStatusRow) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = currentDurationText,
+                                                style = progressTimeTextStyle,
+                                                color = Color.White.copy(alpha = 0.62f),
+                                                textAlign = TextAlign.Start,
+                                                maxLines = 1,
+                                                modifier = Modifier
+                                                    .widthIn(min = 48.dp)
+                                                    .testTag("player_screen_current_duration")
+                                            )
+                                            Box(
+                                                modifier = Modifier.weight(1f),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                PlayerCombinedStatusRow(
+                                                    combinedStatusUi = combinedStatusUi,
+                                                    onShowAudioQualitySettings = onShowAudioQualitySettings,
+                                                    onShowAudioEffectSettings = onShowAudioEffectSettings,
+                                                    textStyle = combinedStatusTextStyle,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .testTag("player_screen_combined_status_row")
+                                                )
+                                            }
+                                            Text(
+                                                text = totalDurationText,
+                                                style = progressTimeTextStyle,
+                                                color = Color.White.copy(alpha = 0.62f),
+                                                textAlign = TextAlign.End,
+                                                maxLines = 1,
+                                                modifier = Modifier
+                                                    .widthIn(min = 48.dp)
+                                                    .testTag("player_screen_total_duration")
+                                            )
+                                        }
+                                    } else {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = currentDurationText,
+                                                style = progressTimeTextStyle,
+                                                color = Color.White.copy(alpha = 0.62f),
+                                                modifier = Modifier
+                                                    .testTag("player_screen_current_duration")
+                                            )
+                                            Text(
+                                                text = totalDurationText,
+                                                style = progressTimeTextStyle,
+                                                color = Color.White.copy(alpha = 0.62f),
+                                                modifier = Modifier
+                                                    .testTag("player_screen_total_duration")
+                                            )
+                                        }
                                     }
                                 }
 

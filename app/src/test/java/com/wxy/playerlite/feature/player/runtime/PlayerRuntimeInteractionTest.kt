@@ -5,6 +5,7 @@ import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioEffectPreset
@@ -19,12 +20,13 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class PlayerRuntimeInteractionTest {
     @Test
-    fun playerMoreActions_shouldOpenIndependentAudioEffectPage() {
+    fun playerMoreActions_shouldKeepAudioQualityAndAudioEffectOverlaysMutuallyExclusive() {
         val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
 
         runtime.onShowPlayerMoreActions()
         assertTrue(runtime.uiStateFlow.value.showMoreActionsSheet)
         assertFalse(runtime.uiStateFlow.value.showAudioEffectPage)
+        assertFalse(runtime.uiStateFlow.value.showAudioQualitySheet)
         assertEquals(PlayerMoreActionsPage.ROOT, runtime.uiStateFlow.value.moreActionsPage)
 
         runtime.showPlaybackSpeedSettings()
@@ -36,11 +38,20 @@ class PlayerRuntimeInteractionTest {
         runtime.showAudioEffectSettings()
         assertFalse(runtime.uiStateFlow.value.showMoreActionsSheet)
         assertTrue(runtime.uiStateFlow.value.showAudioEffectPage)
+        assertFalse(runtime.uiStateFlow.value.showAudioQualitySheet)
         assertEquals(PlayerMoreActionsPage.ROOT, runtime.uiStateFlow.value.moreActionsPage)
 
-        runtime.dismissAudioEffectSettings()
+        runtime.showAudioQualitySettings()
         assertFalse(runtime.uiStateFlow.value.showAudioEffectPage)
+        assertTrue(runtime.uiStateFlow.value.showAudioQualitySheet)
+        assertFalse(runtime.uiStateFlow.value.showMoreActionsSheet)
+
+        runtime.dismissAudioEffectSettings()
+        assertTrue(runtime.uiStateFlow.value.showAudioQualitySheet)
         assertEquals(PlayerMoreActionsPage.ROOT, runtime.uiStateFlow.value.moreActionsPage)
+
+        runtime.dismissAudioQualitySettings()
+        assertFalse(runtime.uiStateFlow.value.showAudioQualitySheet)
     }
 
     @Test
@@ -52,6 +63,31 @@ class PlayerRuntimeInteractionTest {
 
         runtime.revertPendingAudioEffectPreset(AudioEffectPreset.OFF)
         assertEquals(AudioEffectPreset.OFF, runtime.uiStateFlow.value.audioEffectPreset)
+    }
+
+    @Test
+    fun updateLocalPreferredAudioQuality_shouldUpdatePreferredQualityWithoutForgingAppliedValue() {
+        val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
+        runtime.showAudioQualitySettings()
+
+        runtime.updateLocalPreferredAudioQuality(PlaybackAudioQuality.HIRES)
+
+        assertEquals(PlaybackAudioQuality.HIRES, runtime.uiStateFlow.value.preferredAudioQuality)
+        assertEquals(null, runtime.uiStateFlow.value.appliedAudioQuality)
+        assertFalse(runtime.uiStateFlow.value.showAudioQualitySheet)
+    }
+
+    @Test
+    fun syncRemoteAudioQualityState_shouldConsumePreferredAndAppliedQuality() {
+        val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
+
+        runtime.syncRemoteAudioQualityState(
+            preferredAudioQuality = PlaybackAudioQuality.HIRES,
+            appliedAudioQuality = PlaybackAudioQuality.LOSSLESS
+        )
+
+        assertEquals(PlaybackAudioQuality.HIRES, runtime.uiStateFlow.value.preferredAudioQuality)
+        assertEquals(PlaybackAudioQuality.LOSSLESS, runtime.uiStateFlow.value.appliedAudioQuality)
     }
 
     @Test
@@ -75,6 +111,7 @@ class PlayerRuntimeInteractionTest {
         runtime.showAudioEffectSettings()
         runtime.updateLocalAudioEffectPreset(AudioEffectPreset.BRIGHT)
         assertFalse(runtime.uiStateFlow.value.showAudioEffectPage)
+        assertFalse(runtime.uiStateFlow.value.showAudioQualitySheet)
         assertEquals(AudioEffectPreset.BRIGHT, storage.read())
 
         runtime.revertPendingAudioEffectPreset(AudioEffectPreset.WARM)
@@ -393,6 +430,44 @@ class PlayerRuntimeInteractionTest {
         assertEquals(0L, state.displayedSeekMs)
     }
 
+    @Test
+    fun importedQueue_shouldPreserveContextAcrossPersistenceRestoreAndRemoval() {
+        val appContext = RuntimeEnvironment.getApplication()
+        appContext.getSharedPreferences("playlist_state", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        val initialRuntime = PlayerRuntime(appContext = appContext)
+        val queue = listOf(
+            importedItem(index = 0, songId = "song-1", title = "晴天"),
+            importedItem(index = 1, songId = "song-2", title = "七里香")
+        )
+
+        initialRuntime.applyExternalQueueSelection(
+            items = queue,
+            activeIndex = 1
+        )
+        initialRuntime.onHostStop()
+
+        val restoredRuntime = PlayerRuntime(appContext = appContext)
+        val restoredQueue = restoredRuntime.playbackQueueItemsInOriginalOrder()
+
+        assertEquals(2, restoredQueue.size)
+        assertEquals(listOf("晴天", "七里香"), restoredQueue.map { it.displayName })
+        assertEquals("七里香", restoredRuntime.uiStateFlow.value.currentTrackTitle)
+        assertEquals("imported_playlist", restoredQueue[0].contextType)
+        assertEquals("import:qq_music:4204621746", restoredQueue[0].contextId)
+        assertEquals("泰式浪漫：你想要的甜蜜幻想", restoredQueue[0].contextTitle)
+
+        restoredRuntime.removePlaylistItem(0)
+
+        val remaining = restoredRuntime.playbackQueueItemsInOriginalOrder()
+        assertEquals(1, remaining.size)
+        assertEquals("七里香", remaining.single().displayName)
+        assertEquals("import:qq_music:4204621746", remaining.single().contextId)
+        assertEquals("七里香", restoredRuntime.uiStateFlow.value.currentTrackTitle)
+    }
+
     private fun onlineItem(
         contextId: String,
         index: Int,
@@ -413,6 +488,28 @@ class PlayerRuntimeInteractionTest {
             contextType = "artist",
             contextId = contextId,
             contextTitle = "周杰伦"
+        )
+    }
+
+    private fun importedItem(
+        index: Int,
+        songId: String,
+        title: String
+    ): PlaylistItem {
+        return PlaylistItem(
+            id = "import:qq_music:4204621746:$index:$songId",
+            displayName = title,
+            songId = songId,
+            title = title,
+            artistText = "周杰伦",
+            primaryArtistId = "artist-6452",
+            albumTitle = "测试专辑",
+            coverUrl = "http://example.com/$songId.jpg",
+            durationMs = 200_000L,
+            itemType = PlaylistItemType.ONLINE,
+            contextType = "imported_playlist",
+            contextId = "import:qq_music:4204621746",
+            contextTitle = "泰式浪漫：你想要的甜蜜幻想"
         )
     }
 

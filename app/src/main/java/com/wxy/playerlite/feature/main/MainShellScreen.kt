@@ -16,12 +16,10 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.MarqueeSpacing
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -55,7 +53,6 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.DownloadForOffline
@@ -67,11 +64,10 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MoreHoriz
-import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -84,7 +80,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,20 +87,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTheme
 import com.wxy.playerlite.feature.player.model.PlayerUiState
-import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
-import com.wxy.playerlite.feature.player.resolvePlayerDisplayContentProjection
+import com.wxy.playerlite.feature.player.ui.SharedMiniPlayerBar
+import com.wxy.playerlite.feature.player.ui.SharedMiniPlayerBarTestTags
+import com.wxy.playerlite.feature.player.ui.SharedMiniPlayerOpenPlayerClickTarget
+import com.wxy.playerlite.feature.player.ui.resolveSharedMiniPlayerBarState
 import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
 import com.wxy.playerlite.feature.search.SearchRouteTarget
 import com.wxy.playerlite.feature.user.AccountCardSurface
@@ -114,12 +109,8 @@ import com.wxy.playerlite.feature.user.AccountVisualStyle
 import com.wxy.playerlite.feature.user.model.UserSessionUiState
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlin.math.abs
-import kotlin.math.max
 
 private val UserCenterCompactHorizontalPadding = 12.dp
-private const val HomeMiniPlayerSwipeThresholdFraction = 0.3f
-private const val HomeMiniPlayerSwipeVisualLimitFraction = 0.42f
 
 @Composable
 internal fun MainBottomBar(
@@ -1050,320 +1041,24 @@ private fun HomePlayEntryCard(
     onSkipNext: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val miniPlayerState = resolveHomeMiniPlayerState(playerState)
-    val swipeOffsetPx = remember { androidx.compose.animation.core.Animatable(0f) }
-    val coroutineScope = rememberCoroutineScope()
-    val canSkipPrevious = playerState.canSkipPrevious
-    val canSkipNext = playerState.canSkipNext
-    val miniPlayerShape = RoundedCornerShape(HomeChromeLayoutSpec.miniPlayerCornerRadius)
-    Surface(
-        modifier = modifier
-            .fillMaxWidth(HomeChromeLayoutSpec.miniPlayerWidthFraction)
-            .widthIn(max = HomeChromeLayoutSpec.miniPlayerMaxWidth)
-            .heightIn(min = HomeChromeLayoutSpec.miniPlayerMinHeight)
-            .testTag("home_play_entry_card"),
-        shape = miniPlayerShape,
-        color = Color.White.copy(alpha = 0.995f),
-        tonalElevation = 0.dp,
-        shadowElevation = HomeChromeLayoutSpec.miniPlayerShadowElevation,
-        border = BorderStroke(
-            width = 1.dp,
-            color = HomeDividerColor.copy(alpha = 0.42f)
-        )
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = HomeChromeLayoutSpec.miniPlayerMinHeight)
-                .clip(miniPlayerShape),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(
-                        horizontal = HomeChromeLayoutSpec.miniPlayerProgressTrackHorizontalPadding,
-                        vertical = HomeChromeLayoutSpec.miniPlayerProgressTrackVerticalPadding
-                    )
-                    .height(HomeChromeLayoutSpec.miniPlayerProgressTrackHeight)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(
-                        HomeProgressTrackColor.copy(
-                            alpha = HomeChromeLayoutSpec.miniPlayerProgressTrackAlpha
-                        )
-                    )
-                    .testTag("home_mini_player_progress_line")
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(miniPlayerState.progress.coerceIn(0f, 1f))
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(HomeProgressFillColor)
-                        .testTag("home_mini_player_progress_fill")
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = HomeChromeLayoutSpec.miniPlayerMinHeight)
-                    .testTag("home_mini_player_bar"),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(HomeChromeLayoutSpec.miniPlayerBodyCornerRadius))
-                        .clickable(onClick = onOpenPlayer)
-                        .testTag("home_mini_player_body"),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Surface(
-                        modifier = Modifier
-                            .size(HomeChromeLayoutSpec.miniPlayerArtworkSize)
-                            .testTag("home_mini_player_artwork"),
-                        shape = RoundedCornerShape(14.dp),
-                        color = HomeTextSecondary.copy(alpha = 0.08f)
-                    ) {
-                        if (!miniPlayerState.artworkUrl.isNullOrBlank()) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .testTag("home_mini_player_artwork_image")
-                            ) {
-                                AsyncImage(
-                                    model = miniPlayerState.artworkUrl,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.verticalGradient(
-                                                colors = listOf(
-                                                    Color.Transparent,
-                                                    Color.Black.copy(alpha = 0.12f)
-                                                )
-                                            )
-                                        )
-                                )
-                            }
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .testTag("home_mini_player_artwork_placeholder"),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.AccountCircle,
-                                    contentDescription = null,
-                                    tint = HomeTextSecondary.copy(alpha = 0.42f),
-                                    modifier = Modifier.size(26.dp)
-                                )
-                            }
-                        }
-                    }
+    val miniPlayerState = resolveSharedMiniPlayerBarState(playerState) ?: return
 
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 2.dp)
-                            .testTag("home_mini_player_song_area")
-                            .graphicsLayer {
-                                translationX = swipeOffsetPx.value
-                            }
-                            .pointerInput(canSkipPrevious, canSkipNext, onSkipPrevious, onSkipNext) {
-                                val visualLimitPx = max(
-                                    size.width * HomeMiniPlayerSwipeVisualLimitFraction,
-                                    72.dp.toPx()
-                                )
-                                val swipeThresholdPx = max(
-                                    size.width * HomeMiniPlayerSwipeThresholdFraction,
-                                    56.dp.toPx()
-                                )
-                                detectHorizontalDragGestures(
-                                    onDragStart = {
-                                        coroutineScope.launch {
-                                            swipeOffsetPx.stop()
-                                        }
-                                    },
-                                    onHorizontalDrag = { change, dragAmount ->
-                                        change.consume()
-                                        val nextOffset = (
-                                            swipeOffsetPx.value + dragAmount
-                                            ).coerceIn(-visualLimitPx, visualLimitPx)
-                                        coroutineScope.launch {
-                                            swipeOffsetPx.snapTo(nextOffset)
-                                        }
-                                    },
-                                    onDragCancel = {
-                                        coroutineScope.launch {
-                                            swipeOffsetPx.animateTo(
-                                                targetValue = 0f,
-                                                animationSpec = spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow
-                                                )
-                                            )
-                                        }
-                                    },
-                                    onDragEnd = {
-                                        val finalOffset = swipeOffsetPx.value
-                                        val triggerOffset = when {
-                                            finalOffset <= -swipeThresholdPx && canSkipNext -> {
-                                                onSkipNext()
-                                                -visualLimitPx * 0.75f
-                                            }
-
-                                            finalOffset >= swipeThresholdPx && canSkipPrevious -> {
-                                                onSkipPrevious()
-                                                visualLimitPx * 0.75f
-                                            }
-
-                                            else -> null
-                                        }
-                                        coroutineScope.launch {
-                                            if (triggerOffset != null &&
-                                                abs(finalOffset - triggerOffset) > 1f
-                                            ) {
-                                                swipeOffsetPx.animateTo(
-                                                    targetValue = triggerOffset,
-                                                    animationSpec = tween(durationMillis = 90)
-                                                )
-                                            }
-                                            swipeOffsetPx.animateTo(
-                                                targetValue = 0f,
-                                                animationSpec = spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow
-                                                )
-                                            )
-                                        }
-                                    }
-                                )
-                            },
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Text(
-                            text = miniPlayerState.contentLine,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Clip,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .basicMarquee(
-                                    iterations = Int.MAX_VALUE,
-                                    repeatDelayMillis = 1_000,
-                                    spacing = MarqueeSpacing(24.dp)
-                                )
-                                .testTag("home_mini_player_title")
-                        )
-                    }
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    HomeMiniPlayerPrimaryButton(
-                        isPlaying = miniPlayerState.isPlaying,
-                        onClick = onTogglePlayback
-                    )
-                    IconButton(
-                        onClick = onOpenPlaylist,
-                        colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = Color.Transparent,
-                            contentColor = HomeTextSecondary
-                        ),
-                        modifier = Modifier
-                            .size(HomeChromeLayoutSpec.miniPlayerPlaylistButtonSize)
-                            .testTag("home_mini_player_playlist_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
-                                contentDescription = "播放列表",
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private data class HomeMiniPlayerState(
-    val contentLine: String,
-    val progress: Float,
-    val isPlaying: Boolean,
-    val artworkUrl: String?
-)
-
-private fun resolveHomeMiniPlayerState(playerState: PlayerUiState): HomeMiniPlayerState {
-    val displayProjection = resolvePlayerDisplayContentProjection(playerState)
-    val progress = if (playerState.durationMs > 0L) {
-        (playerState.displayedSeekMs.toFloat() / playerState.durationMs.toFloat()).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
-
-    return HomeMiniPlayerState(
-        contentLine = displayProjection.miniPlayerContentLine,
-        progress = progress,
-        isPlaying = playerState.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING,
-        artworkUrl = playerState.currentCoverUrl
-            ?.takeIf { it.isNotBlank() }
-            ?: playerState.playlistItems
-                .getOrNull(playerState.activePlaylistIndex)
-                ?.coverUrl
-                ?.takeIf { it.isNotBlank() }
-    )
-}
-
-@Composable
-private fun HomeMiniPlayerPrimaryButton(
-    isPlaying: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
+    SharedMiniPlayerBar(
         modifier = modifier,
-        shape = CircleShape,
-        color = HomeAccentColor,
-        tonalElevation = 0.dp,
-        shadowElevation = 8.dp
-    ) {
-        IconButton(
-            onClick = onClick,
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = Color.Transparent,
-                contentColor = Color.White
-            ),
-            modifier = Modifier
-                .size(HomeChromeLayoutSpec.miniPlayerPrimaryButtonSize)
-                .testTag("home_mini_player_play_pause_button")
-        ) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = if (isPlaying) "暂停" else "播放",
-                modifier = Modifier.size(HomeChromeLayoutSpec.miniPlayerPrimaryIconSize)
-            )
-        }
-    }
+        state = miniPlayerState,
+        testTags = SharedMiniPlayerBarTestTags(
+            cardTag = "home_play_entry_card",
+            prefix = "home_mini_player"
+        ),
+        openPlayerClickTarget = SharedMiniPlayerOpenPlayerClickTarget.Body,
+        canSkipPrevious = playerState.canSkipPrevious,
+        canSkipNext = playerState.canSkipNext,
+        onOpenPlayer = onOpenPlayer,
+        onTogglePlayback = onTogglePlayback,
+        onOpenPlaylist = onOpenPlaylist,
+        onSkipPrevious = onSkipPrevious,
+        onSkipNext = onSkipNext
+    )
 }
 
 private fun HomeSectionUiModel.usesSongRowLayout(): Boolean {
@@ -1420,6 +1115,7 @@ internal fun UserCenterScreen(
     onOpenRecentSongs: () -> Unit = {},
     onOpenLocalSongs: () -> Unit = {},
     onOpenPlaylistImport: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     onLoginClick: () -> Unit,
     onLogoutClick: () -> Unit,
     bottomContentPadding: Dp = HomeChromeLayoutSpec.userCenterScrollBottomPadding,
@@ -1443,6 +1139,7 @@ internal fun UserCenterScreen(
             item {
                 UserCenterProfileHeader(
                     userState = userState,
+                    onOpenSettings = onOpenSettings,
                     modifier = Modifier.padding(bottom = 14.dp)
                 )
             }
@@ -1461,8 +1158,7 @@ internal fun UserCenterScreen(
                 userCenterLoggedInItems(
                     contentState = contentState,
                     onRetryPlaylists = onRetryPlaylists,
-                    onContentClick = onContentClick,
-                    onLogoutClick = onLogoutClick
+                    onContentClick = onContentClick
                 )
             } else {
                 userCenterLoggedOutItems(
@@ -1579,8 +1275,7 @@ private fun UserCenterQuickEntry(
 private fun LazyListScope.userCenterLoggedInItems(
     contentState: UserCenterUiState,
     onRetryPlaylists: () -> Unit,
-    onContentClick: (ContentEntryAction) -> Unit,
-    onLogoutClick: () -> Unit
+    onContentClick: (ContentEntryAction) -> Unit
 ) {
     item {
         UserCenterPlaylistsSectionHeader(
@@ -1670,26 +1365,6 @@ private fun LazyListScope.userCenterLoggedInItems(
                 showTopDivider = index > 0,
                 onClick = { onContentClick(item.action) },
                 modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-
-    item {
-        OutlinedButton(
-            onClick = onLogoutClick,
-            shape = RoundedCornerShape(24.dp),
-            border = BorderStroke(
-                width = 1.dp,
-                color = AccountVisualStyle.accentColor.copy(alpha = 0.32f)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 14.dp)
-                .testTag("user_center_secondary_action")
-        ) {
-            Text(
-                text = "退出登录",
-                color = AccountVisualStyle.accentColor
             )
         }
     }
@@ -1935,6 +1610,7 @@ private fun UserCenterCollectionCard(
 @Composable
 private fun UserCenterProfileHeader(
     userState: UserSessionUiState,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val headerShape = RoundedCornerShape(28.dp)
@@ -1951,93 +1627,109 @@ private fun UserCenterProfileHeader(
             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
         )
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 22.dp, vertical = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 22.dp, vertical = 20.dp)
         ) {
-            val levelBadge = remember(userState.summary) {
-                resolveUserLevelBadge(userState.summary)
-            }
-            Box(
+            IconButton(
                 modifier = Modifier
-                    .size(96.dp)
-                    .testTag("user_center_avatar")
+                    .align(Alignment.TopEnd)
+                    .testTag("user_center_settings_entry"),
+                onClick = onOpenSettings
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    if (!userState.avatarUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = userState.avatarUrl,
-                            contentDescription = "用户头像",
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(CircleShape)
-                                .border(
-                                    width = 4.dp,
-                                    color = Color.White.copy(alpha = 0.94f),
-                                    shape = CircleShape
-                                ),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Surface(
-                            modifier = Modifier.fillMaxSize(),
-                            shape = CircleShape,
-                            color = AccountVisualStyle.accentSoftColor,
-                            tonalElevation = 0.dp,
-                            shadowElevation = 0.dp
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.AccountCircle,
-                                    contentDescription = null,
-                                    tint = AccountVisualStyle.accentColor,
-                                    modifier = Modifier.size(72.dp)
-                                )
+                Icon(
+                    imageVector = Icons.Rounded.Settings,
+                    contentDescription = "设置",
+                    tint = AccountVisualStyle.accentColor
+                )
+            }
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                val levelBadge = remember(userState.summary) {
+                    resolveUserLevelBadge(userState.summary)
+                }
+                Box(
+                    modifier = Modifier
+                        .size(96.dp)
+                        .testTag("user_center_avatar")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (!userState.avatarUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = userState.avatarUrl,
+                                contentDescription = "用户头像",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape)
+                                    .border(
+                                        width = 4.dp,
+                                        color = Color.White.copy(alpha = 0.94f),
+                                        shape = CircleShape
+                                    ),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Surface(
+                                modifier = Modifier.fillMaxSize(),
+                                shape = CircleShape,
+                                color = AccountVisualStyle.accentSoftColor,
+                                tonalElevation = 0.dp,
+                                shadowElevation = 0.dp
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.AccountCircle,
+                                        contentDescription = null,
+                                        tint = AccountVisualStyle.accentColor,
+                                        modifier = Modifier.size(72.dp)
+                                    )
+                                }
                             }
+                        }
+                    }
+
+                    levelBadge?.let { badge ->
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(2.dp),
+                            color = AccountVisualStyle.accentColor,
+                            shape = RoundedCornerShape(999.dp),
+                            tonalElevation = 0.dp,
+                            shadowElevation = 2.dp
+                        ) {
+                            Text(
+                                text = badge,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
                         }
                     }
                 }
 
-                levelBadge?.let { badge ->
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(2.dp),
-                        color = AccountVisualStyle.accentColor,
-                        shape = RoundedCornerShape(999.dp),
-                        tonalElevation = 0.dp,
-                        shadowElevation = 2.dp
-                    ) {
-                        Text(
-                            text = badge,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-                }
+                Text(
+                    text = userState.title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag("user_center_title")
+                )
+
+                Text(
+                    text = userState.summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag("user_center_summary")
+                )
             }
-
-            Text(
-                text = userState.title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.testTag("user_center_title")
-            )
-
-            Text(
-                text = userState.summary,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.testTag("user_center_summary")
-            )
         }
     }
 }
