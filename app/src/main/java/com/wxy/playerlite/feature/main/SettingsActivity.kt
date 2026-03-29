@@ -122,6 +122,9 @@ class SettingsActivity : ComponentActivity() {
                     onClearCache = viewModel::clearManagedCache,
                     onPlaybackCacheLimitChange = viewModel::updatePendingPlaybackCacheLimitMb,
                     onSavePlaybackCacheLimit = viewModel::savePlaybackCacheLimit,
+                    onShowPreferredAudioQualityDialog = viewModel::showPreferredAudioQualityDialog,
+                    onDismissPreferredAudioQualityDialog =
+                        viewModel::dismissPreferredAudioQualityDialog,
                     onPreferredAudioQualityChange = viewModel::updatePreferredAudioQuality,
                     onPendingImportUrlChange = viewModel::updatePendingImportUrl,
                     onImportAudioSourceFromUrl = viewModel::importAudioSourceFromUrl,
@@ -162,6 +165,8 @@ internal fun SettingsScreen(
     onClearCache: () -> Unit,
     onPlaybackCacheLimitChange: (String) -> Unit,
     onSavePlaybackCacheLimit: () -> Unit,
+    onShowPreferredAudioQualityDialog: () -> Unit = {},
+    onDismissPreferredAudioQualityDialog: () -> Unit = {},
     onPreferredAudioQualityChange: (PlaybackAudioQuality) -> Unit,
     onPendingImportUrlChange: (String) -> Unit,
     onImportAudioSourceFromUrl: () -> Unit,
@@ -187,6 +192,64 @@ internal fun SettingsScreen(
             },
             dismissButton = {
                 OutlinedButton(onClick = onDismissLogoutConfirm) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+    if (state.playbackPreferencesState.isPreferredAudioQualityDialogVisible) {
+        AlertDialog(
+            onDismissRequest = onDismissPreferredAudioQualityDialog,
+            title = { Text("选择默认音质") },
+            text = {
+                Surface(
+                    modifier = Modifier.testTag("settings_playback_quality_dialog"),
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp
+                ) {
+                    Column {
+                        supportedSettingsAudioQualities().forEachIndexed { index, quality ->
+                            if (index > 0) {
+                                HorizontalDivider()
+                            }
+                            val isCurrentQuality =
+                                state.playbackPreferencesState.preferredAudioQuality == quality
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag(
+                                        "settings_playback_quality_dialog_option_${quality.wireValue}"
+                                    )
+                                    .clickable(enabled = !isCurrentQuality) {
+                                        onPreferredAudioQualityChange(quality)
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = quality.displayName,
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    text = if (isCurrentQuality) "当前默认" else "点击切换",
+                                    color = if (isCurrentQuality) {
+                                        AccountVisualStyle.accentTextColor
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                OutlinedButton(onClick = onDismissPreferredAudioQualityDialog) {
                     Text("取消")
                 }
             }
@@ -239,7 +302,7 @@ internal fun SettingsScreen(
                         cacheState = state.cacheState,
                         onPlaybackCacheLimitChange = onPlaybackCacheLimitChange,
                         onSavePlaybackCacheLimit = onSavePlaybackCacheLimit,
-                        onPreferredAudioQualityChange = onPreferredAudioQualityChange
+                        onShowPreferredAudioQualityDialog = onShowPreferredAudioQualityDialog
                     )
                 }
                 item {
@@ -327,7 +390,7 @@ private fun SettingsPlaybackPreferencesSection(
     cacheState: SettingsCacheUiState,
     onPlaybackCacheLimitChange: (String) -> Unit,
     onSavePlaybackCacheLimit: () -> Unit,
-    onPreferredAudioQualityChange: (PlaybackAudioQuality) -> Unit
+    onShowPreferredAudioQualityDialog: () -> Unit
 ) {
     AccountCardSurface(
         modifier = Modifier
@@ -339,57 +402,58 @@ private fun SettingsPlaybackPreferencesSection(
             title = "播放偏好",
             subtitle = "默认音质和歌曲缓存上限会即时下发到播放进程"
         )
-        Text(
-            text = "当前默认音质：${playbackState.preferredAudioQuality.displayName}",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.testTag("settings_playback_quality_current_value")
-        )
         Surface(
+            modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp,
             shadowElevation = 0.dp
         ) {
-            Column {
-                supportedSettingsAudioQualities().forEachIndexed { index, quality ->
-                    if (index > 0) {
-                        HorizontalDivider()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_playback_quality_trigger")
+                    .clickable(enabled = !playbackState.isSavingPreferredAudioQuality) {
+                        onShowPreferredAudioQualityDialog()
                     }
-                    val isCurrentQuality = playbackState.preferredAudioQuality == quality
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp)
-                            .then(
-                                if (isCurrentQuality) {
-                                    Modifier
-                                } else {
-                                    Modifier
-                                        .testTag("settings_playback_quality_option_${quality.wireValue}")
-                                        .clickable { onPreferredAudioQualityChange(quality) }
-                                }
-                            ),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = quality.displayName,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        if (isCurrentQuality) {
-                            Text(
-                                text = "当前默认",
-                                color = AccountVisualStyle.accentTextColor,
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.testTag("settings_playback_quality_current")
-                            )
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "默认音质",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "默认只显示当前值，点击后弹窗选择播放音质",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = playbackState.preferredAudioQuality.displayName,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.testTag("settings_playback_quality_current_value")
+                    )
+                    Text(
+                        text = if (playbackState.isSavingPreferredAudioQuality) {
+                            "保存中"
                         } else {
-                            OutlinedButton(onClick = { onPreferredAudioQualityChange(quality) }) {
-                                Text("设为默认")
-                            }
-                        }
-                    }
+                            "点击选择"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AccountVisualStyle.accentTextColor
+                    )
                 }
             }
         }

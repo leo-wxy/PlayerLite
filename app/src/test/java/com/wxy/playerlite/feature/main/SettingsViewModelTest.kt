@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -271,6 +272,52 @@ class SettingsViewModelTest {
             PlaybackAudioQuality.LOSSLESS,
             viewModel.uiStateFlow.value.playbackPreferencesState.preferredAudioQuality
         )
+    }
+
+    @Test
+    fun preferredAudioQualityDialogVisibility_shouldToggleFromViewModelActions() = runTest {
+        val viewModel = SettingsViewModel(
+            application = Application(),
+            userRepository = FakeSettingsUserRepository(initialState = LoginState.LoggedOut),
+            cacheRepository = FakeSettingsCacheRepository(),
+            cacheController = FakeSettingsCacheController(),
+            audioSourceRepository = FakeAudioSourceRepository(),
+            playbackPreferencesRepository = FakeSettingsPlaybackPreferencesRepository(),
+            playbackController = FakeSettingsPlaybackController()
+        )
+        advanceUntilIdle()
+
+        viewModel.showPreferredAudioQualityDialog()
+        advanceUntilIdle()
+        assertTrue(viewModel.uiStateFlow.value.playbackPreferencesState.isPreferredAudioQualityDialogVisible)
+
+        viewModel.dismissPreferredAudioQualityDialog()
+        advanceUntilIdle()
+        assertFalse(viewModel.uiStateFlow.value.playbackPreferencesState.isPreferredAudioQualityDialogVisible)
+    }
+
+    @Test
+    fun updatePreferredAudioQuality_shouldDismissDialogAfterSelection() = runTest {
+        val preferencesRepository = FakeSettingsPlaybackPreferencesRepository()
+        val playbackController = FakeSettingsPlaybackController()
+        val viewModel = SettingsViewModel(
+            application = Application(),
+            userRepository = FakeSettingsUserRepository(initialState = LoginState.LoggedOut),
+            cacheRepository = FakeSettingsCacheRepository(),
+            cacheController = FakeSettingsCacheController(),
+            audioSourceRepository = FakeAudioSourceRepository(),
+            playbackPreferencesRepository = preferencesRepository,
+            playbackController = playbackController
+        )
+        advanceUntilIdle()
+        viewModel.showPreferredAudioQualityDialog()
+        advanceUntilIdle()
+
+        viewModel.updatePreferredAudioQuality(PlaybackAudioQuality.LOSSLESS)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiStateFlow.value.playbackPreferencesState.isPreferredAudioQualityDialogVisible)
+        assertEquals(PlaybackAudioQuality.LOSSLESS, preferencesRepository.preferredAudioQuality)
     }
 
     @Test

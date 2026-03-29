@@ -203,6 +203,7 @@ internal class SettingsViewModel(
                 current.copy(
                     playbackPreferencesState = current.playbackPreferencesState.copy(
                         isSavingPreferredAudioQuality = true,
+                        isPreferredAudioQualityDialogVisible = false,
                         feedbackMessage = null
                     )
                 )
@@ -224,6 +225,27 @@ internal class SettingsViewModel(
                     )
                 )
             }
+        }
+    }
+
+    fun showPreferredAudioQualityDialog() {
+        _uiState.update { current ->
+            current.copy(
+                playbackPreferencesState = current.playbackPreferencesState.copy(
+                    isPreferredAudioQualityDialogVisible = true,
+                    feedbackMessage = null
+                )
+            )
+        }
+    }
+
+    fun dismissPreferredAudioQualityDialog() {
+        _uiState.update { current ->
+            current.copy(
+                playbackPreferencesState = current.playbackPreferencesState.copy(
+                    isPreferredAudioQualityDialogVisible = false
+                )
+            )
         }
     }
 

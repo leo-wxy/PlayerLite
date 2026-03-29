@@ -1,13 +1,20 @@
 package com.wxy.playerlite.feature.main
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -154,6 +161,7 @@ class SettingsScreenRobolectricTest {
         var logoutClicks = 0
         var importUrlClicks = 0
         var importLocalClicks = 0
+        var isPreferredAudioQualityDialogVisible by mutableStateOf(false)
 
         composeRule.setContent {
             PlayerLiteTheme {
@@ -163,6 +171,11 @@ class SettingsScreenRobolectricTest {
                             isLoggedIn = true,
                             title = "Codex",
                             summary = "在线账户"
+                        ),
+                        playbackPreferencesState = SettingsPlaybackPreferencesUiState(
+                            preferredAudioQuality = PlaybackAudioQuality.EXHIGH,
+                            isPreferredAudioQualityDialogVisible =
+                                isPreferredAudioQualityDialogVisible
                         ),
                         cacheState = SettingsCacheUiState(
                             pendingPlaybackCacheLimitMb = "512"
@@ -189,7 +202,15 @@ class SettingsScreenRobolectricTest {
                     onClearCache = {},
                     onPlaybackCacheLimitChange = {},
                     onSavePlaybackCacheLimit = {},
-                    onPreferredAudioQualityChange = {},
+                    onShowPreferredAudioQualityDialog = {
+                        isPreferredAudioQualityDialogVisible = true
+                    },
+                    onDismissPreferredAudioQualityDialog = {
+                        isPreferredAudioQualityDialogVisible = false
+                    },
+                    onPreferredAudioQualityChange = {
+                        isPreferredAudioQualityDialogVisible = false
+                    },
                     onPendingImportUrlChange = {},
                     onImportAudioSourceFromUrl = { importUrlClicks += 1 },
                     onImportAudioSourceFromLocal = { importLocalClicks += 1 },
@@ -201,10 +222,18 @@ class SettingsScreenRobolectricTest {
 
         composeRule.onNodeWithTag("settings_logout_button").performClick()
         composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
-            matcher = hasTestTag("settings_playback_quality_option_lossless")
+            matcher = hasTestTag("settings_playback_quality_trigger")
         )
-        composeRule.onNodeWithTag("settings_playback_quality_option_lossless")
+        composeRule.onNodeWithTag("settings_playback_quality_trigger")
             .assertHasClickAction()
+            .performClick()
+        composeRule.onAllNodesWithTag(
+            testTag = "settings_playback_quality_dialog",
+            useUnmergedTree = true
+        ).assertCountEquals(1)
+        composeRule.runOnIdle {
+            isPreferredAudioQualityDialogVisible = false
+        }
         composeRule.onNodeWithTag("settings_playback_cache_limit_save")
             .assertHasClickAction()
         composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
@@ -225,5 +254,95 @@ class SettingsScreenRobolectricTest {
             assertEquals(1, importUrlClicks)
             assertEquals(1, importLocalClicks)
         }
+    }
+
+    @Test
+    fun preferredAudioQuality_shouldOnlyShowCurrentValueUntilDialogOpens() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                SettingsScreen(
+                    state = SettingsUiState(
+                        playbackPreferencesState = SettingsPlaybackPreferencesUiState(
+                            preferredAudioQuality = PlaybackAudioQuality.HIRES
+                        )
+                    ),
+                    onBack = {},
+                    onLoginClick = {},
+                    onShowLogoutConfirm = {},
+                    onDismissLogoutConfirm = {},
+                    onConfirmLogout = {},
+                    onRefreshCache = {},
+                    onClearCache = {},
+                    onPlaybackCacheLimitChange = {},
+                    onSavePlaybackCacheLimit = {},
+                    onShowPreferredAudioQualityDialog = {},
+                    onDismissPreferredAudioQualityDialog = {},
+                    onPreferredAudioQualityChange = {},
+                    onPendingImportUrlChange = {},
+                    onImportAudioSourceFromUrl = {},
+                    onImportAudioSourceFromLocal = {},
+                    onSetActiveAudioSource = {},
+                    onRemoveAudioSource = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
+            matcher = hasTestTag("settings_playback_quality_trigger")
+        )
+        composeRule.onNodeWithTag(
+            testTag = "settings_playback_quality_current_value",
+            useUnmergedTree = true
+        )
+            .assertTextContains("Hi-Res")
+        composeRule.onNodeWithTag("settings_playback_quality_trigger")
+            .assertIsDisplayed()
+            .assertHasClickAction()
+        composeRule.onAllNodesWithTag("settings_playback_quality_dialog").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("settings_playback_quality_option_lossless").assertCountEquals(0)
+    }
+
+    @Test
+    fun preferredAudioQualityDialog_shouldRenderOptionsOnlyWhenVisible() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                SettingsScreen(
+                    state = SettingsUiState(
+                        playbackPreferencesState = SettingsPlaybackPreferencesUiState(
+                            preferredAudioQuality = PlaybackAudioQuality.EXHIGH,
+                            isPreferredAudioQualityDialogVisible = true
+                        )
+                    ),
+                    onBack = {},
+                    onLoginClick = {},
+                    onShowLogoutConfirm = {},
+                    onDismissLogoutConfirm = {},
+                    onConfirmLogout = {},
+                    onRefreshCache = {},
+                    onClearCache = {},
+                    onPlaybackCacheLimitChange = {},
+                    onSavePlaybackCacheLimit = {},
+                    onShowPreferredAudioQualityDialog = {},
+                    onDismissPreferredAudioQualityDialog = {},
+                    onPreferredAudioQualityChange = {},
+                    onPendingImportUrlChange = {},
+                    onImportAudioSourceFromUrl = {},
+                    onImportAudioSourceFromLocal = {},
+                    onSetActiveAudioSource = {},
+                    onRemoveAudioSource = {}
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithTag(
+            testTag = "settings_playback_quality_dialog",
+            useUnmergedTree = true
+        ).assertCountEquals(1)
+        composeRule.onNodeWithTag(
+            testTag = "settings_playback_quality_dialog_option_lossless",
+            useUnmergedTree = true
+        )
+            .assertHasClickAction()
+        composeRule.onAllNodesWithText("当前默认").assertCountEquals(1)
     }
 }

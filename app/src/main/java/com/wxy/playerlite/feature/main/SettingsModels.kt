@@ -144,6 +144,7 @@ internal data class SettingsCacheUiState(
 internal data class SettingsPlaybackPreferencesUiState(
     val preferredAudioQuality: PlaybackAudioQuality = PlaybackAudioQuality.EXHIGH,
     val isSavingPreferredAudioQuality: Boolean = false,
+    val isPreferredAudioQualityDialogVisible: Boolean = false,
     val feedbackMessage: String? = null
 )
 
