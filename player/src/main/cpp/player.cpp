@@ -1097,6 +1097,20 @@ private:
             return false;
         }
 
+        int64_t preserved_progress_ms = last_notified_progress_ms_;
+        uint64_t playback_head_frames = 0;
+        std::string ignored_error;
+        if (ReadPlaybackHeadFrames(&playback_head_frames, &ignored_error)) {
+            preserved_progress_ms = std::max(
+                    preserved_progress_ms,
+                    ComputeSourceProgressMs(
+                            playback_head_frames,
+                            applied_playback_speed_tenths_));
+        }
+        if (preserved_progress_ms < 0) {
+            preserved_progress_ms = 0;
+        }
+
         OutputCandidate candidate;
         candidate.sample_rate = output_sample_rate_ > 0 ? output_sample_rate_ : kFallbackSampleRate;
         candidate.channels = output_channel_count_ > 0 ? output_channel_count_ : 2;
@@ -1112,6 +1126,8 @@ private:
 
         std::string recover_error;
         if (TryStartAudioTrack(candidate, &recover_error)) {
+            seek_base_ms_ = preserved_progress_ms;
+            seek_anchor_head_frames_ = 0;
             has_write_head_probe_ = false;
             stagnant_write_cycles_ = 0;
             return true;

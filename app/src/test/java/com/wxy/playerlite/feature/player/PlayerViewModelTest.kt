@@ -11,6 +11,8 @@ import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
+import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
+import com.wxy.playerlite.feature.player.model.resolvePlayerOrientationToggleTarget
 import com.wxy.playerlite.feature.player.runtime.AudioEffectPresetStorage
 import com.wxy.playerlite.feature.player.runtime.PlayerRuntime
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
@@ -216,6 +218,68 @@ class PlayerViewModelTest {
             clearViewModel(viewModel)
             runCurrent()
         }
+    }
+
+    @Test
+    fun setPlayerOrientationMode_shouldUpdateUiState() = runTest {
+        val runtime = PlayerRuntime(application)
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            songWikiRepository = FakeSongWikiRepository(),
+            serviceBridge = FakePlayerControlBridge(currentSnapshot = null),
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 60_000L,
+            uiProgressIntervalMs = 60_000L
+        )
+        try {
+            runCurrent()
+
+            assertEquals(PlayerOrientationMode.AUTO, viewModel.uiStateFlow.value.orientationMode)
+
+            viewModel.setPlayerOrientationMode(PlayerOrientationMode.LANDSCAPE_LOCKED)
+
+            assertEquals(
+                PlayerOrientationMode.LANDSCAPE_LOCKED,
+                viewModel.uiStateFlow.value.orientationMode
+            )
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun resolveOrientationToggleTarget_shouldJumpDirectlyToOppositeVisibleOrientation() {
+        assertEquals(
+            PlayerOrientationMode.PORTRAIT_LOCKED,
+            resolvePlayerOrientationToggleTarget(
+                currentMode = PlayerOrientationMode.AUTO,
+                isCurrentlyLandscape = true
+            )
+        )
+        assertEquals(
+            PlayerOrientationMode.LANDSCAPE_LOCKED,
+            resolvePlayerOrientationToggleTarget(
+                currentMode = PlayerOrientationMode.AUTO,
+                isCurrentlyLandscape = false
+            )
+        )
+        assertEquals(
+            PlayerOrientationMode.PORTRAIT_LOCKED,
+            resolvePlayerOrientationToggleTarget(
+                currentMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
+                isCurrentlyLandscape = true
+            )
+        )
+        assertEquals(
+            PlayerOrientationMode.LANDSCAPE_LOCKED,
+            resolvePlayerOrientationToggleTarget(
+                currentMode = PlayerOrientationMode.PORTRAIT_LOCKED,
+                isCurrentlyLandscape = false
+            )
+        )
     }
 
     @Test

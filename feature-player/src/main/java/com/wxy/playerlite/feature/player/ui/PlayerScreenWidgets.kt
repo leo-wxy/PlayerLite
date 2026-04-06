@@ -291,6 +291,9 @@ internal fun PlayerCoverCard(
     isPaused: Boolean,
     coverUrl: String? = null,
     onBackdropColorExtracted: (Color) -> Unit = {},
+    rootTag: String? = "player_screen_cover_card",
+    artTag: String? = "player_screen_cover_art",
+    overlayTag: String? = "player_screen_cover_art_scrim",
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -331,7 +334,13 @@ internal fun PlayerCoverCard(
 
     Box(
         modifier = modifier
-            .testTag("player_screen_cover_card")
+            .then(
+                if (rootTag == null) {
+                    Modifier
+                } else {
+                    Modifier.testTag(rootTag)
+                }
+            )
             .graphicsLayer {
                 scaleX = coverTransform.scale
                 scaleY = coverTransform.scale
@@ -347,22 +356,31 @@ internal fun PlayerCoverCard(
                 contentDescription = "当前歌曲封面",
                 modifier = Modifier
                     .fillMaxSize()
-                    .testTag("player_screen_cover_art"),
+                    .then(
+                        if (artTag == null) {
+                            Modifier
+                        } else {
+                            Modifier.testTag(artTag)
+                        }
+                    ),
                 contentScale = ContentScale.Crop
             )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color(0x18000000),
-                                Color(0x52000000)
+            if (overlayTag != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag(overlayTag)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color(0x18000000),
+                                    Color(0x52000000)
+                                )
                             )
                         )
-                    )
-            )
+                )
+            }
         } else {
             Box(
                 modifier = Modifier

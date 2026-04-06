@@ -2,6 +2,7 @@ package com.wxy.playerlite.feature.player
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -17,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wxy.playerlite.resolveCurrentPlayerArtistId
 import com.wxy.playerlite.feature.artist.ArtistDetailActivity
+import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
 import com.wxy.playerlite.feature.player.ui.PlayerScreenCallbacks
 import com.wxy.playerlite.feature.player.ui.PlayerScreen
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
@@ -87,6 +89,9 @@ class PlayerActivity : ComponentActivity() {
                     launchRequestHandled = false
                 }
             }
+            LaunchedEffect(state.orientationMode) {
+                requestedOrientation = resolvePlayerRequestedOrientation(state.orientationMode)
+            }
             PlayerLiteTheme {
                 val screenCallbacks = PlayerScreenCallbacks(
                     onPickAudio = {
@@ -99,6 +104,7 @@ class PlayerActivity : ComponentActivity() {
                     onRetrySongWiki = viewModel::onRetrySongWiki,
                     onRetryLyrics = viewModel::onRetryLyrics,
                     onSelectTopTab = viewModel::onSelectTopTab,
+                    onCycleOrientationMode = viewModel::setPlayerOrientationMode,
                     onSelectPlaylistItem = viewModel::selectPlaylistItem,
                     onClearPlaylist = viewModel::clearPlaylist,
                     onRemovePlaylistItem = viewModel::removePlaylistItem,
@@ -199,5 +205,15 @@ class PlayerActivity : ComponentActivity() {
         fun shouldStartPlaybackFromIntent(intent: Intent?): Boolean {
             return PlayerEntry.shouldStartPlaybackFromIntent(intent)
         }
+    }
+}
+
+internal fun resolvePlayerRequestedOrientation(
+    orientationMode: PlayerOrientationMode
+): Int {
+    return when (orientationMode) {
+        PlayerOrientationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        PlayerOrientationMode.LANDSCAPE_LOCKED -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        PlayerOrientationMode.PORTRAIT_LOCKED -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
     }
 }

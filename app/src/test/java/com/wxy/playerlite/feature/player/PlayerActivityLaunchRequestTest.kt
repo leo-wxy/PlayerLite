@@ -1,6 +1,8 @@
 package com.wxy.playerlite.feature.player
 
 import android.content.Context
+import android.content.pm.ActivityInfo
+import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -66,5 +68,21 @@ class PlayerActivityLaunchRequestTest {
         )
 
         assertEquals(PlaylistSheetLaunchAction.NONE, action)
+    }
+
+    @Test
+    fun resolvePlayerRequestedOrientation_shouldMapEveryOrientationMode() {
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
+            resolvePlayerRequestedOrientation(PlayerOrientationMode.AUTO)
+        )
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+            resolvePlayerRequestedOrientation(PlayerOrientationMode.LANDSCAPE_LOCKED)
+        )
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT,
+            resolvePlayerRequestedOrientation(PlayerOrientationMode.PORTRAIT_LOCKED)
+        )
     }
 }

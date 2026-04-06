@@ -9,6 +9,7 @@ import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
+import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.emptyAudioMeta
@@ -187,6 +188,13 @@ internal class PlayerRuntime(
 
     fun selectTopTab(topTab: PlayerTopTab) {
         uiState = uiState.copy(selectedTopTab = topTab)
+    }
+
+    fun setOrientationMode(orientationMode: PlayerOrientationMode) {
+        if (uiState.orientationMode == orientationMode) {
+            return
+        }
+        uiState = uiState.copy(orientationMode = orientationMode)
     }
 
     override fun updateLocalPlaybackMode(playbackMode: PlaybackMode) {

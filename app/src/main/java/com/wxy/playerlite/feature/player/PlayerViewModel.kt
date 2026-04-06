@@ -17,6 +17,7 @@ import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.PlayerUiState
+import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
 import com.wxy.playerlite.feature.user.model.UserSessionUiState
 import com.wxy.playerlite.feature.user.model.toUserSessionUiState
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
@@ -240,6 +241,10 @@ internal class PlayerViewModel(
 
     fun onSelectTopTab(topTab: PlayerTopTab) {
         runtime.selectTopTab(topTab)
+    }
+
+    fun setPlayerOrientationMode(orientationMode: PlayerOrientationMode) {
+        runtime.setOrientationMode(orientationMode)
     }
 
     fun onPlayerSurfaceVisibilityChanged(isVisible: Boolean) {

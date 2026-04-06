@@ -1,5 +1,6 @@
 package com.wxy.playerlite.playback.process
 
+import android.content.Context
 import com.wxy.playerlite.player.AudioMeta
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.AudioEffectPreset
@@ -11,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.Assert.assertNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,6 +20,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import sun.misc.Unsafe
 
@@ -88,14 +91,56 @@ class PlaybackProcessRuntimeSeekTest {
         assertEquals(30_000L, updated.positionMs)
     }
 
-    private fun setField(target: Any, name: String, value: Any) {
+    @Test
+    fun progressListener_whenPlayingAndProgressRegressesFarBehind_shouldIgnoreStaleUpdate() {
+        val fakePlayer = FakeSeekNativePlayer()
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        val runtime = PlaybackProcessRuntime(
+            appContext = appContext,
+            serviceScope = serviceScope,
+            nativePlayerFactory = { fakePlayer }
+        )
+        val state = MutableStateFlow(
+            PlaybackProcessState(
+                playWhenReady = true,
+                playbackState = PLAYBACK_STATE_PLAYING,
+                isPreparing = false,
+                isSeekSupported = true,
+                positionMs = 14_610L,
+                durationMs = 240_000L
+            )
+        )
+
+        setField(runtime, "_state", state)
+        setField(runtime, "pendingSeekPositionMs", null)
+
+        fakePlayer.dispatchProgress(2_845L)
+
+        val updated = state.value
+        assertEquals(14_610L, updated.positionMs)
+        assertEquals(PLAYBACK_STATE_PLAYING, updated.playbackState)
+        assertFalse(updated.isPreparing)
+        assertNull(readField(runtime, "pendingSeekPositionMs"))
+    }
+
+    private fun setField(target: Any, name: String, value: Any?) {
         val field = target.javaClass.getDeclaredField(name)
         field.isAccessible = true
         field.set(target, value)
     }
 
+    private fun readField(target: Any, name: String): Any? {
+        val field = target.javaClass.getDeclaredField(name)
+        field.isAccessible = true
+        return field.get(target)
+    }
+
     private class FakeSeekNativePlayer : INativePlayer {
-        override fun setProgressListener(listener: ((Long) -> Unit)?) = Unit
+        private var progressListener: ((Long) -> Unit)? = null
+
+        override fun setProgressListener(listener: ((Long) -> Unit)?) {
+            progressListener = listener
+        }
 
         override fun setPlaybackOutputInfoListener(listener: ((PlaybackOutputInfo) -> Unit)?) = Unit
 
@@ -140,6 +185,10 @@ class PlaybackProcessRuntimeSeekTest {
         override fun close() = Unit
 
         override fun lastError(): String = "ok"
+
+        fun dispatchProgress(positionMs: Long) {
+            progressListener?.invoke(positionMs)
+        }
     }
 
     private companion object {

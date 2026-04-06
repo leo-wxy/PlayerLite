@@ -40,6 +40,7 @@ import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
+import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
 import com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.demoSongWikiSummary
@@ -243,6 +244,838 @@ class PlayerScreenRobolectricTest {
         assertEquals(longTitle, titleNode.config.getOrElse(SemanticsProperties.Text) { emptyList() }.single().text)
         assertTrue(titleNode.config.getOrElse(PlayerTitleMarqueeEnabledKey) { false })
         assertTrue(titleNode.config.getOrElse(PlayerTitleSingleLineKey) { false })
+    }
+
+    @Test
+    fun landscapeViewport_shouldUseDedicatedLandscapeLayoutAndExposeOrientationButton() {
+        var orientationToggleCount = 0
+        var requestedOrientationMode: PlayerOrientationMode? = null
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 960.dp, height = 540.dp)) {
+                    PlayerScreen(
+                        fileName = "那天雨停了",
+                        artistText = "田馥甄",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 2_500L,
+                        currentDurationText = "00:02",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {},
+                        onCycleOrientationMode = { targetMode ->
+                            orientationToggleCount += 1
+                            requestedOrientationMode = targetMode
+                        }
+                    )
+                }
+            }
+        }
+
+        composeRule.onAllNodesWithTag("player_screen_landscape_root").assertCountEquals(1)
+        composeRule.onNodeWithTag("player_screen_landscape_visual_panel").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_landscape_controls_panel").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("player_screen_top_bar").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_top_tabs").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_landscape_visual_reflection").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("player_screen_landscape_controls_reflection").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_landscape_cover_backdrop").assertCountEquals(0)
+        composeRule.onNodeWithTag("player_screen_landscape_overlay_actions").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_orientation_mode_button").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("player_screen_bottom_section").assertCountEquals(0)
+
+        composeRule.onNodeWithTag("player_screen_orientation_mode_button").performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, orientationToggleCount)
+            assertEquals(PlayerOrientationMode.PORTRAIT_LOCKED, requestedOrientationMode)
+        }
+    }
+
+    @Test
+    fun landscapeViewport_shouldKeepSelectedLyricsTabAndActionsReachable() {
+        var selectedTopTab by mutableStateOf(PlayerTopTab.LYRICS)
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 960.dp, height = 540.dp)) {
+                    PlayerScreen(
+                        fileName = "那天雨停了",
+                        artistText = "田馥甄",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        selectedTopTab = selectedTopTab,
+                        orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onSelectTopTab = { selectedTopTab = it },
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        composeRule.onAllNodesWithTag("player_screen_landscape_root").assertCountEquals(1)
+        composeRule.onNodeWithTag("player_screen_lyrics_page").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_orientation_mode_button").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("player_screen_top_tabs").assertCountEquals(0)
+    }
+
+    @Test
+    fun portraitLock_shouldKeepPortraitSongLayoutEvenOnWideViewport() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 320.dp, height = 180.dp)) {
+                    PlayerScreen(
+                        fileName = "那天雨停了",
+                        artistText = "田馥甄",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        orientationMode = PlayerOrientationMode.PORTRAIT_LOCKED,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        composeRule.onAllNodesWithTag("player_screen_landscape_root").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_landscape_visual_reflection").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_landscape_controls_reflection").assertCountEquals(0)
+        composeRule.onNodeWithTag("player_screen_song_page").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_bottom_section").assertIsDisplayed()
+    }
+
+    @Test
+    fun landscapeViewport_shouldRenderSubtleVisualReflectionOnly() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 960.dp, height = 540.dp)) {
+                    PlayerScreen(
+                        fileName = "那天雨停了",
+                        artistText = "田馥甄",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        composeRule.onAllNodesWithTag("player_screen_landscape_visual_reflection").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("player_screen_landscape_visual_projection").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_landscape_controls_reflection").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_cover_art_scrim").assertCountEquals(1)
+    }
+
+    @Test
+    fun landscapeViewport_shouldRenderSubtleVisualReflectionFootprint() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 960.dp, height = 540.dp)) {
+                    PlayerScreen(
+                        fileName = "那天雨停了",
+                        artistText = "田馥甄",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        val coverFrameBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_cover_frame")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val reflectionBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_visual_reflection")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        composeRule.onNodeWithTag("player_screen_landscape_cover_frame").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("player_screen_landscape_visual_reflection").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("player_screen_landscape_visual_projection").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_landscape_controls_reflection").assertCountEquals(0)
+        assertTrue(
+            "Expected the landscape visual reflection to stay aligned with the cover bottom edge, but got cover=$coverFrameBounds reflection=$reflectionBounds",
+            kotlin.math.abs(reflectionBounds.center.x - coverFrameBounds.center.x) <= 2f
+        )
+        assertTrue(
+            "Expected the landscape visual reflection to begin immediately below the cover frame, but got cover=$coverFrameBounds reflection=$reflectionBounds",
+            reflectionBounds.top >= coverFrameBounds.bottom - 2f &&
+                reflectionBounds.top <= coverFrameBounds.bottom + 6f
+        )
+        assertTrue(
+            "Expected the landscape visual reflection to stay short relative to the cover frame, but got cover=$coverFrameBounds reflection=$reflectionBounds",
+            reflectionBounds.height <= coverFrameBounds.height * 0.28f
+        )
+    }
+
+    @Test
+    fun landscapeViewport_shouldRenderPosterInspiredHeroAndStageLayers() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 960.dp, height = 540.dp)) {
+                    PlayerScreen(
+                        fileName = "那天雨停了",
+                        artistText = "田馥甄",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("player_screen_info_section").assertExists()
+        composeRule.onAllNodesWithTag("player_screen_landscape_stage_glow").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_landscape_stage_outline_front").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_landscape_stage_outline_back").assertCountEquals(0)
+        val visualSectionBounds = composeRule
+            .onNodeWithTag("player_screen_visual_section")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val visualPanelBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_visual_panel")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val controlsPanelBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_controls_panel")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val coverFrameBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_cover_frame")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val reflectionBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_visual_reflection")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val coverCardBounds = composeRule
+            .onNodeWithTag("player_screen_cover_card")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        assertTrue(
+            "Expected right-side visual panel to remain substantial after shrinking the cover composition, but got visual=$visualPanelBounds controls=$controlsPanelBounds",
+            visualPanelBounds.width >= controlsPanelBounds.width * 0.82f
+        )
+        assertTrue(
+            "Expected landscape cover frame to keep a strong presence without filling the entire stage, but got cover=$coverFrameBounds visual=$visualSectionBounds",
+            coverFrameBounds.width >= visualSectionBounds.width * 0.82f
+        )
+        assertTrue(
+            "Expected cover frame to occupy most of the right-side panel while keeping more breathing room, but got cover=$coverFrameBounds panel=$visualPanelBounds",
+            coverFrameBounds.width >= visualPanelBounds.width * 0.82f
+        )
+        assertTrue(
+            "Expected landscape cover frame to stay close to a square while keeping the border, but got cover=$coverFrameBounds",
+            kotlin.math.abs(coverFrameBounds.width - coverFrameBounds.height) <= visualSectionBounds.width * 0.06f
+        )
+        assertTrue(
+            "Expected cover frame to stay horizontally centered in the remaining right-side space, but got cover=$coverFrameBounds panel=$visualPanelBounds",
+            kotlin.math.abs(coverFrameBounds.center.x - visualPanelBounds.center.x) <= visualPanelBounds.width * 0.01f
+        )
+        assertTrue(
+            "Expected the landscape cover frame itself to stay vertically centered in the right-side space, but got cover=$coverFrameBounds reflection=$reflectionBounds panel=$visualPanelBounds",
+            kotlin.math.abs(coverFrameBounds.center.y - visualPanelBounds.center.y) <=
+                visualPanelBounds.height * 0.035f
+        )
+        assertTrue(
+            "Expected cover art to nearly fill the right-side host after removing the frame, but got cover=$coverCardBounds host=$coverFrameBounds",
+            coverCardBounds.width >= coverFrameBounds.width * 0.985f
+        )
+        assertTrue(
+            "Expected the reflection to stay directly below the landscape cover frame, but got cover=$coverFrameBounds reflection=$reflectionBounds",
+            reflectionBounds.top >= coverFrameBounds.bottom - 2f &&
+                reflectionBounds.top <= coverFrameBounds.bottom + 6f
+        )
+        composeRule.onAllNodesWithTag("player_screen_landscape_cover_backdrop").assertCountEquals(0)
+    }
+
+    @Test
+    fun landscapeViewport_shouldHidePlaceholderLyricSummary() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 960.dp, height = 540.dp)) {
+                    PlayerScreen(
+                        fileName = "那天雨停了",
+                        artistText = "田馥甄",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        lyricUiState = PlayerLyricUiState.Placeholder,
+                        orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("player_screen_info_section").assertExists()
+        composeRule.onAllNodesWithTag("player_screen_lyric_placeholder").assertCountEquals(0)
+    }
+
+    @Test
+    fun landscapeViewport_shouldShowActualLyricSummary() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 960.dp, height = 540.dp)) {
+                    PlayerScreen(
+                        fileName = "夜曲",
+                        artistText = "周杰伦",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        lyricUiState = demoLyricUiState(),
+                        orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onRetryLyrics = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("player_screen_info_section").assertExists()
+        composeRule.onNodeWithTag("player_screen_lyric_summary").assertIsDisplayed()
+    }
+
+    @Test
+    fun landscapeViewport_shouldHidePassiveStatusChip() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 960.dp, height = 540.dp)) {
+                    PlayerScreen(
+                        fileName = "那天雨停了",
+                        artistText = "田馥甄",
+                        status = "Idle",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        composeRule.onAllNodesWithTag("player_screen_status_chip").assertCountEquals(0)
+    }
+
+    @Test
+    fun landscapeViewport_shouldKeepInfoBelowStatusAreaAndDockPlaybackControls() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 960.dp, height = 540.dp)) {
+                    PlayerScreen(
+                        fileName = "那天雨停了",
+                        artistText = "田馥甄",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        val overlayBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_overlay_actions")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val controlsPanelBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_controls_panel")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val infoGroupBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_info_group")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val bottomGroupBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_bottom_group")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val progressBandBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_progress_band")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val progressBounds = composeRule
+            .onNodeWithTag("player_screen_progress_section")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val controlsBounds = composeRule
+            .onNodeWithTag("player_screen_controls_section")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val controlsAnchorBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_controls_anchor")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val visualAnchorBounds = composeRule
+            .onNodeWithTag("player_screen_landscape_visual_anchor")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        composeRule.onNodeWithTag("player_screen_artist").assertExists()
+        assertTrue(infoGroupBounds.top >= overlayBounds.bottom + 16f)
+        assertTrue(infoGroupBounds.center.y <= controlsPanelBounds.top + (controlsPanelBounds.height * 0.30f))
+        assertTrue(progressBandBounds.top >= infoGroupBounds.bottom + 24f)
+        assertTrue(
+            "Expected the progress band to stay closer to playback controls in landscape, but got progressBand=$progressBandBounds controls=$controlsBounds",
+            progressBandBounds.bottom >= controlsBounds.top - 10f
+        )
+        assertTrue(
+            "Expected compact landscape playback controls to stay visually tight, but got controls=$controlsBounds",
+            controlsBounds.height <= 72f
+        )
+        assertTrue(
+            "Expected playback controls to dock near the landscape visual baseline, but got controls=$controlsBounds visualAnchor=$visualAnchorBounds",
+            controlsBounds.bottom >= visualAnchorBounds.bottom - 12f
+        )
+        assertTrue(
+            "Expected playback controls to sit noticeably lower in the landscape panel, but got controls=$controlsBounds panel=$controlsPanelBounds",
+            controlsBounds.bottom >= controlsPanelBounds.bottom - 18f
+        )
+        assertTrue(
+            "Expected the bottom control group to sit near the bottom edge of the landscape panel, but got bottomGroup=$bottomGroupBounds panel=$controlsPanelBounds",
+            bottomGroupBounds.bottom >= controlsPanelBounds.bottom - 64f
+        )
+        assertTrue(bottomGroupBounds.bottom >= controlsAnchorBounds.bottom - 1f)
+        assertTrue(progressBounds.top >= progressBandBounds.top)
+    }
+
+    @Test
+    fun landscapeViewport_shouldHideSecondaryToolActionsAndInlineStatus() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 960.dp, height = 540.dp)) {
+                    PlayerScreen(
+                        fileName = "那天雨停了",
+                        artistText = "田馥甄",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        composeRule.onAllNodesWithTag("player_screen_song_wiki_tool_button").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_favorite_button").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_more_button").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_combined_status_row").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_playlist_button", useUnmergedTree = true).assertCountEquals(1)
+    }
+
+    @Test
+    fun landscapeViewport_shouldRemoveDecorativeBackdropLayers() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 960.dp, height = 540.dp)) {
+                    PlayerScreen(
+                        fileName = "那天雨停了",
+                        artistText = "田馥甄",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        showSongWikiSheet = false,
+                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
+                        orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onShowSongWiki = {},
+                        onDismissSongWiki = {},
+                        onRetrySongWiki = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        composeRule.onAllNodesWithTag("player_screen_landscape_cover_backdrop").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_landscape_stage_glow").assertCountEquals(0)
     }
 
     @Test
@@ -1332,6 +2165,37 @@ class PlayerScreenRobolectricTest {
 
         composeRule.onNodeWithTag("player_screen_lyrics_list").assert(
             SemanticsMatcher.expectValue(PlayerLyricsFirstVisibleIndexKey, 1)
+        )
+    }
+
+    @Test
+    fun lyricsPage_shouldUseMoreOpenVerticalSpacingBetweenLines() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 360.dp, height = 720.dp)) {
+                    PlayerLyricsPage(
+                        lyricUiState = demoLongLyricUiState(lineCount = 12),
+                        activeLineIndex = 0,
+                        isVisible = true,
+                        onRetryLyrics = {},
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+
+        val firstLineBounds = composeRule
+            .onNodeWithTag("player_screen_lyrics_line_active_0")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val secondLineBounds = composeRule
+            .onNodeWithTag("player_screen_lyrics_line_1")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        assertTrue(
+            "Expected lyrics lines to breathe more vertically, but got first=$firstLineBounds second=$secondLineBounds",
+            secondLineBounds.top - firstLineBounds.top >= 74f
         )
     }
 

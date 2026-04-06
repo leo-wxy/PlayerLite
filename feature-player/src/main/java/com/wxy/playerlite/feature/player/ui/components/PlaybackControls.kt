@@ -56,43 +56,64 @@ data class PlaybackControlsMetrics(
 
 fun resolvePlaybackControlsMetrics(
     viewportWidthDp: Float,
-    viewportHeightDp: Float
+    viewportHeightDp: Float,
+    compactMode: Boolean = false,
+    denseMode: Boolean = false
 ): PlaybackControlsMetrics {
     val shortestSide = minOf(viewportWidthDp, viewportHeightDp)
+    val sideButtonScale = if (denseMode) 0.142f else 0.16f
+    val sideButtonMin = if (denseMode) 42f else 48f
+    val sideButtonMax = if (denseMode) 50f else 58f
+    val sideButtonInnerMin = if (denseMode) 38f else 44f
+    val sideButtonInnerMax = if (denseMode) 46f else 52f
+    val sideIconMin = if (denseMode) 22f else 24f
+    val sideIconMax = if (denseMode) 27f else 30f
+    val centerButtonScale = if (denseMode) 1.14f else 1.19f
+    val centerButtonMin = if (denseMode) 50f else 58f
+    val centerButtonMax = if (denseMode) 58f else 69f
+    val centerHaloPadding = if (denseMode) 8f else 12f
+    val centerHaloMin = if (denseMode) 60f else 72f
+    val centerHaloMax = if (denseMode) 68f else 82f
+    val centerIconMin = if (denseMode) 23f else 26f
+    val centerIconMax = if (denseMode) 28f else 31f
+    val stripMaxHeight = if (denseMode) 72f else 92f
+    val stripHeightFactor = if (denseMode) 0.006f else 0.012f
+    val stripPaddingMin = if (denseMode) 0f else 2f
+    val stripPaddingMax = if (denseMode) 6f else 8f
     val sideButtonSize = clampDp(
-        value = shortestSide * 0.16f,
-        min = 48f,
-        max = 58f
+        value = shortestSide * sideButtonScale,
+        min = sideButtonMin,
+        max = sideButtonMax
     )
     val sideButtonInnerSize = clampDp(
         value = sideButtonSize.value * 0.88f,
-        min = 44f,
-        max = 52f
+        min = sideButtonInnerMin,
+        max = sideButtonInnerMax
     )
     val sideIconSize = clampDp(
         value = sideButtonInnerSize.value * 0.58f,
-        min = 24f,
-        max = 30f
+        min = sideIconMin,
+        max = sideIconMax
     )
     val centerButtonSize = clampDp(
-        value = sideButtonSize.value * 1.19f,
-        min = 58f,
-        max = 69f
+        value = sideButtonSize.value * centerButtonScale,
+        min = centerButtonMin,
+        max = centerButtonMax
     )
     val centerHaloSize = clampDp(
-        value = centerButtonSize.value + 12f,
-        min = 72f,
-        max = 82f
+        value = centerButtonSize.value + centerHaloPadding,
+        min = centerHaloMin,
+        max = centerHaloMax
     )
     val centerIconSize = clampDp(
         value = centerButtonSize.value * 0.44f,
-        min = 26f,
-        max = 31f
+        min = centerIconMin,
+        max = centerIconMax
     )
     val baseStripHeight = clampDp(
-        value = centerHaloSize.value + (viewportHeightDp * 0.012f),
+        value = centerHaloSize.value + (viewportHeightDp * stripHeightFactor),
         min = centerHaloSize.value,
-        max = 92f
+        max = stripMaxHeight
     )
     val controlsOffsetY = clampDp(
         value = viewportHeightDp * 0.003f,
@@ -101,8 +122,8 @@ fun resolvePlaybackControlsMetrics(
     )
     val stripHorizontalPadding = clampDp(
         value = viewportWidthDp * 0.012f,
-        min = 2f,
-        max = 8f
+        min = stripPaddingMin,
+        max = stripPaddingMax
     )
     return PlaybackControlsMetrics(
         stripHeight = if (baseStripHeight < centerHaloSize) centerHaloSize else baseStripHeight,
@@ -135,6 +156,7 @@ internal fun PlaybackControls(
     onPause: () -> Unit,
     onResume: () -> Unit,
     compactMode: Boolean = false,
+    denseMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val toggleEnabled = hasSelection || isPlaying || isPaused || isPreparing
@@ -161,7 +183,9 @@ internal fun PlaybackControls(
     ) {
         val metrics = resolvePlaybackControlsMetrics(
             viewportWidthDp = maxWidth.value,
-            viewportHeightDp = if (compactMode) maxHeight.value.coerceAtMost(700f) else maxHeight.value
+            viewportHeightDp = if (compactMode) maxHeight.value.coerceAtMost(700f) else maxHeight.value,
+            compactMode = compactMode,
+            denseMode = denseMode
         )
 
         Row(

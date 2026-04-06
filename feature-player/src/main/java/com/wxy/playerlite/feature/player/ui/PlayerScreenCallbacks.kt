@@ -1,5 +1,6 @@
 package com.wxy.playerlite.feature.player.ui
 
+import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.player.AudioEffectPreset
@@ -13,6 +14,7 @@ class PlayerScreenCallbacks(
     val onRetrySongWiki: () -> Unit,
     val onRetryLyrics: () -> Unit = {},
     val onSelectTopTab: ((PlayerTopTab) -> Unit)? = null,
+    val onCycleOrientationMode: (PlayerOrientationMode) -> Unit = {},
     val onSelectPlaylistItem: (Int) -> Unit,
     val onClearPlaylist: () -> Unit = {},
     val onRemovePlaylistItem: (Int) -> Unit,

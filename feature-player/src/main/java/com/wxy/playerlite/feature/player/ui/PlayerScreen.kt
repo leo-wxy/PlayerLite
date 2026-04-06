@@ -23,12 +23,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
@@ -48,7 +51,10 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.ScreenRotationAlt
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.StayCurrentLandscape
+import androidx.compose.material.icons.rounded.StayCurrentPortrait
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -74,6 +80,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -115,10 +122,12 @@ import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
+import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
 import com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.SongWikiSummary
+import com.wxy.playerlite.feature.player.model.resolvePlayerOrientationToggleTarget
 import com.wxy.playerlite.feature.player.ui.components.PlaybackControls
 import com.wxy.playerlite.feature.player.ui.components.PlayerMoreActionsSheet
 import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
@@ -168,6 +177,7 @@ fun PlayerScreen(
         songWikiUiState = uiState.songWikiUiState,
         lyricUiState = uiState.lyricUiState,
         selectedTopTab = uiState.selectedTopTab,
+        orientationMode = uiState.orientationMode,
         isPreparing = uiState.isPreparing,
         playbackState = uiState.playbackState,
         isSeekSupported = uiState.isSeekSupported,
@@ -199,6 +209,7 @@ fun PlayerScreen(
         onRetrySongWiki = callbacks.onRetrySongWiki,
         onRetryLyrics = callbacks.onRetryLyrics,
         onSelectTopTab = callbacks.onSelectTopTab,
+        onCycleOrientationMode = callbacks.onCycleOrientationMode,
         onSelectPlaylistItem = callbacks.onSelectPlaylistItem,
         onClearPlaylist = callbacks.onClearPlaylist,
         onRemovePlaylistItem = callbacks.onRemovePlaylistItem,
@@ -247,6 +258,7 @@ fun PlayerScreen(
     songWikiUiState: PlayerSongWikiUiState,
     lyricUiState: PlayerLyricUiState = PlayerLyricUiState.Placeholder,
     selectedTopTab: PlayerTopTab = PlayerTopTab.SONG,
+    orientationMode: PlayerOrientationMode = PlayerOrientationMode.AUTO,
     isPreparing: Boolean,
     playbackState: Int,
     isSeekSupported: Boolean,
@@ -287,6 +299,7 @@ fun PlayerScreen(
     onRetrySongWiki: () -> Unit,
     onRetryLyrics: () -> Unit = {},
     onSelectTopTab: ((PlayerTopTab) -> Unit)? = null,
+    onCycleOrientationMode: (PlayerOrientationMode) -> Unit = {},
     onSelectPlaylistItem: (Int) -> Unit,
     onClearPlaylist: () -> Unit = {},
     onRemovePlaylistItem: (Int) -> Unit,
@@ -427,6 +440,7 @@ fun PlayerScreen(
                 showSongWikiAction = showSongWikiInlineButton && currentSongId != null,
                 lyricUiState = lyricUiState,
                 selectedTopTab = effectiveSelectedTopTab,
+                orientationMode = orientationMode,
                 isPreparing = isPreparing,
                 isPlaying = isPlaying,
                 isPaused = isPaused,
@@ -458,6 +472,7 @@ fun PlayerScreen(
                 onShowSongWiki = onShowSongWiki,
                 onRetryLyrics = onRetryLyrics,
                 onSelectTopTab = handleSelectTopTab,
+                onCycleOrientationMode = onCycleOrientationMode,
                 onBackdropColorChange = { backdropColor = it },
                 onShowAudioQualitySettings = onShowAudioQualitySettings,
                 onShowAudioEffectSettings = onShowAudioEffectSettings,
@@ -546,8 +561,8 @@ fun PlayerScreen(
                     )
                 }
             }
-        }
     }
+}
 }
 
 @Composable
@@ -770,8 +785,8 @@ private fun PlayerAudioQualitySheet(
                     }
                 }
             }
-        }
     }
+}
 }
 
 private fun resolveAudioQualityOptionStatusText(
@@ -1195,12 +1210,25 @@ private tailrec fun Context.findActivity(): Activity? {
 @Composable
 private fun PlayerScreenTopBar(
     selectedTopTab: PlayerTopTab,
+    orientationMode: PlayerOrientationMode,
+    isCurrentlyLandscape: Boolean,
+    showTabs: Boolean,
     onSelectTopTab: (PlayerTopTab) -> Unit,
+    onCycleOrientationMode: (PlayerOrientationMode) -> Unit,
     onBackClick: () -> Unit,
     onShareClick: () -> Unit,
     layoutMetrics: PlayerScreenLayoutMetrics,
     modifier: Modifier = Modifier
 ) {
+    val orientationTarget = remember(orientationMode, isCurrentlyLandscape) {
+        resolvePlayerOrientationToggleTarget(
+            currentMode = orientationMode,
+            isCurrentlyLandscape = isCurrentlyLandscape
+        )
+    }
+    val orientationAction = remember(orientationTarget) {
+        resolvePlayerOrientationModeAction(orientationTarget)
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -1219,36 +1247,49 @@ private fun PlayerScreenTopBar(
                 onClick = onBackClick
             )
         }
+        if (showTabs) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = (layoutMetrics.topBarActionButtonSize * 2) + 24.dp)
+                    .testTag("player_screen_top_tabs"),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PlayerTopBarTab(
+                    text = "歌曲",
+                    selected = selectedTopTab == PlayerTopTab.SONG,
+                    tag = "player_screen_top_tab_song",
+                    indicatorTag = "player_screen_top_tab_indicator_song",
+                    textSizeSp = layoutMetrics.topTabTextSizeSp,
+                    horizontalPadding = layoutMetrics.topTabHorizontalPadding,
+                    onClick = { onSelectTopTab(PlayerTopTab.SONG) }
+                )
+                PlayerTopBarTab(
+                    text = "歌词",
+                    selected = selectedTopTab == PlayerTopTab.LYRICS,
+                    tag = "player_screen_top_tab_lyrics",
+                    indicatorTag = "player_screen_top_tab_indicator_lyrics",
+                    textSizeSp = layoutMetrics.topTabTextSizeSp,
+                    horizontalPadding = layoutMetrics.topTabHorizontalPadding,
+                    onClick = { onSelectTopTab(PlayerTopTab.LYRICS) }
+                )
+            }
+        }
         Row(
             modifier = Modifier
-                .align(Alignment.Center)
-                .padding(horizontal = layoutMetrics.topBarActionButtonSize + 16.dp)
-                .testTag("player_screen_top_tabs"),
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                .align(Alignment.CenterEnd)
+                .testTag("player_screen_top_actions"),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            PlayerTopBarTab(
-                text = "歌曲",
-                selected = selectedTopTab == PlayerTopTab.SONG,
-                tag = "player_screen_top_tab_song",
-                indicatorTag = "player_screen_top_tab_indicator_song",
-                textSizeSp = layoutMetrics.topTabTextSizeSp,
-                horizontalPadding = layoutMetrics.topTabHorizontalPadding,
-                onClick = { onSelectTopTab(PlayerTopTab.SONG) }
+            PlayerTopBarActionButton(
+                icon = orientationAction.icon,
+                contentDescription = orientationAction.contentDescription,
+                tag = "player_screen_orientation_mode_button",
+                buttonSize = layoutMetrics.topBarActionButtonSize,
+                onClick = { onCycleOrientationMode(orientationTarget) }
             )
-            PlayerTopBarTab(
-                text = "歌词",
-                selected = selectedTopTab == PlayerTopTab.LYRICS,
-                tag = "player_screen_top_tab_lyrics",
-                indicatorTag = "player_screen_top_tab_indicator_lyrics",
-                textSizeSp = layoutMetrics.topTabTextSizeSp,
-                horizontalPadding = layoutMetrics.topTabHorizontalPadding,
-                onClick = { onSelectTopTab(PlayerTopTab.LYRICS) }
-            )
-        }
-        Box(
-            modifier = Modifier.align(Alignment.CenterEnd)
-        ) {
             PlayerTopBarActionButton(
                 icon = Icons.Rounded.Share,
                 contentDescription = "分享当前歌曲",
@@ -1257,6 +1298,87 @@ private fun PlayerScreenTopBar(
                 onClick = onShareClick
             )
         }
+    }
+}
+
+@Composable
+private fun PlayerLandscapeOverlayActions(
+    orientationMode: PlayerOrientationMode,
+    onCycleOrientationMode: (PlayerOrientationMode) -> Unit,
+    onBackClick: () -> Unit,
+    onShareClick: () -> Unit,
+    layoutMetrics: PlayerScreenLayoutMetrics,
+    modifier: Modifier = Modifier
+) {
+    val orientationTarget = remember(orientationMode) {
+        resolvePlayerOrientationToggleTarget(
+            currentMode = orientationMode,
+            isCurrentlyLandscape = true
+        )
+    }
+    val orientationAction = remember(orientationTarget) {
+        resolvePlayerOrientationModeAction(orientationTarget)
+    }
+    Row(
+        modifier = modifier
+            .statusBarsPadding()
+            .padding(top = 6.dp)
+            .testTag("player_screen_landscape_overlay_actions"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        PlayerTopBarActionButton(
+            icon = Icons.AutoMirrored.Rounded.ArrowBack,
+            contentDescription = "返回首页",
+            tag = "player_screen_top_back_button",
+            buttonSize = layoutMetrics.topBarActionButtonSize,
+            onClick = onBackClick
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            PlayerTopBarActionButton(
+                icon = orientationAction.icon,
+                contentDescription = orientationAction.contentDescription,
+                tag = "player_screen_orientation_mode_button",
+                buttonSize = layoutMetrics.topBarActionButtonSize,
+                onClick = { onCycleOrientationMode(orientationTarget) }
+            )
+            PlayerTopBarActionButton(
+                icon = Icons.Rounded.Share,
+                contentDescription = "分享当前歌曲",
+                tag = "player_screen_top_share_button",
+                buttonSize = layoutMetrics.topBarActionButtonSize,
+                onClick = onShareClick
+            )
+        }
+    }
+}
+
+private data class PlayerOrientationModeAction(
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val contentDescription: String
+)
+
+private fun resolvePlayerOrientationModeAction(
+    orientationMode: PlayerOrientationMode
+): PlayerOrientationModeAction {
+    return when (orientationMode) {
+        PlayerOrientationMode.AUTO -> PlayerOrientationModeAction(
+            icon = Icons.Rounded.ScreenRotationAlt,
+            contentDescription = "恢复自动旋转"
+        )
+
+        PlayerOrientationMode.LANDSCAPE_LOCKED -> PlayerOrientationModeAction(
+            icon = Icons.Rounded.StayCurrentLandscape,
+            contentDescription = "切换到横屏锁定"
+        )
+
+        PlayerOrientationMode.PORTRAIT_LOCKED -> PlayerOrientationModeAction(
+            icon = Icons.Rounded.StayCurrentPortrait,
+            contentDescription = "切换到竖屏锁定"
+        )
     }
 }
 
@@ -1365,16 +1487,35 @@ private fun PlayerTopBarActionButton(
 @Composable
 private fun PlayerToolActionRow(
     showSongWikiAction: Boolean,
+    showFavoriteAction: Boolean = false,
     onShowSongWiki: () -> Unit,
+    onFavoriteClick: (() -> Unit)? = null,
     onMoreClick: () -> Unit,
     layoutMetrics: PlayerScreenLayoutMetrics,
+    compact: Boolean = false,
+    alignToEnd: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val buttonSize = if (compact) {
+        (layoutMetrics.toolButtonSize * 0.72f).coerceIn(34.dp, 40.dp)
+    } else {
+        layoutMetrics.toolButtonSize
+    }
+    val iconSize = if (compact) {
+        (layoutMetrics.toolIconSize * 0.78f).coerceIn(16.dp, 20.dp)
+    } else {
+        layoutMetrics.toolIconSize
+    }
+    val itemSpacing = if (compact) 8.dp else 12.dp
     Row(
         modifier = modifier
             .fillMaxWidth()
             .testTag("player_screen_tool_row"),
-        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = if (alignToEnd) {
+            Arrangement.spacedBy(itemSpacing, Alignment.End)
+        } else {
+            Arrangement.spacedBy(itemSpacing, Alignment.CenterHorizontally)
+        },
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (showSongWikiAction) {
@@ -1382,9 +1523,20 @@ private fun PlayerToolActionRow(
                 tag = "player_screen_song_wiki_tool_button",
                 icon = Icons.AutoMirrored.Rounded.MenuBook,
                 contentDescription = "打开歌曲百科",
-                buttonSize = layoutMetrics.toolButtonSize,
-                iconSize = layoutMetrics.toolIconSize,
+                buttonSize = buttonSize,
+                iconSize = iconSize,
                 onClick = onShowSongWiki
+            )
+        }
+
+        if (showFavoriteAction && onFavoriteClick != null) {
+            PlayerToolActionButton(
+                tag = "player_screen_favorite_button",
+                icon = Icons.Rounded.FavoriteBorder,
+                contentDescription = "收藏当前歌曲",
+                buttonSize = buttonSize,
+                iconSize = iconSize,
+                onClick = onFavoriteClick
             )
         }
 
@@ -1392,8 +1544,8 @@ private fun PlayerToolActionRow(
             tag = "player_screen_more_button",
             icon = Icons.Rounded.MoreHoriz,
             contentDescription = "更多操作",
-            buttonSize = layoutMetrics.toolButtonSize,
-            iconSize = layoutMetrics.toolIconSize,
+            buttonSize = buttonSize,
+            iconSize = iconSize,
             onClick = onMoreClick
         )
     }
@@ -1765,6 +1917,7 @@ private fun PlayerScreenContent(
     showSongWikiAction: Boolean,
     lyricUiState: PlayerLyricUiState,
     selectedTopTab: PlayerTopTab,
+    orientationMode: PlayerOrientationMode,
     isPreparing: Boolean,
     isPlaying: Boolean,
     isPaused: Boolean,
@@ -1796,6 +1949,7 @@ private fun PlayerScreenContent(
     onShowSongWiki: () -> Unit,
     onRetryLyrics: () -> Unit,
     onSelectTopTab: (PlayerTopTab) -> Unit,
+    onCycleOrientationMode: (PlayerOrientationMode) -> Unit,
     onBackdropColorChange: (Color) -> Unit,
     onShowAudioQualitySettings: () -> Unit,
     onShowAudioEffectSettings: () -> Unit,
@@ -1839,6 +1993,11 @@ private fun PlayerScreenContent(
             currentPositionMs = currentPositionMs
         )
         val compactControls = maxHeight.value < 760f || maxWidth.value < 360f
+        val isLandscapeLayout = resolvePlayerScreenLandscapeLayout(
+            viewportWidthDp = maxWidth.value,
+            viewportHeightDp = maxHeight.value,
+            orientationMode = orientationMode
+        )
         val pagerState = rememberPagerState(
             initialPage = selectedTopTab.toPageIndex(),
             pageCount = { 2 }
@@ -1867,30 +2026,57 @@ private fun PlayerScreenContent(
                 }
         }
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = layoutMetrics.horizontalPadding)
-            ) {
-                PlayerScreenTopBar(
-                    selectedTopTab = selectedTopTab,
-                    onSelectTopTab = handleTopTabSelection,
-                    onBackClick = onBackClick,
-                    onShareClick = onShareClick,
-                    layoutMetrics = layoutMetrics
-                )
-            }
+        val pagerContent: @Composable (Modifier) -> Unit = { pagerModifier ->
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier
-                    .fillMaxSize()
+                modifier = pagerModifier
                     .testTag("player_screen_content_pager"),
                 beyondViewportPageCount = 1
             ) { page ->
                 when (page.toPlayerTopTab()) {
                     PlayerTopTab.SONG -> {
-                        Box(modifier = Modifier.fillMaxSize()) {
+                        if (isLandscapeLayout) {
+                            PlayerLandscapeSongPage(
+                                trackTitle = trackText.title,
+                                trackArtist = trackText.artist,
+                                currentArtistId = currentArtistId,
+                                lyricSummaryText = formatLyricSummaryLine(lyricPresentation.summaryText),
+                                lyricSummaryColor = lyricPresentation.summaryColor,
+                                lyricSummaryTag = lyricPresentation.summaryTag,
+                                titleTextStyle = titleTextStyle,
+                                artistTextStyle = artistTextStyle,
+                                lyricTextStyle = lyricTextStyle,
+                                status = status,
+                                coverUrl = coverUrl,
+                                isPreparing = isPreparing,
+                                shouldShowStatusHint = shouldShowStatusHint,
+                                isPlaying = isPlaying,
+                                isPaused = isPaused,
+                                hasPreviousTrack = hasPreviousTrack,
+                                hasNextTrack = hasNextTrack,
+                                playlistItemCount = playlistItemCount,
+                                playbackMode = playbackMode,
+                                sliderValue = sliderValue,
+                                sliderMax = sliderMax,
+                                seekEnabled = seekEnabled,
+                                currentDurationText = currentDurationText,
+                                totalDurationText = totalDurationText,
+                                layoutMetrics = layoutMetrics,
+                                compactControls = compactControls,
+                                onSeekValueChange = onSeekValueChange,
+                                onSeekFinished = onSeekFinished,
+                                onArtistClick = onArtistClick,
+                                onPlay = onPlay,
+                                onPrevious = onPrevious,
+                                onNext = onNext,
+                                onPause = onPause,
+                                onResume = onResume,
+                                onCyclePlaybackMode = onCyclePlaybackMode,
+                                onTogglePlaylistSheet = onTogglePlaylistSheet,
+                                onBackdropColorChange = onBackdropColorChange
+                            )
+                        } else {
+                            Box(modifier = Modifier.fillMaxSize()) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2141,6 +2327,7 @@ private fun PlayerScreenContent(
                                     onPause = onPause,
                                     onResume = onResume,
                                     compactMode = compactControls,
+                                    denseMode = false,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .testTag("player_screen_controls_section")
@@ -2152,6 +2339,7 @@ private fun PlayerScreenContent(
                                         .testTag("player_screen_song_controls_bottom_anchor")
                                 )
                             }
+                        }
                         }
                     }
 
@@ -2185,6 +2373,308 @@ private fun PlayerScreenContent(
                 }
             }
         }
+
+        if (isLandscapeLayout) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("player_screen_landscape_root")
+            ) {
+                pagerContent(Modifier.fillMaxSize())
+                PlayerLandscapeOverlayActions(
+                    orientationMode = orientationMode,
+                    onCycleOrientationMode = onCycleOrientationMode,
+                    onBackClick = onBackClick,
+                    onShareClick = onShareClick,
+                    layoutMetrics = layoutMetrics,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = layoutMetrics.horizontalPadding)
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = layoutMetrics.horizontalPadding)
+                ) {
+                    PlayerScreenTopBar(
+                        selectedTopTab = selectedTopTab,
+                        orientationMode = orientationMode,
+                        isCurrentlyLandscape = isLandscapeLayout,
+                        showTabs = true,
+                        onSelectTopTab = handleTopTabSelection,
+                        onCycleOrientationMode = onCycleOrientationMode,
+                        onBackClick = onBackClick,
+                        onShareClick = onShareClick,
+                        layoutMetrics = layoutMetrics
+                    )
+                }
+                pagerContent(Modifier.fillMaxSize())
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerLandscapeSongPage(
+    trackTitle: String,
+    trackArtist: String,
+    currentArtistId: String?,
+    lyricSummaryText: String,
+    lyricSummaryColor: Color,
+    lyricSummaryTag: String,
+    titleTextStyle: TextStyle,
+    artistTextStyle: TextStyle,
+    lyricTextStyle: TextStyle,
+    status: String,
+    coverUrl: String?,
+    isPreparing: Boolean,
+    shouldShowStatusHint: Boolean,
+    isPlaying: Boolean,
+    isPaused: Boolean,
+    hasPreviousTrack: Boolean,
+    hasNextTrack: Boolean,
+    playlistItemCount: Int,
+    playbackMode: PlaybackMode,
+    sliderValue: Float,
+    sliderMax: Float,
+    seekEnabled: Boolean,
+    currentDurationText: String,
+    totalDurationText: String,
+    layoutMetrics: PlayerScreenLayoutMetrics,
+    compactControls: Boolean,
+    onSeekValueChange: (Long) -> Unit,
+    onSeekFinished: () -> Unit,
+    onArtistClick: () -> Unit,
+    onPlay: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onCyclePlaybackMode: () -> Unit,
+    onTogglePlaylistSheet: () -> Unit,
+    onBackdropColorChange: (Color) -> Unit
+) {
+    val layoutDirection = LocalLayoutDirection.current
+    val progressTimeTextStyle = MaterialTheme.typography.labelMedium.copy(
+        fontSize = layoutMetrics.progressTimeFontSizeSp.sp
+    )
+    val landscapeLyricSummaryText = if (lyricSummaryTag == "player_screen_lyric_summary") {
+        formatLyricSummaryLine(lyricSummaryText)
+    } else {
+        ""
+    }
+    val landscapeSafeStartInset = WindowInsets.safeDrawing
+        .asPaddingValues()
+        .calculateStartPadding(layoutDirection)
+
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(
+                start = layoutMetrics.horizontalPadding + landscapeSafeStartInset,
+                end = layoutMetrics.horizontalPadding
+            )
+            .navigationBarsPadding(),
+        horizontalArrangement = Arrangement.spacedBy(layoutMetrics.sectionSpacing * 1.1f),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .testTag("player_screen_landscape_controls_panel")
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(end = layoutMetrics.sectionSpacing * 0.4f)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth(0.78f)
+                        .padding(
+                            top = layoutMetrics.topBarHeight + (layoutMetrics.sectionSpacing * 2.45f),
+                            bottom = layoutMetrics.sectionSpacing * 0.2f
+                        )
+                        .testTag("player_screen_landscape_info_group")
+                ) {
+                    PlayerLandscapeHeroPanel(
+                        trackTitle = trackTitle,
+                        trackArtist = trackArtist,
+                        currentArtistId = currentArtistId,
+                        lyricSummaryText = landscapeLyricSummaryText,
+                        lyricSummaryColor = lyricSummaryColor,
+                        lyricSummaryTag = lyricSummaryTag,
+                        titleTextStyle = titleTextStyle,
+                        artistTextStyle = artistTextStyle,
+                        lyricTextStyle = lyricTextStyle,
+                        layoutMetrics = layoutMetrics,
+                        onArtistClick = onArtistClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("player_screen_info_section")
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth(0.89f)
+                        .testTag("player_screen_landscape_bottom_group"),
+                    verticalArrangement = Arrangement.spacedBy(layoutMetrics.sectionSpacing * 0.18f)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("player_screen_landscape_progress_band"),
+                        verticalArrangement = Arrangement.spacedBy(layoutMetrics.progressSectionSpacing)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("player_screen_progress_section"),
+                            verticalArrangement = Arrangement.spacedBy(layoutMetrics.progressSectionSpacing)
+                        ) {
+                            PlayerProgressBarSlider(
+                                value = sliderValue,
+                                max = sliderMax,
+                                enabled = seekEnabled,
+                                onValueChange = { value -> onSeekValueChange(value.toLong()) },
+                                onValueChangeFinished = onSeekFinished,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = currentDurationText,
+                                    style = progressTimeTextStyle,
+                                    color = Color.White.copy(alpha = 0.62f),
+                                    modifier = Modifier.testTag("player_screen_current_duration")
+                                )
+                                Text(
+                                    text = totalDurationText,
+                                    style = progressTimeTextStyle,
+                                    color = Color.White.copy(alpha = 0.62f),
+                                    modifier = Modifier.testTag("player_screen_total_duration")
+                                )
+                            }
+                        }
+                    }
+
+                    PlaybackControls(
+                        hasSelection = true,
+                        hasPreviousTrack = hasPreviousTrack,
+                        hasNextTrack = hasNextTrack,
+                        playlistItemCount = playlistItemCount,
+                        isPreparing = isPreparing,
+                        isPlaying = isPlaying,
+                        isPaused = isPaused,
+                        playbackMode = playbackMode,
+                        onPlay = onPlay,
+                        onPlaylistClick = onTogglePlaylistSheet,
+                        onPlaybackModeClick = onCyclePlaybackMode,
+                        onPrevious = onPrevious,
+                        onNext = onNext,
+                        onPause = onPause,
+                        onResume = onResume,
+                        compactMode = compactControls,
+                        denseMode = compactControls,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("player_screen_controls_section")
+                    )
+                    Spacer(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .testTag("player_screen_landscape_controls_anchor")
+                    )
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(0.88f)
+                .fillMaxHeight()
+                .testTag("player_screen_landscape_visual_panel"),
+            contentAlignment = Alignment.Center
+        ) {
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("player_screen_song_page")
+            ) {
+                val visualHostSize = if (maxWidth < maxHeight) {
+                    maxWidth * 0.90f
+                } else {
+                    maxHeight * 0.90f
+                }
+                val coverFrameSize = visualHostSize * 0.94f
+                val reflectionHeight = (coverFrameSize * 0.22f).coerceIn(24.dp, 72.dp)
+                val visualCompositionHeight = coverFrameSize + reflectionHeight
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("player_screen_visual_section"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .offset(y = reflectionHeight / 2)
+                            .size(width = coverFrameSize, height = visualCompositionHeight)
+                    ) {
+                        PlayerLandscapeVisualReflection(
+                            coverUrl = coverUrl,
+                            isPlaying = isPlaying,
+                            isPaused = isPaused,
+                            isPreparing = isPreparing,
+                            sourceSize = coverFrameSize,
+                            reflectionHeight = reflectionHeight,
+                            onBackdropColorExtracted = onBackdropColorChange,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        if (isPreparing) {
+                            PlayerBufferingIndicator(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = coverFrameSize - 44.dp, end = 10.dp)
+                            )
+                        }
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .testTag("player_screen_landscape_visual_anchor")
+                )
+            }
+        }
+    }
+}
+
+private fun resolvePlayerScreenLandscapeLayout(
+    viewportWidthDp: Float,
+    viewportHeightDp: Float,
+    orientationMode: PlayerOrientationMode
+): Boolean {
+    return when (orientationMode) {
+        PlayerOrientationMode.LANDSCAPE_LOCKED -> true
+        PlayerOrientationMode.PORTRAIT_LOCKED -> false
+        PlayerOrientationMode.AUTO -> viewportWidthDp > viewportHeightDp
     }
 }
 
@@ -2328,7 +2818,7 @@ fun PlayerLyricsPage(
                     horizontal = 8.dp,
                     vertical = 56.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(22.dp)
+                verticalArrangement = Arrangement.spacedBy(34.dp)
             ) {
                 items(lyricUiState.lyrics.lines.size) { index ->
                     val line = lyricUiState.lyrics.lines[index]
@@ -2349,7 +2839,7 @@ fun PlayerLyricsPage(
                         text = line.text,
                         style = MaterialTheme.typography.headlineSmall.copy(
                             fontSize = 30.sp,
-                            lineHeight = 38.sp,
+                            lineHeight = 48.sp,
                             shadow = if (isActiveLine) {
                                 Shadow(
                                     color = visualTokens.accentSupport.copy(alpha = visuals.glowAlpha),

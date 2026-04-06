@@ -49,6 +49,30 @@ enum class PlayerTopTab {
     LYRICS
 }
 
+enum class PlayerOrientationMode {
+    AUTO,
+    LANDSCAPE_LOCKED,
+    PORTRAIT_LOCKED
+}
+
+fun resolvePlayerOrientationToggleTarget(
+    currentMode: PlayerOrientationMode,
+    isCurrentlyLandscape: Boolean
+): PlayerOrientationMode {
+    return when (currentMode) {
+        PlayerOrientationMode.AUTO -> {
+            if (isCurrentlyLandscape) {
+                PlayerOrientationMode.PORTRAIT_LOCKED
+            } else {
+                PlayerOrientationMode.LANDSCAPE_LOCKED
+            }
+        }
+
+        PlayerOrientationMode.LANDSCAPE_LOCKED -> PlayerOrientationMode.PORTRAIT_LOCKED
+        PlayerOrientationMode.PORTRAIT_LOCKED -> PlayerOrientationMode.LANDSCAPE_LOCKED
+    }
+}
+
 enum class PlayerMoreActionsPage {
     ROOT,
     SPEED,
@@ -100,6 +124,7 @@ data class PlayerUiState(
     val lyricUiState: PlayerLyricUiState = PlayerLyricUiState.Placeholder,
     val audioQualityCatalogUiState: PlayerAudioQualityCatalogUiState = PlayerAudioQualityCatalogUiState.Placeholder,
     val selectedTopTab: PlayerTopTab = PlayerTopTab.SONG,
+    val orientationMode: PlayerOrientationMode = PlayerOrientationMode.AUTO,
     val isPreparing: Boolean = false,
     val playbackState: Int = AUDIO_TRACK_PLAYSTATE_UNAVAILABLE,
     val isSeekSupported: Boolean = false,
