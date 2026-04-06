@@ -1,6 +1,6 @@
 # PlayerLite
 
-一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要、系统 `MediaSession` 动态展示链路，以及当前音源管理、在线音质切换、默认音效 preset、横屏播放器独立沉浸布局与网页歌单导入等较完整的播放能力。近期进一步完成了项目结构重构：播放器展示层拆到 `:feature-player`，播放列表域拆到 `:playlist-core`，应用侧播放编排拆到 `:playback-orchestrator`，`app` 退回到宿主、装配与入口适配职责。
+一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要、系统 `MediaSession` 动态展示链路，以及当前音源管理、在线音质切换、默认音效 preset、横屏播放器独立沉浸布局、首页每日推荐站内入口与每日推荐歌曲页、网页歌单导入等较完整的播放能力。近期进一步完成了项目结构重构：播放器展示层拆到 `:feature-player`，播放列表域拆到 `:playlist-core`，应用侧播放编排拆到 `:playback-orchestrator`，`app` 退回到宿主、装配与入口适配职责。
 
 ## 主要能力
 
@@ -27,6 +27,7 @@
 - 歌手 / 专辑 / 歌单详情页采用 `hero + sticky tabs + HorizontalPager` 结构，支持头部与当前 tab 列表之间的连续纵向滚动接力
 - 首页 `minibar`、详情页 `minibar` 与系统 `MediaSession` 可随播放进度动态展示当前歌词摘要，并稳定回退为 `歌名 - 歌手`
 - 首页发现流、悬浮搜索入口、搜索结果页
+- 首页“每日推荐”快捷入口可直达站内每日推荐歌曲页，登录态下支持“播放全部”、单曲播放与推荐理由展示
 - 歌手详情、歌单详情、专辑详情，以及首页/搜索/个人中心/喜欢页到详情页的跳转闭环
 - 手机号/邮箱登录、用户会话恢复、个人中心主页、喜欢内容页、最近播放页与本地歌曲入口
 - 个人中心采用“资料头部 + 喜欢 / 最近 / 本地快捷入口 + 自建歌单”结构
@@ -225,6 +226,7 @@ python3 scripts/range_http_server.py --port 18080 --directory .
 当前已接入或依赖的能力包括：
 
 - 首页发现区块
+- 每日推荐歌曲 `/recommend/songs`
 - 默认搜索关键词与搜索结果
 - 登录与用户资料
 - 歌词接口 `/lyric?id=<songId>`

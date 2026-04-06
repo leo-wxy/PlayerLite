@@ -344,6 +344,61 @@ class HomeDiscoveryRepositoryTest {
             (artistResourceAction as ContentEntryAction.OpenDetail).target
         )
     }
+
+    @Test
+    fun fetchHomeOverview_shouldMapDailyRecommendedShortcutToInternalDestination() = runBlocking {
+        val repository = DefaultHomeDiscoveryRepository(
+            remoteDataSource = FakeHomeDiscoveryRemoteDataSource(
+                homepagePayload = jsonObject(
+                    """
+                    {
+                      "data": {
+                        "blocks": [
+                          {
+                            "blockCode": "HOMEPAGE_BLOCK_OLD_DRAGON_BALL",
+                            "showType": "DRAGON_BALL",
+                            "uiElement": {
+                              "subTitle": {
+                                "title": "快捷入口"
+                              }
+                            },
+                            "creatives": [
+                              {
+                                "resources": [
+                                  {
+                                    "resourceId": "-1",
+                                    "action": "orpheus://songrcmd",
+                                    "actionType": "orpheus",
+                                    "uiElement": {
+                                      "mainTitle": {
+                                        "title": "每日推荐"
+                                      },
+                                      "image": {
+                                        "imageUrl": "http://example.com/daily.jpg"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                    """
+                ),
+                searchDefaultPayload = jsonObject("""{"data":{"showKeyword":"默认热搜"}}""")
+            )
+        )
+
+        val result = repository.fetchHomeOverview()
+
+        assertEquals(1, result.sections.size)
+        assertEquals(
+            ContentEntryAction.OpenDailyRecommendedSongs,
+            result.sections.single().items.single().action
+        )
+    }
 }
 
 private class FakeHomeDiscoveryRemoteDataSource(

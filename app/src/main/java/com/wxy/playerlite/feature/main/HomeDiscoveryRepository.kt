@@ -177,14 +177,35 @@ internal object NeteaseHomeDiscoveryJsonMapper {
         val title = uiElement.objectValue("mainTitle").stringValue("title") ?: return null
         val subTitle = uiElement.objectValue("subTitle").stringValue("title").orEmpty()
         val labels = uiElement.arrayValue("labelTexts").mapNotNull { it.jsonPrimitive.contentOrNull }
+        val action = if (isDailyRecommendedShortcut(title = title)) {
+            ContentEntryAction.OpenDailyRecommendedSongs
+        } else {
+            toContentEntryAction(defaultTargetType = defaultTargetType)
+        }
         return HomeSectionItemUiModel(
             id = stringValue("resourceId") ?: title,
             title = title,
             subtitle = subTitle.ifBlank { labels.joinToString(separator = " · ") },
             imageUrl = uiElement.objectValue("image").stringValue("imageUrl"),
             badge = labels.firstOrNull(),
-            action = toContentEntryAction(defaultTargetType = defaultTargetType)
+            action = action
         )
+    }
+
+    private fun JsonObject.isDailyRecommendedShortcut(title: String): Boolean {
+        if (!title.contains("每日推荐")) {
+            return false
+        }
+        return listOfNotNull(
+            stringValue("action"),
+            stringValue("targetUrl"),
+            stringValue("resourceUrl"),
+            objectValue("action").stringValue("url"),
+            objectValue("action").stringValue("orpheus"),
+            objectValue("action").stringValue("orpheusUrl")
+        ).any { candidate ->
+            candidate.contains("songrcmd", ignoreCase = true)
+        }
     }
 
     private fun JsonObject.toContentEntryAction(

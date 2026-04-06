@@ -2,7 +2,6 @@ package com.wxy.playerlite.feature.artist
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.viewModels
@@ -55,7 +54,6 @@ class ArtistDetailActivity : BasePlaybackDetailActivity() {
                 MaterialTheme.colorScheme.onSurface
             }
             SideEffect {
-                window.statusBarColor = AndroidColor.TRANSPARENT
                 WindowCompat.getInsetsController(window, window.decorView)
                     .isAppearanceLightStatusBars = !useLightStatusBarContent
             }

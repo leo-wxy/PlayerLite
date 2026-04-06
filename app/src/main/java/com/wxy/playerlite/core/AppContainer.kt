@@ -14,8 +14,11 @@ import com.wxy.playerlite.feature.artist.ArtistDetailRepository
 import com.wxy.playerlite.feature.artist.DefaultArtistDetailRepository
 import com.wxy.playerlite.feature.artist.NeteaseArtistDetailRemoteDataSource
 import com.wxy.playerlite.feature.main.DefaultHomeDiscoveryRepository
+import com.wxy.playerlite.feature.main.DefaultDailyRecommendedSongsRepository
+import com.wxy.playerlite.feature.main.DailyRecommendedSongsRepository
 import com.wxy.playerlite.feature.main.HomeDiscoveryRepository
 import com.wxy.playerlite.feature.main.NeteaseHomeDiscoveryRemoteDataSource
+import com.wxy.playerlite.feature.main.NeteaseDailyRecommendedSongsRemoteDataSource
 import com.wxy.playerlite.feature.main.DefaultUserCenterRepository
 import com.wxy.playerlite.feature.main.NeteaseUserCenterRemoteDataSource
 import com.wxy.playerlite.feature.main.UserCenterRepository
@@ -57,6 +60,10 @@ internal object AppContainer {
 
     fun homeDiscoveryRepository(context: Context): HomeDiscoveryRepository {
         return getServices(context).homeDiscoveryRepository
+    }
+
+    fun dailyRecommendedSongsRepository(context: Context): DailyRecommendedSongsRepository {
+        return getServices(context).dailyRecommendedSongsRepository
     }
 
     fun searchRepository(context: Context): SearchRepository {
@@ -143,6 +150,9 @@ internal object AppContainer {
             homeDiscoveryRepository = DefaultHomeDiscoveryRepository(
                 remoteDataSource = NeteaseHomeDiscoveryRemoteDataSource(httpClient)
             ),
+            dailyRecommendedSongsRepository = DefaultDailyRecommendedSongsRepository(
+                remoteDataSource = NeteaseDailyRecommendedSongsRemoteDataSource(httpClient)
+            ),
             searchRepository = searchRepository,
             userCenterRepository = DefaultUserCenterRepository(
                 remoteDataSource = NeteaseUserCenterRemoteDataSource(httpClient)
@@ -183,6 +193,7 @@ internal object AppContainer {
     private data class Services(
         val userRepository: UserRepository,
         val homeDiscoveryRepository: HomeDiscoveryRepository,
+        val dailyRecommendedSongsRepository: DailyRecommendedSongsRepository,
         val searchRepository: SearchRepository,
         val userCenterRepository: UserCenterRepository,
         val artistDetailRepository: ArtistDetailRepository,

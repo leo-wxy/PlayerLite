@@ -2,7 +2,6 @@ package com.wxy.playerlite.feature.album
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.viewModels
@@ -54,7 +53,6 @@ class AlbumDetailActivity : BasePlaybackDetailActivity() {
                 MaterialTheme.colorScheme.onSurface
             }
             SideEffect {
-                window.statusBarColor = AndroidColor.TRANSPARENT
                 WindowCompat.getInsetsController(window, window.decorView)
                     .isAppearanceLightStatusBars = !useLightStatusBarContent
             }

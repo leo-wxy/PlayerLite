@@ -46,6 +46,21 @@ class ContentEntryActionNavigationTest {
     }
 
     @Test
+    fun resolveContentEntryLaunch_shouldCreateDailyRecommendedSongsIntent() {
+        val launch = resolveContentEntryLaunch(
+            context = context,
+            action = ContentEntryAction.OpenDailyRecommendedSongs
+        )
+
+        requireNotNull(launch.intent)
+        assertEquals(
+            DailyRecommendedSongsActivity::class.java.name,
+            launch.intent?.component?.className
+        )
+        assertNull(launch.failureMessage)
+    }
+
+    @Test
     fun resolveContentEntryLaunch_shouldExposeMessageForUnsupportedAction() {
         val launch = resolveContentEntryLaunch(
             context = context,
