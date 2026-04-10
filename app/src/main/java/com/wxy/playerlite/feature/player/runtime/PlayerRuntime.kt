@@ -355,6 +355,28 @@ internal class PlayerRuntime(
         syncSelectionFromPlaylist()
     }
 
+    fun insertPlaylistItemNext(item: PlaylistItem): Boolean {
+        val activeItem = playlistSession.activeItem ?: run {
+            uiState = uiState.copy(statusText = "下一首播放失败：当前没有有效播放上下文")
+            return false
+        }
+        val queueItem = item.copy(
+            id = "${item.id}:next:${UUID.randomUUID()}"
+        )
+        playlistSession.insertAfterActive(queueItem)
+        syncSelectionFromPlaylist()
+        uiState = uiState.copy(
+            statusText = "已加入下一首播放: ${queueItem.displayName}",
+            showPlaylistSheet = false,
+            showSongWikiSheet = false,
+            showMoreActionsSheet = false,
+            showAudioEffectPage = false,
+            showAudioQualitySheet = false,
+            moreActionsPage = PlayerMoreActionsPage.ROOT
+        )
+        return activeItem.id == playlistSession.activeItem?.id
+    }
+
     override fun setStatusText(statusText: String) {
         uiState = uiState.copy(statusText = statusText)
     }

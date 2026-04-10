@@ -348,6 +348,20 @@ class PlaylistControllerTest {
         assertEquals("a", controller.state.activeItemId)
     }
 
+    @Test
+    fun insertAfterActive_shouldPlaceItemAfterCurrentWithoutChangingActiveItem() {
+        val controller = createController()
+        controller.addItem(item("a", "uri://a"), makeActive = true)
+        controller.addItem(item("b", "uri://b"), makeActive = false)
+        controller.addItem(item("c", "uri://c"), makeActive = false)
+
+        controller.insertAfterActive(item("x", "uri://x"))
+
+        assertEquals(listOf("a", "x", "b", "c"), controller.state.originalItems.map { it.id })
+        assertEquals("a", controller.state.activeItemId)
+        assertEquals(0, controller.state.activeIndex)
+    }
+
     private fun createController(
         orderShuffler: (List<String>) -> List<String> = { ids -> ids.shuffled() }
     ): PlaylistController {

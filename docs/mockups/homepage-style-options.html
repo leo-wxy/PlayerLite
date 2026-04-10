@@ -1,0 +1,1505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>首页风格参考稿</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page-bg: #eee8df;
+      --page-surface: #f7f2ea;
+      --page-card: #fffdfa;
+      --page-line: rgba(33, 28, 22, 0.09);
+      --page-text: #1f1b17;
+      --page-muted: #766e66;
+      --page-accent: #cb5f45;
+      --shadow: 0 18px 48px rgba(43, 35, 28, 0.08);
+      --phone-shadow: 0 22px 56px rgba(36, 30, 24, 0.12);
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
+      --phone-width: 360px;
+      --font-ui: "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Source Han Sans SC",
+        "Noto Sans SC", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--font-ui);
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.62), transparent 34%),
+        linear-gradient(180deg, #f3ede4 0%, var(--page-bg) 100%);
+      color: var(--page-text);
+    }
+
+    .page {
+      width: min(1360px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 36px 0 56px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 28px;
+    }
+
+    .title {
+      font-size: 30px;
+      line-height: 1.1;
+      margin: 0;
+      letter-spacing: -0.04em;
+    }
+
+    .subtitle {
+      margin: 10px 0 0;
+      color: var(--page-muted);
+      font-size: 15px;
+      line-height: 1.6;
+      max-width: 760px;
+    }
+
+    .legend {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .legend-chip {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(43, 35, 28, 0.08);
+      color: var(--page-muted);
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    .variants {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .variant {
+      padding: 18px;
+      border-radius: 24px;
+      background: rgba(255, 252, 247, 0.72);
+      border: 1px solid rgba(43, 35, 28, 0.08);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .variant-head {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .variant-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--theme-accent);
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .variant-kicker::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--theme-accent);
+    }
+
+    .variant-title {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.2;
+      letter-spacing: -0.03em;
+    }
+
+    .variant-copy {
+      margin: 0;
+      color: var(--page-muted);
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 66px;
+    }
+
+    .variant-notes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 2px;
+    }
+
+    .note-chip {
+      border-radius: 999px;
+      border: 1px solid var(--theme-soft-line);
+      background: var(--theme-chip);
+      color: var(--theme-accent-strong);
+      font-size: 12px;
+      padding: 7px 10px;
+    }
+
+    .phone {
+      width: 100%;
+      max-width: var(--phone-width);
+      margin: 0 auto 16px;
+      border-radius: 34px;
+      padding: 14px;
+      background: #181614;
+      box-shadow: var(--phone-shadow);
+    }
+
+    .phone-screen {
+      border-radius: 26px;
+      overflow: hidden;
+      background: var(--theme-bg);
+      border: 1px solid var(--theme-shell-line);
+    }
+
+    .screen-inner {
+      padding: 18px 14px 18px;
+      display: grid;
+      gap: 18px;
+      background:
+        radial-gradient(circle at top center, var(--theme-glow), transparent 42%),
+        linear-gradient(180deg, var(--theme-bg) 0%, var(--theme-bg-soft) 100%);
+    }
+
+    .statusbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--theme-muted);
+      padding: 0 4px;
+    }
+
+    .appbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .appbar-title {
+      font-size: 26px;
+      line-height: 1.1;
+      letter-spacing: -0.05em;
+      font-weight: 800;
+      margin: 0;
+    }
+
+    .appbar-subtitle {
+      margin: 3px 0 0;
+      font-size: 12px;
+      color: var(--theme-muted);
+    }
+
+    .avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: var(--theme-avatar);
+      border: 1px solid var(--theme-soft-line);
+    }
+
+    .search {
+      height: 40px;
+      border-radius: 14px;
+      background: var(--theme-search);
+      border: 1px solid var(--theme-soft-line);
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      color: var(--theme-muted);
+      font-size: 14px;
+    }
+
+    .banner {
+      padding: 16px;
+      border-radius: 18px;
+      background: var(--theme-banner);
+      color: #fff;
+      min-height: 150px;
+      display: flex;
+      flex-direction: column;
+      justify-content: end;
+      gap: 8px;
+    }
+
+    .banner-badge {
+      display: inline-flex;
+      width: fit-content;
+      padding: 6px 9px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.16);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .banner-title {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+      letter-spacing: -0.03em;
+      font-weight: 780;
+    }
+
+    .banner-copy {
+      margin: 0;
+      color: rgba(255, 255, 255, 0.84);
+      font-size: 13px;
+      line-height: 1.4;
+      max-width: 220px;
+    }
+
+    .section {
+      display: grid;
+      gap: 10px;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .section-title {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+      letter-spacing: -0.03em;
+      font-weight: 760;
+    }
+
+    .section-action {
+      font-size: 12px;
+      color: var(--theme-muted);
+    }
+
+    .shortcut-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 9px;
+    }
+
+    .shortcut {
+      min-height: 72px;
+      border-radius: 16px;
+      background: var(--theme-card);
+      border: 1px solid var(--theme-soft-line);
+      padding: 10px 8px;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+
+    .shortcut-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 10px;
+      background: var(--theme-chip);
+      color: var(--theme-accent-strong);
+      display: grid;
+      place-items: center;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .shortcut-label {
+      font-size: 11px;
+      line-height: 1.3;
+      color: var(--theme-text);
+      font-weight: 650;
+    }
+
+    .song-block {
+      border-radius: 18px;
+      background: var(--theme-card);
+      border: 1px solid var(--theme-soft-line);
+      padding: 12px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .song-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .song-head-main {
+      display: grid;
+      gap: 4px;
+    }
+
+    .song-head-title {
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.2;
+      letter-spacing: -0.03em;
+      font-weight: 770;
+    }
+
+    .song-head-copy {
+      margin: 0;
+      color: var(--theme-muted);
+      font-size: 12px;
+    }
+
+    .song-main-action {
+      padding: 8px 11px;
+      border-radius: 999px;
+      background: var(--theme-accent-strong);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .song-strip {
+      display: flex;
+      gap: 10px;
+      overflow: hidden;
+    }
+
+    .song-stack {
+      flex: 0 0 62%;
+      border-radius: 16px;
+      background: var(--theme-song-stack);
+      border: 1px solid var(--theme-soft-line);
+      padding: 6px 10px;
+    }
+
+    .song-row {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) 34px;
+      align-items: center;
+      gap: 10px;
+      min-height: 66px;
+    }
+
+    .song-row + .song-row {
+      border-top: 1px solid var(--theme-row-line);
+    }
+
+    .art {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: var(--art-bg);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+    }
+
+    .song-text {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .song-name {
+      font-size: 15px;
+      line-height: 1.2;
+      font-weight: 720;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .song-meta {
+      font-size: 12px;
+      color: var(--theme-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .song-reason {
+      font-size: 12px;
+      color: var(--theme-accent);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .song-side {
+      display: grid;
+      justify-items: center;
+      gap: 4px;
+      color: var(--theme-muted);
+    }
+
+    .more {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--theme-more);
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .duration {
+      font-size: 11px;
+    }
+
+    .playlist-row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .playlist-card {
+      display: grid;
+      gap: 10px;
+    }
+
+    .playlist-cover {
+      aspect-ratio: 1 / 1;
+      border-radius: 16px;
+      background: var(--playlist-bg);
+      border: 1px solid var(--theme-soft-line);
+    }
+
+    .playlist-title {
+      font-size: 13px;
+      line-height: 1.35;
+      font-weight: 680;
+      min-height: 35px;
+    }
+
+    .playlist-meta {
+      font-size: 12px;
+      color: var(--theme-muted);
+    }
+
+    .appbar-tools {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .utility-icon {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      color: var(--theme-text);
+      font-size: 16px;
+    }
+
+    .playlist-frame {
+      position: relative;
+    }
+
+    .playlist-flag {
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(13, 10, 10, 0.84);
+      color: rgba(255, 255, 255, 0.96);
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    .variant-summary {
+      border-top: 1px solid var(--page-line);
+      padding-top: 14px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .summary-title {
+      font-size: 13px;
+      font-weight: 760;
+      color: var(--theme-accent-strong);
+    }
+
+    .summary-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--page-muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .theme-a {
+      --theme-bg: #f7f2ea;
+      --theme-bg-soft: #f5efe6;
+      --theme-glow: rgba(255, 255, 255, 0.54);
+      --theme-card: #fffdfa;
+      --theme-song-stack: #fefbf8;
+      --theme-shell-line: rgba(42, 34, 28, 0.08);
+      --theme-soft-line: rgba(42, 34, 28, 0.08);
+      --theme-row-line: rgba(42, 34, 28, 0.09);
+      --theme-search: #fbf7f0;
+      --theme-banner: linear-gradient(180deg, #72513f 0%, #2b201c 100%);
+      --theme-text: #211c17;
+      --theme-muted: #7b7269;
+      --theme-accent: #cc674f;
+      --theme-accent-strong: #b45138;
+      --theme-chip: rgba(204, 103, 79, 0.12);
+      --theme-avatar: linear-gradient(135deg, #dfb89b 0%, #bb7859 100%);
+      --theme-more: rgba(49, 39, 32, 0.06);
+    }
+
+    .theme-b {
+      --theme-bg: #fbf7f5;
+      --theme-bg-soft: #f5efeb;
+      --theme-glow: rgba(255, 255, 255, 0.58);
+      --theme-card: #ffffff;
+      --theme-song-stack: #fffdfc;
+      --theme-shell-line: rgba(77, 52, 44, 0.08);
+      --theme-soft-line: rgba(77, 52, 44, 0.09);
+      --theme-row-line: rgba(77, 52, 44, 0.09);
+      --theme-search: #fffdfb;
+      --theme-banner: linear-gradient(180deg, #d95e52 0%, #9d2a24 100%);
+      --theme-text: #251a17;
+      --theme-muted: #7d6d68;
+      --theme-accent: #da5a4f;
+      --theme-accent-strong: #bf3e35;
+      --theme-chip: rgba(218, 90, 79, 0.11);
+      --theme-avatar: linear-gradient(135deg, #f1b6ae 0%, #d95d52 100%);
+      --theme-more: rgba(161, 70, 58, 0.07);
+    }
+
+    .theme-c {
+      --theme-bg: #eef1ef;
+      --theme-bg-soft: #e8ece9;
+      --theme-glow: rgba(255, 255, 255, 0.44);
+      --theme-card: #f9fbfa;
+      --theme-song-stack: #fcfefd;
+      --theme-shell-line: rgba(37, 48, 43, 0.09);
+      --theme-soft-line: rgba(37, 48, 43, 0.09);
+      --theme-row-line: rgba(37, 48, 43, 0.09);
+      --theme-search: #f6f8f7;
+      --theme-banner: linear-gradient(180deg, #4a615d 0%, #25322f 100%);
+      --theme-text: #1d2522;
+      --theme-muted: #68726d;
+      --theme-accent: #3f7a6f;
+      --theme-accent-strong: #335f57;
+      --theme-chip: rgba(63, 122, 111, 0.11);
+      --theme-avatar: linear-gradient(135deg, #b8d1ca 0%, #4b6b64 100%);
+      --theme-more: rgba(37, 48, 43, 0.06);
+    }
+
+    .theme-d {
+      --theme-bg: #fbfbfd;
+      --theme-bg-soft: #f7f7fa;
+      --theme-glow: rgba(255, 255, 255, 0.22);
+      --theme-card: #ffffff;
+      --theme-song-stack: #ffffff;
+      --theme-shell-line: rgba(28, 25, 23, 0.08);
+      --theme-soft-line: rgba(28, 25, 23, 0.07);
+      --theme-row-line: rgba(28, 25, 23, 0.08);
+      --theme-search: #f5f4f6;
+      --theme-banner:
+        linear-gradient(135deg, rgba(255, 118, 88, 0.06) 0 18%, transparent 18% 32%, rgba(255, 118, 88, 0.12) 32% 44%, transparent 44% 56%, rgba(255, 118, 88, 0.18) 56% 68%, transparent 68% 100%),
+        radial-gradient(circle at 85% 0%, rgba(255, 108, 78, 0.38), transparent 28%),
+        radial-gradient(circle at 8% 100%, rgba(255, 82, 56, 0.34), transparent 38%),
+        linear-gradient(135deg, #250404 0%, #8b0f0c 42%, #1a0404 100%);
+      --theme-text: #161312;
+      --theme-muted: #786e69;
+      --theme-accent: #f14134;
+      --theme-accent-strong: #da2c21;
+      --theme-chip: rgba(241, 65, 52, 0.1);
+      --theme-avatar: linear-gradient(135deg, #d9e7f7 0%, #8eb0d0 100%);
+      --theme-more: rgba(58, 40, 34, 0.08);
+    }
+
+    .theme-d .screen-inner {
+      background: #fcfcfe;
+      padding-top: 16px;
+      gap: 20px;
+    }
+
+    .theme-d .appbar-title {
+      color: #db281d;
+      font-size: 24px;
+      font-weight: 820;
+      letter-spacing: -0.03em;
+    }
+
+    .theme-d .appbar-subtitle {
+      display: none;
+    }
+
+    .theme-d .search {
+      height: 50px;
+      border-radius: 16px;
+      background: #f5f4f6;
+      border-color: #efedf1;
+      color: #8e7f79;
+      font-size: 16px;
+      padding: 0 16px;
+    }
+
+    .theme-d .banner {
+      min-height: 178px;
+      border-radius: 18px;
+      padding: 18px;
+    }
+
+    .theme-d .banner-badge {
+      background: transparent;
+      padding: 0;
+      border-radius: 0;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+    }
+
+    .theme-d .banner-title {
+      font-size: 22px;
+      max-width: 250px;
+      font-weight: 800;
+    }
+
+    .theme-d .banner-copy {
+      display: none;
+    }
+
+    .theme-d .shortcut-row {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .theme-d .shortcut {
+      min-height: 114px;
+      border-radius: 22px;
+      background: #f7f7fa;
+      border-color: #efedf1;
+      padding: 14px 10px;
+      justify-items: center;
+      align-content: center;
+      gap: 12px;
+    }
+
+    .theme-d .shortcut-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 18px;
+      background: #ffffff;
+      box-shadow: 0 10px 24px rgba(214, 43, 33, 0.1);
+      font-size: 22px;
+    }
+
+    .theme-d .shortcut.primary .shortcut-icon {
+      background: #ff4d43;
+      color: #ffffff;
+      box-shadow: 0 12px 24px rgba(241, 65, 52, 0.22);
+    }
+
+    .theme-d .shortcut-label {
+      text-align: center;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .theme-d .song-block {
+      background: transparent;
+      border: none;
+      padding: 0;
+      gap: 0;
+    }
+
+    .theme-d .song-strip {
+      gap: 14px;
+      overflow: hidden;
+      padding-bottom: 2px;
+    }
+
+    .theme-d .song-stack {
+      flex: 0 0 70%;
+      border-radius: 0;
+      background: transparent;
+      border: none;
+      padding: 0;
+      box-shadow: none;
+    }
+
+    .theme-d .song-row {
+      grid-template-columns: 56px minmax(0, 1fr) 26px;
+      min-height: 82px;
+      gap: 14px;
+    }
+
+    .theme-d .song-row + .song-row {
+      border-top: 1px solid var(--theme-row-line);
+      padding-top: 18px;
+    }
+
+    .theme-d .song-row .art {
+      width: 56px;
+      height: 56px;
+      border-radius: 12px;
+      box-shadow: none;
+    }
+
+    .theme-d .song-text {
+      gap: 5px;
+    }
+
+    .theme-d .song-name {
+      font-size: 15px;
+      font-weight: 760;
+    }
+
+    .theme-d .song-meta {
+      font-size: 13px;
+    }
+
+    .theme-d .song-reason {
+      font-size: 12px;
+      color: var(--theme-accent);
+    }
+
+    .theme-d .song-side {
+      justify-items: end;
+      gap: 0;
+      color: #9a8c86;
+    }
+
+    .theme-d .more {
+      width: 24px;
+      height: 24px;
+      background: transparent;
+      font-size: 18px;
+    }
+
+    .theme-d .duration {
+      display: none;
+    }
+
+    .art-a1 { --art-bg: linear-gradient(135deg, #dcb4ff 0%, #8a78d2 100%); }
+    .art-a2 { --art-bg: linear-gradient(135deg, #20201d 0%, #5b2d2f 100%); }
+    .art-a3 { --art-bg: linear-gradient(135deg, #f0eee7 0%, #bfb8af 100%); }
+    .art-a4 { --art-bg: linear-gradient(135deg, #95aec8 0%, #48657f 100%); }
+    .art-b1 { --art-bg: linear-gradient(135deg, #f0bab5 0%, #d14f44 100%); }
+    .art-b2 { --art-bg: linear-gradient(135deg, #f6d0bb 0%, #d96d49 100%); }
+    .art-b3 { --art-bg: linear-gradient(135deg, #f1d9c5 0%, #d6b083 100%); }
+    .art-b4 { --art-bg: linear-gradient(135deg, #f7eee8 0%, #d7cdc5 100%); }
+    .art-c1 { --art-bg: linear-gradient(135deg, #cad9d2 0%, #78908a 100%); }
+    .art-c2 { --art-bg: linear-gradient(135deg, #7ca0a3 0%, #2f5055 100%); }
+    .art-c3 { --art-bg: linear-gradient(135deg, #e3e7e2 0%, #b9c3be 100%); }
+    .art-c4 { --art-bg: linear-gradient(135deg, #d4d7c1 0%, #7d8a60 100%); }
+    .art-d1 { --art-bg: linear-gradient(135deg, #ff6c64 0%, #f14134 100%); }
+    .art-d2 { --art-bg: linear-gradient(135deg, #1a1f35 0%, #0b0f1b 100%); }
+    .art-d3 { --art-bg: linear-gradient(135deg, #5a5a5d 0%, #242527 100%); }
+    .cover-a1 { --playlist-bg: linear-gradient(135deg, #3c2b25 0%, #705240 100%); }
+    .cover-a2 { --playlist-bg: linear-gradient(135deg, #d0c0ab 0%, #8b6d56 100%); }
+    .cover-b1 { --playlist-bg: linear-gradient(135deg, #ca4f45 0%, #77231e 100%); }
+    .cover-b2 { --playlist-bg: linear-gradient(135deg, #f0c2ad 0%, #cd7851 100%); }
+    .cover-c1 { --playlist-bg: linear-gradient(135deg, #2f4745 0%, #69837e 100%); }
+    .cover-c2 { --playlist-bg: linear-gradient(135deg, #d9ddd7 0%, #95a49e 100%); }
+    .cover-d1 { --playlist-bg: linear-gradient(135deg, #2e120c 0%, #b54b1a 100%); }
+    .cover-d2 { --playlist-bg: linear-gradient(135deg, #0f0d0e 0%, #5a3815 100%); }
+
+    @media (max-width: 1180px) {
+      .variants {
+        grid-template-columns: 1fr;
+      }
+
+      .variant {
+        max-width: 880px;
+        margin: 0 auto;
+      }
+
+      .phone {
+        max-width: 390px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page {
+        width: min(100% - 24px, 100%);
+        padding-top: 24px;
+      }
+
+      .topbar {
+        display: grid;
+      }
+
+      .legend {
+        justify-content: start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="topbar">
+      <div>
+        <h1 class="title">首页风格参考稿</h1>
+        <p class="subtitle">
+          同一个 HTML 里放了 4 套不同方向。你只需要选一套最顺眼的，我再按这套视觉语言收当前首页。
+          重点看四块是否和谐：顶部、快捷入口、歌曲推荐区、歌单区。
+        </p>
+      </div>
+      <div class="legend">
+        <span class="legend-chip">A 偏 Apple Music</span>
+        <span class="legend-chip">B 偏中文音乐产品</span>
+        <span class="legend-chip">C 偏冷灰现代推荐流</span>
+        <span class="legend-chip">D 偏红白编辑精选</span>
+      </div>
+    </section>
+
+    <section class="variants">
+      <article class="variant theme-a">
+        <header class="variant-head">
+          <span class="variant-kicker">方案 A</span>
+          <h2 class="variant-title">暖白留白型</h2>
+          <p class="variant-copy">
+            重点是节奏统一，不追求花样。搜索、banner、歌曲和歌单都保持同一套暖白容器系统，首页看起来更整。
+          </p>
+          <div class="variant-notes">
+            <span class="note-chip">适合当前暖白底</span>
+            <span class="note-chip">克制</span>
+            <span class="note-chip">最稳</span>
+          </div>
+        </header>
+
+        <div class="phone">
+          <section class="phone-screen">
+            <div class="screen-inner">
+              <div class="statusbar">
+                <span>9:41</span>
+                <span>5G · 100%</span>
+              </div>
+
+              <div class="appbar">
+                <div>
+                  <h3 class="appbar-title">发现</h3>
+                  <p class="appbar-subtitle">今天适合听一点温柔但不散的歌</p>
+                </div>
+                <div class="avatar"></div>
+              </div>
+
+              <div class="search">搜索你喜欢的音乐、歌单或歌手</div>
+
+              <div class="banner">
+                <span class="banner-badge">独家策划</span>
+                <p class="banner-title">午夜电台里，慢一点的心动</p>
+                <p class="banner-copy">大图只承担情绪氛围，不再和正文列表抢层级。</p>
+              </div>
+
+              <section class="section">
+                <div class="section-head">
+                  <h4 class="section-title">快捷入口</h4>
+                  <span class="section-action">精简为功能，不抢推荐流</span>
+                </div>
+                <div class="shortcut-row">
+                  <div class="shortcut"><div class="shortcut-icon">日</div><div class="shortcut-label">每日推荐</div></div>
+                  <div class="shortcut"><div class="shortcut-icon">榜</div><div class="shortcut-label">排行榜</div></div>
+                  <div class="shortcut"><div class="shortcut-icon">书</div><div class="shortcut-label">有声书</div></div>
+                  <div class="shortcut"><div class="shortcut-icon">新</div><div class="shortcut-label">关注新歌</div></div>
+                </div>
+              </section>
+
+              <section class="section">
+                <div class="section-head">
+                  <h4 class="section-title">微醺爵士 邀你起舞</h4>
+                  <span class="section-action">整块 12 首一起播</span>
+                </div>
+                <div class="song-block">
+                  <div class="song-head">
+                    <div class="song-head-main">
+                      <p class="song-head-title">今晚可以先听这组</p>
+                      <p class="song-head-copy">推荐理由不抢，只做轻提醒</p>
+                    </div>
+                    <span class="song-main-action">播放全部</span>
+                  </div>
+                  <div class="song-strip">
+                    <div class="song-stack">
+                      <div class="song-row">
+                        <div class="art art-a1"></div>
+                        <div class="song-text">
+                          <div class="song-name">MASCARA</div>
+                          <div class="song-meta">XG · MASCARA</div>
+                          <div class="song-reason">超 71% 人播放</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:11</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-a2"></div>
+                        <div class="song-text">
+                          <div class="song-name">美杜莎</div>
+                          <div class="song-meta">蔡依林 · 哄</div>
+                          <div class="song-reason">超 42% 人收藏</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">4:04</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-a3"></div>
+                        <div class="song-text">
+                          <div class="song-name">Maybe</div>
+                          <div class="song-meta">i-dle · I trust</div>
+                          <div class="song-reason">小众佳作</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:00</div></div>
+                      </div>
+                    </div>
+                    <div class="song-stack">
+                      <div class="song-row">
+                        <div class="art art-a4"></div>
+                        <div class="song-text">
+                          <div class="song-name">Lover Girl</div>
+                          <div class="song-meta">Laufey · Bewitched</div>
+                          <div class="song-reason">十万红心推荐</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">2:44</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-a1"></div>
+                        <div class="song-text">
+                          <div class="song-name">Black Pearl</div>
+                          <div class="song-meta">宣美 · Warning</div>
+                          <div class="song-reason">中间那段很抓耳</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:19</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-a3"></div>
+                        <div class="song-text">
+                          <div class="song-name">I Need To Be In Love</div>
+                          <div class="song-meta">Winterplay · Rebirth</div>
+                          <div class="song-reason">晚间听感很顺</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:41</div></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="section">
+                <div class="section-head">
+                  <h4 class="section-title">推荐歌单</h4>
+                  <span class="section-action">卡片更稳，不花哨</span>
+                </div>
+                <div class="playlist-row">
+                  <div class="playlist-card">
+                    <div class="playlist-cover cover-a1"></div>
+                    <div class="playlist-title">你和别人不一样</div>
+                    <div class="playlist-meta">说唱 · 流行</div>
+                  </div>
+                  <div class="playlist-card">
+                    <div class="playlist-cover cover-a2"></div>
+                    <div class="playlist-title">今天从《Limbo》听起</div>
+                    <div class="playlist-meta">私人雷达</div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
+
+        <section class="variant-summary">
+          <div class="summary-title">适合借用的点</div>
+          <ul class="summary-list">
+            <li>整体最稳，适合你现在这套暖白底继续往下收。</li>
+            <li>歌曲区会更像首页的一部分，不像单独专题页。</li>
+            <li>风险最小，但惊喜感也最少。</li>
+          </ul>
+        </section>
+      </article>
+
+      <article class="variant theme-b">
+        <header class="variant-head">
+          <span class="variant-kicker">方案 B</span>
+          <h2 class="variant-title">中文音乐产品型</h2>
+          <p class="variant-copy">
+            强一点的中文产品气质，标题更有主次，推荐区更像真正的音乐首页，而不是海外流媒体的翻版。
+          </p>
+          <div class="variant-notes">
+            <span class="note-chip">偏网易云音乐</span>
+            <span class="note-chip">红白流行感</span>
+            <span class="note-chip">信息感更强</span>
+          </div>
+        </header>
+
+        <div class="phone">
+          <section class="phone-screen">
+            <div class="screen-inner">
+              <div class="statusbar">
+                <span>9:41</span>
+                <span>5G · 100%</span>
+              </div>
+
+              <div class="appbar">
+                <div>
+                  <h3 class="appbar-title">为你推荐</h3>
+                  <p class="appbar-subtitle">内容感更强，中文标题不再弱掉</p>
+                </div>
+                <div class="avatar"></div>
+              </div>
+
+              <div class="search">搜索歌曲、歌手、专辑和播客</div>
+
+              <div class="banner">
+                <span class="banner-badge">编辑精选</span>
+                <p class="banner-title">新鲜、亲密、带一点都市夜色</p>
+                <p class="banner-copy">更像国内音乐产品的推荐语气，氛围更近。</p>
+              </div>
+
+              <section class="section">
+                <div class="section-head">
+                  <h4 class="section-title">常用功能</h4>
+                  <span class="section-action">用统一卡片，不做彩色杂糅</span>
+                </div>
+                <div class="shortcut-row">
+                  <div class="shortcut"><div class="shortcut-icon">推</div><div class="shortcut-label">每日推荐</div></div>
+                  <div class="shortcut"><div class="shortcut-icon">FM</div><div class="shortcut-label">私人 FM</div></div>
+                  <div class="shortcut"><div class="shortcut-icon">榜</div><div class="shortcut-label">排行榜</div></div>
+                  <div class="shortcut"><div class="shortcut-icon">播</div><div class="shortcut-label">热门播客</div></div>
+                </div>
+              </section>
+
+              <section class="section">
+                <div class="section-head">
+                  <h4 class="section-title">今晚值得先听</h4>
+                  <span class="section-action">推荐语更像编辑导语</span>
+                </div>
+                <div class="song-block">
+                  <div class="song-head">
+                    <div class="song-head-main">
+                      <p class="song-head-title">爵士、都会、轻微酒精感</p>
+                      <p class="song-head-copy">歌曲区更像推荐流里的正文，不再像额外模块</p>
+                    </div>
+                    <span class="song-main-action">立即播放</span>
+                  </div>
+                  <div class="song-strip">
+                    <div class="song-stack">
+                      <div class="song-row">
+                        <div class="art art-b1"></div>
+                        <div class="song-text">
+                          <div class="song-name">MASCARA</div>
+                          <div class="song-meta">XG · MASCARA</div>
+                          <div class="song-reason">超 71% 人播放</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:11</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-b2"></div>
+                        <div class="song-text">
+                          <div class="song-name">美杜莎</div>
+                          <div class="song-meta">蔡依林 · 哄</div>
+                          <div class="song-reason">超 42% 人收藏</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">4:04</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-b3"></div>
+                        <div class="song-text">
+                          <div class="song-name">Maybe</div>
+                          <div class="song-meta">i-dle · I trust</div>
+                          <div class="song-reason">轻微冷感，适合夜里</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:00</div></div>
+                      </div>
+                    </div>
+                    <div class="song-stack">
+                      <div class="song-row">
+                        <div class="art art-b4"></div>
+                        <div class="song-text">
+                          <div class="song-name">Lover Girl</div>
+                          <div class="song-meta">Laufey · Bewitched</div>
+                          <div class="song-reason">适合顺着往下听</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">2:44</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-b1"></div>
+                        <div class="song-text">
+                          <div class="song-name">Black Pearl</div>
+                          <div class="song-meta">宣美 · Warning</div>
+                          <div class="song-reason">副歌上来就很准</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:19</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-b3"></div>
+                        <div class="song-text">
+                          <div class="song-name">I Need To Be In Love</div>
+                          <div class="song-meta">Winterplay · Rebirth</div>
+                          <div class="song-reason">适合夜间切入</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:41</div></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="section">
+                <div class="section-head">
+                  <h4 class="section-title">推荐歌单</h4>
+                  <span class="section-action">更像内容流，不像货架</span>
+                </div>
+                <div class="playlist-row">
+                  <div class="playlist-card">
+                    <div class="playlist-cover cover-b1"></div>
+                    <div class="playlist-title">一定要在火车上听的曲儿</div>
+                    <div class="playlist-meta">地铁 · 怀旧 · 安静</div>
+                  </div>
+                  <div class="playlist-card">
+                    <div class="playlist-cover cover-b2"></div>
+                    <div class="playlist-title">心中有山海 华语民谣 Top 30</div>
+                    <div class="playlist-meta">华语 · 民谣 · 旅行</div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
+
+        <section class="variant-summary">
+          <div class="summary-title">适合借用的点</div>
+          <ul class="summary-list">
+            <li>最符合中文音乐产品直觉，内容感强。</li>
+            <li>首页更“像音乐 App”，不是泛内容推荐页。</li>
+            <li>风险是如果收不好，会重新变得太满。</li>
+          </ul>
+        </section>
+      </article>
+
+      <article class="variant theme-c">
+        <header class="variant-head">
+          <span class="variant-kicker">方案 C</span>
+          <h2 class="variant-title">冷灰现代型</h2>
+          <p class="variant-copy">
+            适合把首页做得更清爽现代，推荐模块更平，颜色更冷静。比现在更像一款整理过的内容产品。
+          </p>
+          <div class="variant-notes">
+            <span class="note-chip">偏 YouTube Music</span>
+            <span class="note-chip">冷灰</span>
+            <span class="note-chip">现代感最强</span>
+          </div>
+        </header>
+
+        <div class="phone">
+          <section class="phone-screen">
+            <div class="screen-inner">
+              <div class="statusbar">
+                <span>9:41</span>
+                <span>5G · 100%</span>
+              </div>
+
+              <div class="appbar">
+                <div>
+                  <h3 class="appbar-title">Home</h3>
+                  <p class="appbar-subtitle">用冷静的层级把所有推荐块压平</p>
+                </div>
+                <div class="avatar"></div>
+              </div>
+
+              <div class="search">Search songs, artists, playlists</div>
+
+              <div class="banner">
+                <span class="banner-badge">Made for tonight</span>
+                <p class="banner-title">Slow heat, clean rhythm</p>
+                <p class="banner-copy">更现代，但必须整体切换颜色系统才会顺。</p>
+              </div>
+
+              <section class="section">
+                <div class="section-head">
+                  <h4 class="section-title">Quick access</h4>
+                  <span class="section-action">功能和内容都更扁平</span>
+                </div>
+                <div class="shortcut-row">
+                  <div class="shortcut"><div class="shortcut-icon">D</div><div class="shortcut-label">Daily mix</div></div>
+                  <div class="shortcut"><div class="shortcut-icon">R</div><div class="shortcut-label">Ranking</div></div>
+                  <div class="shortcut"><div class="shortcut-icon">P</div><div class="shortcut-label">Podcast</div></div>
+                  <div class="shortcut"><div class="shortcut-icon">N</div><div class="shortcut-label">New songs</div></div>
+                </div>
+              </section>
+
+              <section class="section">
+                <div class="section-head">
+                  <h4 class="section-title">Jazz drift</h4>
+                  <span class="section-action">冷静，但不应该太冷</span>
+                </div>
+                <div class="song-block">
+                  <div class="song-head">
+                    <div class="song-head-main">
+                      <p class="song-head-title">Compact and calm</p>
+                      <p class="song-head-copy">更偏模块化，不强调编辑语气</p>
+                    </div>
+                    <span class="song-main-action">Play</span>
+                  </div>
+                  <div class="song-strip">
+                    <div class="song-stack">
+                      <div class="song-row">
+                        <div class="art art-c1"></div>
+                        <div class="song-text">
+                          <div class="song-name">MASCARA</div>
+                          <div class="song-meta">XG · MASCARA</div>
+                          <div class="song-reason">High repeat rate</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:11</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-c2"></div>
+                        <div class="song-text">
+                          <div class="song-name">Lover Girl</div>
+                          <div class="song-meta">Laufey · Bewitched</div>
+                          <div class="song-reason">Calm midnight pick</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">2:44</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-c3"></div>
+                        <div class="song-text">
+                          <div class="song-name">Maybe</div>
+                          <div class="song-meta">i-dle · I trust</div>
+                          <div class="song-reason">Soft and minimal</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:00</div></div>
+                      </div>
+                    </div>
+                    <div class="song-stack">
+                      <div class="song-row">
+                        <div class="art art-c4"></div>
+                        <div class="song-text">
+                          <div class="song-name">Black Pearl</div>
+                          <div class="song-meta">宣美 · Warning</div>
+                          <div class="song-reason">Sharper chorus</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:19</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-c1"></div>
+                        <div class="song-text">
+                          <div class="song-name">BATTER UP</div>
+                          <div class="song-meta">BABYMONSTER</div>
+                          <div class="song-reason">Strong rhythm move</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:08</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-c3"></div>
+                        <div class="song-text">
+                          <div class="song-name">DART</div>
+                          <div class="song-meta">Aimer · Sun Dance</div>
+                          <div class="song-reason">Low-key favorite</div>
+                        </div>
+                        <div class="song-side"><div class="more">···</div><div class="duration">3:13</div></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="section">
+                <div class="section-head">
+                  <h4 class="section-title">Playlist picks</h4>
+                  <span class="section-action">轻、平、整</span>
+                </div>
+                <div class="playlist-row">
+                  <div class="playlist-card">
+                    <div class="playlist-cover cover-c1"></div>
+                    <div class="playlist-title">Late night soft city</div>
+                    <div class="playlist-meta">Jazz · Soul · City</div>
+                  </div>
+                  <div class="playlist-card">
+                    <div class="playlist-cover cover-c2"></div>
+                    <div class="playlist-title">Quiet tracks for the train</div>
+                    <div class="playlist-meta">Indie · Warm</div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
+
+        <section class="variant-summary">
+          <div class="summary-title">适合借用的点</div>
+          <ul class="summary-list">
+            <li>现代感最强，模块最干净。</li>
+            <li>如果首页继续保留暖白底，这套会显得跳。</li>
+            <li>更适合整页一起换色，不适合只修一个区块。</li>
+          </ul>
+        </section>
+      </article>
+
+      <article class="variant theme-d">
+        <header class="variant-head">
+          <span class="variant-kicker">方案 D</span>
+          <h2 class="variant-title">红白编辑精选型</h2>
+          <p class="variant-copy">
+            直接参考你给的图，品牌感更强，整体是纯白底加红黑主视觉。它不像前几版那么克制，但更像真正上线的中文音乐首页。
+          </p>
+          <div class="variant-notes">
+            <span class="note-chip">参考图同气质</span>
+            <span class="note-chip">红白</span>
+            <span class="note-chip">编辑感更强</span>
+          </div>
+        </header>
+
+        <div class="phone">
+          <section class="phone-screen">
+            <div class="screen-inner">
+              <div class="statusbar">
+                <span>9:41</span>
+                <span>5G · 100%</span>
+              </div>
+
+              <div class="appbar">
+                <div>
+                  <h3 class="appbar-title">SONIC</h3>
+                  <p class="appbar-subtitle">red editorial home</p>
+                </div>
+                <div class="appbar-tools">
+                  <div class="utility-icon">🔔</div>
+                  <div class="avatar"></div>
+                </div>
+              </div>
+
+              <div class="search">搜索您想听的音乐</div>
+
+              <div class="banner">
+                <span class="banner-badge">SONIC EDITORIAL</span>
+                <p class="banner-title">Exclusive Curation: Late Night Rhythm</p>
+                <p class="banner-copy">banner 更像品牌编辑位，而不是纯氛围图。</p>
+              </div>
+
+              <section class="section">
+                <div class="section-head">
+                  <h4 class="section-title">每日推荐</h4>
+                  <span class="section-action" style="color: var(--theme-accent-strong); font-weight: 700;">查看全部</span>
+                </div>
+                <div class="shortcut-row">
+                  <div class="shortcut primary"><div class="shortcut-icon">★</div><div class="shortcut-label">今日特辑</div></div>
+                  <div class="shortcut"><div class="shortcut-icon">◉</div><div class="shortcut-label">私人雷达</div></div>
+                  <div class="shortcut"><div class="shortcut-icon">↗</div><div class="shortcut-label">飙升榜</div></div>
+                </div>
+              </section>
+
+              <section class="section">
+                <div class="section-head">
+                  <h4 class="section-title">推荐歌单</h4>
+                  <span class="section-action">双列强内容图</span>
+                </div>
+                <div class="playlist-row">
+                  <div class="playlist-card">
+                    <div class="playlist-frame">
+                      <div class="playlist-cover cover-d1"></div>
+                      <span class="playlist-flag">▶ 128.5 万</span>
+                    </div>
+                    <div class="playlist-title">爵士午后：慵懒时光的伴奏</div>
+                  </div>
+                  <div class="playlist-card">
+                    <div class="playlist-frame">
+                      <div class="playlist-cover cover-d2"></div>
+                      <span class="playlist-flag">▶ 85.2 万</span>
+                    </div>
+                    <div class="playlist-title">经典重现：那些触动灵魂的旋律</div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="section">
+                <div class="section-head">
+                  <h4 class="section-title">猜你喜欢</h4>
+                  <span class="section-action">三首一列，横向滑动</span>
+                </div>
+                <div class="song-block">
+                  <div class="song-strip">
+                    <div class="song-stack">
+                      <div class="song-row">
+                        <div class="art art-d1"></div>
+                        <div class="song-text">
+                          <div class="song-name">午夜飞行 (Midnight Flight)</div>
+                          <div class="song-meta">Lofi Chill Beats</div>
+                          <div class="song-reason">夜间播放热度上升</div>
+                        </div>
+                        <div class="song-side"><div class="more">⋮</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-d2"></div>
+                        <div class="song-text">
+                          <div class="song-name">星尘 (Stardust)</div>
+                          <div class="song-meta">Nebula Theory</div>
+                          <div class="song-reason">适合顺着往下听</div>
+                        </div>
+                        <div class="song-side"><div class="more">⋮</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-d3"></div>
+                        <div class="song-text">
+                          <div class="song-name">森林回响 (Echoes)</div>
+                          <div class="song-meta">Ambient Nature</div>
+                          <div class="song-reason">小众但完成度很高</div>
+                        </div>
+                        <div class="song-side"><div class="more">⋮</div></div>
+                      </div>
+                    </div>
+                    <div class="song-stack">
+                      <div class="song-row">
+                        <div class="art art-d2"></div>
+                        <div class="song-text">
+                          <div class="song-name">Velvet Rush</div>
+                          <div class="song-meta">Noir Avenue</div>
+                          <div class="song-reason">编辑精选收录</div>
+                        </div>
+                        <div class="song-side"><div class="more">⋮</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-d1"></div>
+                        <div class="song-text">
+                          <div class="song-name">Neon Harbor</div>
+                          <div class="song-meta">Luna Code</div>
+                          <div class="song-reason">副歌记忆点很强</div>
+                        </div>
+                        <div class="song-side"><div class="more">⋮</div></div>
+                      </div>
+                      <div class="song-row">
+                        <div class="art art-d3"></div>
+                        <div class="song-text">
+                          <div class="song-name">Afterglow Tape</div>
+                          <div class="song-meta">City Static</div>
+                          <div class="song-reason">通勤和深夜都适配</div>
+                        </div>
+                        <div class="song-side"><div class="more">⋮</div></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
+
+        <section class="variant-summary">
+          <div class="summary-title">适合借用的点</div>
+          <ul class="summary-list">
+            <li>品牌感和上线成品感最强，最接近你给的参考图。</li>
+            <li>首页会更像“编辑推荐首页”，不是纯工具型发现页。</li>
+            <li>风险是颜色个性更强，后续需要把全页一起统一，不然局部会跳。</li>
+          </ul>
+        </section>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

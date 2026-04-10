@@ -20,8 +20,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.wxy.playerlite.core.playback.AppPlaybackGraph
 import com.wxy.playerlite.feature.local.LocalSongsActivity
 import com.wxy.playerlite.feature.main.ContentEntryAction
+import com.wxy.playerlite.feature.main.HomeEntryAction
 import com.wxy.playerlite.feature.main.HomeOverviewScreen
 import com.wxy.playerlite.feature.main.HomeChromeLayoutSpec
 import com.wxy.playerlite.feature.main.HomeViewModel
@@ -40,6 +42,7 @@ import com.wxy.playerlite.feature.player.PlayerEntry
 import com.wxy.playerlite.feature.player.PlayerViewModel
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
+import com.wxy.playerlite.feature.player.runtime.DetailPlaybackRequest
 import com.wxy.playerlite.feature.search.SearchActivity
 import com.wxy.playerlite.feature.user.InitialLoginLaunchGate
 import com.wxy.playerlite.feature.user.LoginActivity
@@ -159,7 +162,7 @@ class MainActivity : ComponentActivity() {
                                         )
                                     },
                                     onRetry = homeViewModel::refresh,
-                                    onItemClick = ::handleContentEntryAction,
+                                    onAction = ::handleHomeEntryAction,
                                     modifier = Modifier.padding(top = topInset)
                                 )
                             }
@@ -260,6 +263,43 @@ class MainActivity : ComponentActivity() {
             startActivity(intent)
         }.onFailure {
             showContentEntryMessage(launch.failureMessage ?: "当前内容暂时无法打开")
+        }
+    }
+
+    private fun handleHomeEntryAction(action: HomeEntryAction) {
+        when (action) {
+            is HomeEntryAction.OpenContent -> handleContentEntryAction(action.entry)
+            is HomeEntryAction.ReplaceQueueAndOpenPlayer -> {
+                val playbackGateway = AppPlaybackGraph.detailPlaybackGateway(this)
+                val played = playbackGateway.play(
+                    DetailPlaybackRequest(
+                        items = action.items,
+                        activeIndex = action.activeIndex
+                    )
+                )
+                if (!played) {
+                    showContentEntryMessage("播放失败：当前列表没有可播放条目")
+                    return
+                }
+                startActivity(
+                    PlayerEntry.createIntent(
+                        context = this,
+                        startPlayback = true
+                    )
+                )
+            }
+
+            is HomeEntryAction.InsertNext -> {
+                val inserted = AppPlaybackGraph.runtime(this)
+                    .insertPlaylistItemNext(action.item)
+                showContentEntryMessage(
+                    if (inserted) {
+                        "已加入下一首播放"
+                    } else {
+                        "当前没有可插入的播放上下文"
+                    }
+                )
+            }
         }
     }
 

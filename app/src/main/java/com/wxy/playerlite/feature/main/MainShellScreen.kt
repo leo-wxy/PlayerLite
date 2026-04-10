@@ -69,6 +69,8 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -79,15 +81,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -102,7 +107,6 @@ import com.wxy.playerlite.feature.player.ui.SharedMiniPlayerBarTestTags
 import com.wxy.playerlite.feature.player.ui.SharedMiniPlayerOpenPlayerClickTarget
 import com.wxy.playerlite.feature.player.ui.resolveSharedMiniPlayerBarState
 import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
-import com.wxy.playerlite.feature.search.SearchRouteTarget
 import com.wxy.playerlite.feature.user.AccountCardSurface
 import com.wxy.playerlite.feature.user.AccountPrimaryButton
 import com.wxy.playerlite.feature.user.AccountVisualStyle
@@ -227,7 +231,7 @@ internal fun HomeOverviewScreen(
     overviewState: HomeOverviewUiState,
     onSearchClick: () -> Unit,
     onRetry: () -> Unit,
-    onItemClick: (ContentEntryAction) -> Unit,
+    onAction: (HomeEntryAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val navigationBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -249,11 +253,11 @@ internal fun HomeOverviewScreen(
                 .testTag("home_discovery_list"),
             contentPadding = PaddingValues(
                 start = 20.dp,
-                top = 96.dp,
+                top = 88.dp,
                 end = 20.dp,
                 bottom = contentBottomPadding + navigationBottomPadding
             ),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(HomeDiscoveryLayoutSpec.sectionSpacing)
         ) {
             if (overviewState.errorMessage != null && overviewState.sections.isNotEmpty()) {
                 item {
@@ -310,7 +314,7 @@ internal fun HomeOverviewScreen(
                     ) { section ->
                         HomeDiscoverySection(
                             section = section,
-                            onItemClick = onItemClick
+                            onAction = onAction
                         )
                     }
                 }
@@ -472,20 +476,20 @@ private fun HomeSearchBox(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .height(HomeDiscoveryLayoutSpec.searchBoxHeight)
             .testTag("home_search_box_container")
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(28.dp),
-        color = HomePanelColor.copy(alpha = 0.95f),
+        shape = RoundedCornerShape(HomeDiscoveryLayoutSpec.searchBoxCornerRadius),
+        color = HomeSearchSurfaceColor,
         tonalElevation = 0.dp,
-        shadowElevation = 12.dp,
-        border = BorderStroke(
-            width = 1.dp,
-            color = HomeDividerColor
-        )
+        shadowElevation = HomeDiscoveryLayoutSpec.searchBoxShadowElevation,
+        border = null
     ) {
         Box(
             modifier = Modifier
-                .padding(horizontal = 18.dp, vertical = 15.dp)
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.CenterStart
         ) {
             RowLikeSearchContent(
                 keyword = keyword,
@@ -508,11 +512,11 @@ private fun RowLikeSearchContent(
         Icon(
             imageVector = Icons.Rounded.Search,
             contentDescription = null,
-            tint = HomeAccentColor.copy(alpha = 0.86f)
+            tint = HomeTextSecondary.copy(alpha = 0.9f)
         )
         Text(
             text = keyword,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyMedium,
             color = HomeTextSecondary.copy(alpha = 0.88f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -526,13 +530,13 @@ private fun HomeOverviewInlineError(
     onRetry: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = HomePanelColor.copy(alpha = 0.92f),
+        shape = RoundedCornerShape(HomeDiscoveryLayoutSpec.standardCardCornerRadius),
+        color = HomeMutedCardColor,
         tonalElevation = 0.dp,
-        shadowElevation = 4.dp,
+        shadowElevation = 0.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = HomeDividerColor
+            color = HomeDividerColor.copy(alpha = 0.72f)
         )
     ) {
         androidx.compose.foundation.layout.Row(
@@ -562,13 +566,13 @@ private fun HomeOverviewStatusCard(
     actionContent: @Composable (() -> Unit)? = null
 ) {
     Surface(
-        shape = RoundedCornerShape(28.dp),
-        color = HomePanelColor.copy(alpha = 0.95f),
+        shape = RoundedCornerShape(HomeDiscoveryLayoutSpec.standardCardCornerRadius),
+        color = HomeCardColor,
         tonalElevation = 0.dp,
-        shadowElevation = 8.dp,
+        shadowElevation = 1.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = HomeDividerColor
+            color = HomeDividerColor.copy(alpha = 0.72f)
         )
     ) {
         Column(
@@ -597,13 +601,13 @@ private fun HomeOverviewStatusCard(
 @Composable
 private fun HomeDiscoverySection(
     section: HomeSectionUiModel,
-    onItemClick: (ContentEntryAction) -> Unit
+    onAction: (HomeEntryAction) -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("home_section_${section.code}"),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         if (section.title.isNotBlank()) {
             HomeSectionTitle(title = section.title)
@@ -612,45 +616,57 @@ private fun HomeDiscoverySection(
         if (HomeDiscoveryLayoutSpec.usesCarousel(section.layout)) {
             HomeBannerCarousel(
                 items = section.items,
-                onItemClick = onItemClick
+                onItemClick = onAction
             )
-        } else if (section.usesSongRowLayout()) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                section.items.forEach { item ->
-                    HomeSongRow(
-                        item = item,
-                        onClick = { onItemClick(item.action) }
-                    )
-                }
-            }
         } else {
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = HomeDiscoveryLayoutSpec.rowContentPadding,
-                horizontalArrangement = Arrangement.spacedBy(HomeDiscoveryLayoutSpec.itemSpacing)
-            ) {
-                items(
-                    items = section.items,
-                    key = { item -> item.id }
-                ) { item ->
-                    when (section.layout) {
-                        HomeSectionLayout.BANNER -> BannerSectionCard(
-                            item = item,
-                            onClick = { onItemClick(item.action) }
+            val songColumns = if (section.usesSongCardLayout()) {
+                section.items.chunked(HomeDiscoveryLayoutSpec.songColumnItemCount)
+            } else {
+                emptyList()
+            }
+            if (section.usesSongCardLayout()) {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = HomeDiscoveryLayoutSpec.songSectionContentPadding,
+                    horizontalArrangement = Arrangement.spacedBy(HomeDiscoveryLayoutSpec.songCardSpacing)
+                ) {
+                    itemsIndexed(
+                        items = songColumns,
+                        key = { columnIndex, items -> items.firstOrNull()?.id ?: "home-song-column-$columnIndex" }
+                    ) { columnIndex, items ->
+                        HomeSongColumn(
+                            columnIndex = columnIndex,
+                            items = items,
+                            onAction = onAction
                         )
+                    }
+                }
+            } else {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = HomeDiscoveryLayoutSpec.rowContentPadding,
+                    horizontalArrangement = Arrangement.spacedBy(HomeDiscoveryLayoutSpec.itemSpacing)
+                ) {
+                    items(
+                        items = section.items,
+                        key = { item -> item.id }
+                    ) { item ->
+                        when {
+                            section.layout == HomeSectionLayout.BANNER -> BannerSectionCard(
+                                item = item,
+                                onClick = { onAction(item.action) }
+                            )
 
-                        HomeSectionLayout.ICON_GRID -> CompactSectionCard(
-                            item = item,
-                            onClick = { onItemClick(item.action) }
-                        )
+                            section.layout == HomeSectionLayout.ICON_GRID -> CompactSectionCard(
+                                item = item,
+                                onClick = { onAction(item.action) }
+                            )
 
-                        HomeSectionLayout.HORIZONTAL_LIST -> DiscoverySectionCard(
-                            item = item,
-                            onClick = { onItemClick(item.action) }
-                        )
+                            else -> DiscoverySectionCard(
+                                item = item,
+                                onClick = { onAction(item.action) }
+                            )
+                        }
                     }
                 }
             }
@@ -661,7 +677,7 @@ private fun HomeDiscoverySection(
 @Composable
 private fun HomeBannerCarousel(
     items: List<HomeSectionItemUiModel>,
-    onItemClick: (ContentEntryAction) -> Unit
+    onItemClick: (HomeEntryAction) -> Unit
 ) {
     val actualCount = items.size
     val pageCount = if (actualCount > 1 && HomeDiscoveryLayoutSpec.bannerUsesInfiniteLoop) {
@@ -716,8 +732,8 @@ private fun HomeBannerCarousel(
                         modifier = Modifier
                             .padding(horizontal = 3.dp)
                             .size(
-                                width = if (selectedIndex == index) 18.dp else 6.dp,
-                                height = 6.dp
+                                width = if (selectedIndex == index) 14.dp else 4.dp,
+                                height = 4.dp
                             )
                             .clip(RoundedCornerShape(50))
                             .background(
@@ -743,13 +759,13 @@ private fun BannerSectionCard(
     Surface(
         onClick = onClick,
         modifier = modifier.testTag("home_banner_card_${item.id}"),
-        shape = RoundedCornerShape(26.dp),
-        color = HomePanelColor.copy(alpha = 0.95f),
+        shape = RoundedCornerShape(HomeDiscoveryLayoutSpec.bannerCardCornerRadius),
+        color = HomeCardColor,
         tonalElevation = 0.dp,
-        shadowElevation = 10.dp,
+        shadowElevation = 1.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = HomeDividerColor
+            color = HomeDividerColor.copy(alpha = 0.72f)
         )
     ) {
         Box {
@@ -766,8 +782,8 @@ private fun BannerSectionCard(
                         brush = Brush.verticalGradient(
                             colors = listOf(
                                 Color.Transparent,
-                                Color.Black.copy(alpha = 0.20f),
-                                Color.Black.copy(alpha = 0.58f)
+                                Color.Black.copy(alpha = 0.16f),
+                                Color.Black.copy(alpha = 0.46f)
                             )
                         )
                     )
@@ -779,25 +795,19 @@ private fun BannerSectionCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (!item.badge.isNullOrBlank() && item.badge != item.title) {
-                    Surface(
-                        modifier = Modifier.testTag("home_banner_badge_${item.id}"),
-                        shape = RoundedCornerShape(999.dp),
-                        color = HomeAccentColor.copy(alpha = 0.92f)
-                    ) {
-                        Text(
-                            text = item.badge,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
-                    }
+                    Text(
+                        text = item.badge,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.88f),
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("home_banner_badge_${item.id}")
+                    )
                 }
                 Text(
                     text = item.title,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.titleLarge,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                     maxLines = HomeDiscoveryLayoutSpec.titleMaxLines,
@@ -806,7 +816,7 @@ private fun BannerSectionCard(
                 if (item.subtitle.isNotBlank()) {
                     Text(
                         text = item.subtitle,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.84f),
                         maxLines = HomeDiscoveryLayoutSpec.subtitleMaxLines,
                         overflow = TextOverflow.Ellipsis
@@ -828,13 +838,13 @@ private fun DiscoverySectionCard(
             .testTag("home_discovery_card_${item.id}")
             .width(HomeDiscoveryLayoutSpec.discoveryCardWidth)
             .height(HomeDiscoveryLayoutSpec.discoveryCardHeight),
-        shape = RoundedCornerShape(24.dp),
-        color = HomePanelColor.copy(alpha = 0.96f),
+        shape = RoundedCornerShape(HomeDiscoveryLayoutSpec.standardCardCornerRadius),
+        color = HomeCardColor,
         tonalElevation = 0.dp,
-        shadowElevation = 8.dp,
+        shadowElevation = 0.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = HomeDividerColor
+            color = HomeDividerColor.copy(alpha = 0.7f)
         )
     ) {
         Column(
@@ -848,15 +858,15 @@ private fun DiscoverySectionCard(
                     .aspectRatio(HomeDiscoveryLayoutSpec.discoveryImageAspectRatio)
                     .clip(
                         RoundedCornerShape(
-                            topStart = 24.dp,
-                            topEnd = 24.dp
+                            topStart = HomeDiscoveryLayoutSpec.standardCardCornerRadius,
+                            topEnd = HomeDiscoveryLayoutSpec.standardCardCornerRadius
                         )
                     ),
                 contentScale = ContentScale.Crop
             )
             Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 Text(
                     text = item.title,
@@ -884,45 +894,53 @@ private fun CompactSectionCard(
     item: HomeSectionItemUiModel,
     onClick: () -> Unit
 ) {
-    val backgroundColor = HomeDiscoveryLayoutSpec.dailyShortcutBackgroundColor(
-        seed = item.id.ifBlank { item.title }
-    )
     val icon = resolveCompactSectionCardIcon(item)
+    val isPrimary = item.title.contains("每日推荐")
     Surface(
         onClick = onClick,
         modifier = Modifier
             .testTag("home_compact_card_${item.id}")
             .width(HomeDiscoveryLayoutSpec.compactCardWidth)
             .height(HomeDiscoveryLayoutSpec.compactCardHeight),
-        shape = RoundedCornerShape(22.dp),
-        color = HomePanelColor.copy(alpha = 0.94f),
+        shape = RoundedCornerShape(HomeDiscoveryLayoutSpec.compactCardCornerRadius),
+        color = HomeMutedCardColor,
         tonalElevation = 0.dp,
-        shadowElevation = 6.dp,
+        shadowElevation = 0.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = HomeDividerColor
+            color = HomeDividerColor.copy(alpha = 0.52f)
         )
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 10.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)
         ) {
             Surface(
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(HomeDiscoveryLayoutSpec.compactImageSize)
                     .testTag("home_compact_card_icon_${item.id}"),
-                shape = RoundedCornerShape(12.dp),
-                color = backgroundColor.copy(alpha = 0.92f)
+                shape = RoundedCornerShape(18.dp),
+                color = if (isPrimary) HomeAccentColor else HomeCardColor,
+                tonalElevation = 0.dp,
+                shadowElevation = if (isPrimary) 6.dp else 2.dp,
+                border = if (isPrimary) {
+                    null
+                } else {
+                    BorderStroke(
+                        width = 1.dp,
+                        color = HomeDividerColor.copy(alpha = 0.36f)
+                    )
+                }
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = HomeAccentColor,
-                        modifier = Modifier.size(18.dp)
+                        tint = if (isPrimary) Color.White else HomeAccentColor,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
@@ -930,11 +948,48 @@ private fun CompactSectionCard(
                 text = item.title,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = HomeTitleColor,
                 maxLines = HomeDiscoveryLayoutSpec.titleMaxLines,
                 overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Start
+                textAlign = TextAlign.Center
             )
+        }
+    }
+}
+
+@Composable
+private fun HomeSongColumn(
+    columnIndex: Int,
+    items: List<HomeSectionItemUiModel>,
+    onAction: (HomeEntryAction) -> Unit
+) {
+    val columnWidth = LocalConfiguration.current.screenWidthDp.dp * HomeDiscoveryLayoutSpec.songCardWidthFraction
+
+    Box(
+        modifier = Modifier
+            .width(columnWidth)
+            .testTag("home_song_column_$columnIndex")
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(HomeDiscoveryLayoutSpec.songColumnItemSpacing)
+        ) {
+            items.forEachIndexed { itemIndex, item ->
+                HomeSongRow(
+                    item = item,
+                    onAction = onAction
+                )
+                if (itemIndex != items.lastIndex) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 70.dp, end = 2.dp, top = 9.dp, bottom = 9.dp)
+                            .height(1.dp)
+                            .background(HomeDividerColor.copy(alpha = 0.42f))
+                            .testTag("home_song_divider_${columnIndex}_$itemIndex")
+                    )
+                }
+            }
         }
     }
 }
@@ -942,79 +997,82 @@ private fun CompactSectionCard(
 @Composable
 private fun HomeSongRow(
     item: HomeSectionItemUiModel,
-    onClick: () -> Unit
+    onAction: (HomeEntryAction) -> Unit
 ) {
-    Surface(
-        onClick = onClick,
+    val songCard = item.songCard ?: return
+    var menuExpanded by remember(item.id) { mutableStateOf(false) }
+
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("home_song_row_${item.id}"),
-        shape = RoundedCornerShape(20.dp),
-        color = HomePanelColor.copy(alpha = 0.92f),
-        tonalElevation = 0.dp,
-        shadowElevation = 4.dp,
-        border = BorderStroke(
-            width = 1.dp,
-            color = HomeDividerColor
-        )
+            .height(HomeDiscoveryLayoutSpec.songCardHeight)
+            .testTag("home_song_row_${item.id}")
+            .clickable { onAction(item.action) }
+            .padding(horizontal = 0.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Row(
+        Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                .size(HomeDiscoveryLayoutSpec.songCardCoverSize)
+                .testTag("home_song_row_cover_${item.id}"),
+            shape = RoundedCornerShape(HomeDiscoveryLayoutSpec.songCardCoverCornerRadius),
+            color = HomeMutedCardColor
         ) {
-            Surface(
-                modifier = Modifier.size(52.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = HomeAccentColor.copy(alpha = 0.10f)
-            ) {
-                if (!item.imageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = item.imageUrl,
-                        contentDescription = item.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+            if (!item.imageUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = item.imageUrl,
+                    contentDescription = item.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.Album,
+                        contentDescription = null,
+                        tint = HomeAccentColor
                     )
-                } else {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.Album,
-                            contentDescription = null,
-                            tint = HomeAccentColor
-                        )
-                    }
                 }
             }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = item.subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = HomeTextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = HomeAccentColor.copy(alpha = 0.08f)
-            ) {
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = songCard.metadataLine,
+                style = MaterialTheme.typography.bodyMedium,
+                color = HomeTextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = songCard.recommendReason.orEmpty(),
+                style = MaterialTheme.typography.labelMedium,
+                color = HomeAccentColor.copy(alpha = 0.9f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Column(
+            modifier = Modifier.width(26.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box {
                 IconButton(
-                    onClick = {},
+                    onClick = { menuExpanded = true },
                     modifier = Modifier
-                        .size(36.dp)
-                        .testTag("home_song_more_${item.id}"),
+                        .size(HomeDiscoveryLayoutSpec.songCardMenuButtonSize)
+                        .testTag("home_song_row_more_${item.id}"),
                     colors = IconButtonDefaults.iconButtonColors(
                         containerColor = Color.Transparent,
                         contentColor = HomeTextSecondary
@@ -1022,8 +1080,23 @@ private fun HomeSongRow(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.MoreHoriz,
-                        contentDescription = "更多操作"
+                        contentDescription = "更多操作",
+                        modifier = Modifier.size(18.dp)
                     )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    songCard.menuActions.forEach { action ->
+                        DropdownMenuItem(
+                            text = { Text(action.label) },
+                            onClick = {
+                                menuExpanded = false
+                                onAction(action.action)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -1061,14 +1134,21 @@ private fun HomePlayEntryCard(
     )
 }
 
-private fun HomeSectionUiModel.usesSongRowLayout(): Boolean {
+private fun HomeSectionUiModel.usesSongCardLayout(): Boolean {
     if (layout != HomeSectionLayout.HORIZONTAL_LIST || items.isEmpty()) {
         return false
     }
-    return items.all { item ->
-        val action = item.action as? ContentEntryAction.OpenDetail ?: return@all false
-        action.target is SearchRouteTarget.Song
+    return items.all { it.songCard != null }
+}
+
+private fun formatSongCardDuration(durationMs: Long): String {
+    if (durationMs <= 0L) {
+        return "--:--"
     }
+    val totalSeconds = durationMs / 1000L
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return "%d:%02d".format(minutes, seconds)
 }
 
 private fun resolveCompactSectionCardIcon(
@@ -1086,22 +1166,12 @@ private fun resolveCompactSectionCardIcon(
 
 @Composable
 private fun HomeSectionTitle(title: String) {
-    androidx.compose.foundation.layout.Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(width = 4.dp, height = 18.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(HomeAccentColor)
-        )
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-    }
+    Text(
+        text = title,
+        style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.Black,
+        color = HomeTitleColor
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1776,27 +1846,35 @@ private fun UserCenterPlaylistsSectionHeader(
 
 private val HOME_OVERVIEW_BACKGROUND_BRUSH = Brush.verticalGradient(
     colors = listOf(
-        Color(0xFFFFF8F5),
-        Color(0xFFFFF4EE),
-        Color(0xFFFFFFFF)
+        Color(0xFFFCFCFE),
+        Color(0xFFF7F7FA),
+        Color(0xFFF4F4F8)
     )
 )
 
-private val HomePanelColor: Color
-    @Composable
-    get() = PlayerLiteVisualTheme.colors.surfacePrimary
+private val HomeCardColor = Color(0xFFFFFFFF)
+
+private val HomeMutedCardColor = Color(0xFFF7F7FA)
+
+private val HomeSearchSurfaceColor = Color(0xFFF5F4F6)
+
+private val HomeSongSectionColor = Color.Transparent
+
+private val HomeBrandColor = Color(0xFFDA2C21)
+
+private val HomeTitleColor = Color(0xFF171312)
 
 private val HomeAccentColor: Color
     @Composable
-    get() = PlayerLiteVisualTheme.colors.accentStrong
+    get() = HomeBrandColor
 
 private val HomeDividerColor: Color
     @Composable
-    get() = PlayerLiteVisualTheme.colors.dividerSubtle
+    get() = Color(0xFFE9E5E1)
 
 private val HomeTextSecondary: Color
     @Composable
-    get() = PlayerLiteVisualTheme.colors.textSecondary
+    get() = Color(0xFF7C726C)
 
 private val HomeProgressTrackColor: Color
     @Composable

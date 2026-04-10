@@ -63,7 +63,7 @@ class HomeOverviewScreenRobolectricTest {
                         ),
                         onSearchClick = {},
                         onRetry = {},
-                        onItemClick = {}
+                        onAction = {}
                     )
                     MainShellMiniPlayerOverlay(
                         playerState = effectivePlayerState,
@@ -76,6 +76,77 @@ class HomeOverviewScreenRobolectricTest {
                 }
             }
         }
+    }
+
+    private fun buildSongSection(songCount: Int): HomeSectionUiModel {
+        return HomeSectionUiModel(
+            code = "HOMEPAGE_BLOCK_STYLE_SONG",
+            title = "Songs You Might Like",
+            layout = HomeSectionLayout.HORIZONTAL_LIST,
+            items = (1..songCount).map { index ->
+                val songId = "song-$index"
+                val songName = "Song $index"
+                HomeSectionItemUiModel(
+                    id = songId,
+                    title = songName,
+                    subtitle = "Artist $index · Album $index",
+                    imageUrl = "http://example.com/$songId.jpg",
+                    action = HomeEntryAction.ReplaceQueueAndOpenPlayer(
+                        items = (1..songCount).map { queueIndex ->
+                            PlaylistItem(
+                                id = "song-$queueIndex",
+                                displayName = "Song $queueIndex",
+                                songId = "song-$queueIndex",
+                                title = "Song $queueIndex",
+                                artistText = "Artist $queueIndex",
+                                albumTitle = "Album $queueIndex",
+                                coverUrl = "http://example.com/song-$queueIndex.jpg"
+                            )
+                        },
+                        activeIndex = index - 1
+                    ),
+                    songCard = HomeSongCardUiModel(
+                        metadataLine = "Artist $index · Album $index",
+                        recommendReason = "超${70 + index}%人播放",
+                        durationMs = 180_000L + (index * 1_000L),
+                        menuActions = listOf(
+                            HomeSongMenuActionUiModel(
+                                key = "insert_next",
+                                label = "下一首播放",
+                                action = HomeEntryAction.InsertNext(
+                                    item = PlaylistItem(
+                                        id = songId,
+                                        displayName = songName,
+                                        songId = songId,
+                                        title = songName,
+                                        artistText = "Artist $index",
+                                        albumTitle = "Album $index"
+                                    )
+                                )
+                            ),
+                            HomeSongMenuActionUiModel(
+                                key = "open_album",
+                                label = "查看专辑",
+                                action = HomeEntryAction.OpenContent(
+                                    ContentEntryAction.OpenDetail(
+                                        SearchRouteTarget.Album(albumId = "album-$index")
+                                    )
+                                )
+                            ),
+                            HomeSongMenuActionUiModel(
+                                key = "open_artist",
+                                label = "查看歌手",
+                                action = HomeEntryAction.OpenContent(
+                                    ContentEntryAction.OpenDetail(
+                                        SearchRouteTarget.Artist(artistId = "artist-$index")
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            }
+        )
     }
 
     @Test
@@ -135,7 +206,7 @@ class HomeOverviewScreenRobolectricTest {
                     ),
                     onSearchClick = {},
                     onRetry = {},
-                    onItemClick = {}
+                    onAction = {}
                 )
             }
         }
@@ -178,7 +249,7 @@ class HomeOverviewScreenRobolectricTest {
                     ),
                     onSearchClick = {},
                     onRetry = {},
-                    onItemClick = {}
+                    onAction = {}
                 )
             }
         }
@@ -199,6 +270,39 @@ class HomeOverviewScreenRobolectricTest {
         assertTrue(
             "Expected search box and hero card to share the same right baseline, search=$searchBounds banner=$bannerBounds",
             kotlin.math.abs(searchBounds.right - bannerBounds.right) < 1f
+        )
+    }
+
+    @Test
+    fun homeSearchBox_shouldUseTallerEditorialHeight() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                HomeOverviewScreen(
+                    playerState = PlayerUiState(
+                        selectedFileName = "晴天.mp3",
+                        statusText = "点击底部按钮进入播放页"
+                    ),
+                    overviewState = HomeOverviewUiState(
+                        isLoading = false,
+                        sections = listOf(buildSongSection(songCount = 1)),
+                        searchKeywords = listOf("默认热搜")
+                    ),
+                    onSearchClick = {},
+                    onRetry = {},
+                    onAction = {}
+                )
+            }
+        }
+
+        val searchBounds = composeRule
+            .onNodeWithTag("home_search_box_container")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val expectedHeight = with(composeRule.density) { 50.dp.toPx() }
+
+        assertTrue(
+            "Expected search box height to stay close to 50dp, actual=${searchBounds.height} expected=$expectedHeight",
+            kotlin.math.abs(searchBounds.height - expectedHeight) < 1f
         )
     }
 
@@ -232,7 +336,7 @@ class HomeOverviewScreenRobolectricTest {
                     ),
                     onSearchClick = {},
                     onRetry = {},
-                    onItemClick = {}
+                    onAction = {}
                 )
             }
         }
@@ -242,7 +346,7 @@ class HomeOverviewScreenRobolectricTest {
     }
 
     @Test
-    fun songSections_shouldRenderCompactRowsWithMoreAction() {
+    fun homeOverview_shouldNotRenderBrandHeaderWhenSearchFloatsAtTop() {
         composeRule.setContent {
             PlayerLiteTheme {
                 HomeOverviewScreen(
@@ -252,35 +356,163 @@ class HomeOverviewScreenRobolectricTest {
                     ),
                     overviewState = HomeOverviewUiState(
                         isLoading = false,
-                        sections = listOf(
-                            HomeSectionUiModel(
-                                code = "HOMEPAGE_BLOCK_STYLE_SONG",
-                                title = "Songs You Might Like",
-                                layout = HomeSectionLayout.HORIZONTAL_LIST,
-                                items = listOf(
-                                    HomeSectionItemUiModel(
-                                        id = "song-1",
-                                        title = "Neon Horizon",
-                                        subtitle = "Luna Wave",
-                                        imageUrl = null,
-                                        action = ContentEntryAction.OpenDetail(
-                                            SearchRouteTarget.Song(songId = "song-1")
-                                        )
-                                    )
-                                )
-                            )
-                        ),
+                        sections = listOf(buildSongSection(songCount = 1)),
                         searchKeywords = listOf("默认热搜")
                     ),
                     onSearchClick = {},
                     onRetry = {},
-                    onItemClick = {}
+                    onAction = {}
                 )
             }
         }
 
+        composeRule.onAllNodesWithTag("home_top_brand_row").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("home_top_brand_title", useUnmergedTree = true).assertCountEquals(0)
+        composeRule.onAllNodesWithTag("home_top_brand_notification").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("home_top_brand_avatar").assertCountEquals(0)
+    }
+
+    @Test
+    fun homeSearchBox_shouldFloatAboveFirstDiscoverySection() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                HomeOverviewScreen(
+                    playerState = PlayerUiState(
+                        selectedFileName = "晴天.mp3",
+                        statusText = "点击底部按钮进入播放页"
+                    ),
+                    overviewState = HomeOverviewUiState(
+                        isLoading = false,
+                        sections = listOf(buildSongSection(songCount = 3)),
+                        searchKeywords = listOf("默认热搜")
+                    ),
+                    onSearchClick = {},
+                    onRetry = {},
+                    onAction = {}
+                )
+            }
+        }
+
+        val searchBounds = composeRule
+            .onNodeWithTag("home_search_box_container")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val sectionBounds = composeRule
+            .onNodeWithText("Songs You Might Like")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        assertTrue(
+            "Expected floating search box to stay above the first discovery section, search=$searchBounds section=$sectionBounds",
+            searchBounds.bottom < sectionBounds.top
+        )
+    }
+
+    @Test
+    fun songSections_shouldRenderThreeSongsPerColumnAndExposeMoreMenu() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                HomeOverviewScreen(
+                    playerState = PlayerUiState(
+                        selectedFileName = "晴天.mp3",
+                        statusText = "点击底部按钮进入播放页"
+                    ),
+                    overviewState = HomeOverviewUiState(
+                        isLoading = false,
+                        sections = listOf(buildSongSection(songCount = 4)),
+                        searchKeywords = listOf("默认热搜")
+                    ),
+                    onSearchClick = {},
+                    onRetry = {},
+                    onAction = {}
+                )
+            }
+        }
+
+        val song1Bounds = composeRule.onNodeWithTag("home_song_row_song-1").fetchSemanticsNode().boundsInRoot
+        val song2Bounds = composeRule.onNodeWithTag("home_song_row_song-2").fetchSemanticsNode().boundsInRoot
+        val song3Bounds = composeRule.onNodeWithTag("home_song_row_song-3").fetchSemanticsNode().boundsInRoot
+        val song4Bounds = composeRule.onNodeWithTag("home_song_row_song-4").fetchSemanticsNode().boundsInRoot
+
+        assertTrue(kotlin.math.abs(song1Bounds.left - song2Bounds.left) < 1f)
+        assertTrue(kotlin.math.abs(song2Bounds.left - song3Bounds.left) < 1f)
+        assertTrue(song2Bounds.top > song1Bounds.top)
+        assertTrue(song3Bounds.top > song2Bounds.top)
+        assertTrue(song4Bounds.left > song1Bounds.left)
+
+        composeRule.onAllNodesWithTag("home_song_section_surface_HOMEPAGE_BLOCK_STYLE_SONG").assertCountEquals(0)
+        composeRule.onNodeWithTag("home_song_column_0").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_song_column_1").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_song_divider_0_0", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("home_song_divider_0_1", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithTag("home_song_row_song-1").assertIsDisplayed().assertHasClickAction()
-        composeRule.onNodeWithTag("home_song_more_song-1").assertIsDisplayed().assertHasClickAction()
+        composeRule.onNodeWithTag("home_song_row_cover_song-1", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("home_song_row_more_song-1").assertIsDisplayed().assertHasClickAction()
+        composeRule.onNodeWithTag("home_song_row_more_song-1").performClick()
+        composeRule.onNodeWithText("下一首播放").assertIsDisplayed()
+        composeRule.onNodeWithText("查看专辑").assertIsDisplayed()
+        composeRule.onNodeWithText("查看歌手").assertIsDisplayed()
+    }
+
+    @Test
+    fun songSections_shouldUseStableHorizontalColumnWidthFraction() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                HomeOverviewScreen(
+                    playerState = PlayerUiState(
+                        selectedFileName = "晴天.mp3",
+                        statusText = "点击底部按钮进入播放页"
+                    ),
+                    overviewState = HomeOverviewUiState(
+                        isLoading = false,
+                        sections = listOf(buildSongSection(songCount = 3)),
+                        searchKeywords = listOf("默认热搜")
+                    ),
+                    onSearchClick = {},
+                    onRetry = {},
+                    onAction = {}
+                )
+            }
+        }
+
+        val rootBounds = composeRule.onNodeWithTag("home_discovery_list").fetchSemanticsNode().boundsInRoot
+        val columnBounds = composeRule.onNodeWithTag("home_song_column_0").fetchSemanticsNode().boundsInRoot
+        val actualFraction = columnBounds.width / rootBounds.width
+
+        assertTrue(
+            "Expected song column width to stay close to 70% of the viewport, fraction=$actualFraction",
+            actualFraction in 0.66f..0.74f
+        )
+    }
+
+    @Test
+    fun songSections_shouldUseDenserSongRowHeight() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                HomeOverviewScreen(
+                    playerState = PlayerUiState(
+                        selectedFileName = "晴天.mp3",
+                        statusText = "点击底部按钮进入播放页"
+                    ),
+                    overviewState = HomeOverviewUiState(
+                        isLoading = false,
+                        sections = listOf(buildSongSection(songCount = 3)),
+                        searchKeywords = listOf("默认热搜")
+                    ),
+                    onSearchClick = {},
+                    onRetry = {},
+                    onAction = {}
+                )
+            }
+        }
+
+        val rowBounds = composeRule.onNodeWithTag("home_song_row_song-1").fetchSemanticsNode().boundsInRoot
+        val expectedHeight = with(composeRule.density) { 82.dp.toPx() }
+
+        assertTrue(
+            "Expected song row height to stay close to 82dp, actual=${rowBounds.height} expected=$expectedHeight",
+            kotlin.math.abs(rowBounds.height - expectedHeight) < 1f
+        )
     }
 
     @Test

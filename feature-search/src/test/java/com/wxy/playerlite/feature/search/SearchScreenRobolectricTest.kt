@@ -88,6 +88,7 @@ class SearchScreenRobolectricTest {
         }
 
         composeRule.onNodeWithTag("search_history_clear_all").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("清空").assertIsDisplayed()
         composeRule.onNodeWithTag("search_history_remove_1").assertIsDisplayed().performClick()
 
         assertEquals(1, clearedCount)
@@ -144,7 +145,7 @@ class SearchScreenRobolectricTest {
     }
 
     @Test
-    fun resultMode_shouldRenderUnderlineTabsAndCompactResultRowsWithMoreAction() {
+    fun resultMode_shouldRenderUnderlineTabsAndCompactResultRowsWithoutFakeMoreAction() {
         composeRule.setContent {
             SearchFeatureTheme {
                 SearchScreen(
@@ -192,7 +193,7 @@ class SearchScreenRobolectricTest {
         composeRule.onAllNodesWithTag("search_result_type_album_indicator", useUnmergedTree = true)
             .assertCountEquals(0)
         composeRule.onNodeWithTag("search_result_card_song-1").assertIsDisplayed()
-        composeRule.onNodeWithTag("search_result_more_song-1").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("search_result_more_song-1").assertCountEquals(0)
     }
 
     @Test
@@ -241,5 +242,40 @@ class SearchScreenRobolectricTest {
 
         composeRule.onNodeWithTag("search_result_pager").assertIsDisplayed()
         composeRule.onNodeWithText("搜索中").assertIsDisplayed()
+    }
+
+    @Test
+    fun suggestMode_shouldKeepSuggestionCardsRenderableAfterThemeTokenRefresh() {
+        composeRule.setContent {
+            SearchFeatureTheme {
+                SearchScreen(
+                    state = SearchUiState(
+                        query = "海阔天空",
+                        pageMode = SearchPageMode.SUGGEST,
+                        suggestState = SearchSuggestUiState.Content(
+                            listOf(
+                                SearchSuggestionUiModel(keyword = "海阔天空"),
+                                SearchSuggestionUiModel(keyword = "海阔天空 beyond")
+                            )
+                        )
+                    ),
+                    onBack = {},
+                    onQueryChanged = {},
+                    onSubmitSearch = {},
+                    onHistoryKeywordClick = {},
+                    onRemoveHistoryKeyword = {},
+                    onClearHistory = {},
+                    onSuggestionClick = {},
+                    onHotKeywordClick = {},
+                    onResultTypeSelected = {},
+                    onResultClick = {},
+                    onRetry = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("search_suggestion_list").assertIsDisplayed()
+        composeRule.onNodeWithTag("search_suggestion_item_0").assertIsDisplayed()
+        composeRule.onNodeWithTag("search_suggestion_item_1").assertIsDisplayed()
     }
 }

@@ -1,5 +1,6 @@
 package com.wxy.playerlite.feature.main
 
+import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.network.core.JsonHttpClient
 import com.wxy.playerlite.feature.search.SearchRouteTarget
 import kotlinx.serialization.json.JsonArray
@@ -59,11 +60,39 @@ internal data class HomeOverviewContent(
     val searchKeywords: List<String>
 )
 
+internal sealed interface HomeEntryAction {
+    data class OpenContent(
+        val entry: ContentEntryAction
+    ) : HomeEntryAction
+
+    data class ReplaceQueueAndOpenPlayer(
+        val items: List<PlaylistItem>,
+        val activeIndex: Int
+    ) : HomeEntryAction
+
+    data class InsertNext(
+        val item: PlaylistItem
+    ) : HomeEntryAction
+}
+
 internal data class HomeSectionUiModel(
     val code: String,
     val title: String,
     val layout: HomeSectionLayout,
     val items: List<HomeSectionItemUiModel>
+)
+
+internal data class HomeSongMenuActionUiModel(
+    val key: String,
+    val label: String,
+    val action: HomeEntryAction
+)
+
+internal data class HomeSongCardUiModel(
+    val metadataLine: String,
+    val recommendReason: String? = null,
+    val durationMs: Long = 0L,
+    val menuActions: List<HomeSongMenuActionUiModel> = emptyList()
 )
 
 internal data class HomeSectionItemUiModel(
@@ -72,7 +101,10 @@ internal data class HomeSectionItemUiModel(
     val subtitle: String,
     val imageUrl: String?,
     val badge: String? = null,
-    val action: ContentEntryAction = ContentEntryAction.Unsupported()
+    val action: HomeEntryAction = HomeEntryAction.OpenContent(
+        ContentEntryAction.Unsupported()
+    ),
+    val songCard: HomeSongCardUiModel? = null
 )
 
 internal enum class HomeSectionLayout {
@@ -140,7 +172,9 @@ internal object NeteaseHomeDiscoveryJsonMapper {
                     subtitle = banner.stringValue("url").orEmpty(),
                     imageUrl = banner.stringValue("pic"),
                     badge = banner.stringValue("typeTitle"),
-                    action = banner.toContentEntryAction()
+                    action = HomeEntryAction.OpenContent(
+                        banner.toContentEntryAction()
+                    )
                 )
             }
         return HomeSectionUiModel(
@@ -156,14 +190,20 @@ internal object NeteaseHomeDiscoveryJsonMapper {
         title: String,
         layout: HomeSectionLayout
     ): HomeSectionUiModel? {
-        val items = arrayValue("creatives")
+        val resources = arrayValue("creatives")
             .flatMap { creative ->
-                creative.jsonObject.arrayValue("resources").mapNotNull { resource ->
-                    resource.jsonObject.toResourceItem(
-                        defaultTargetType = code.toDefaultDetailType()
-                    )
-                }
+                creative.jsonObject.arrayValue("resources").map { it.jsonObject }
             }
+        val songPlaybackContext = resources.toSongPlaybackContext(
+            sectionCode = code,
+            sectionTitle = title
+        )
+        val items = resources.mapNotNull { resource ->
+            resource.toResourceItem(
+                defaultTargetType = code.toDefaultDetailType(),
+                songPlaybackContext = songPlaybackContext
+            )
+        }
         return HomeSectionUiModel(
             code = code,
             title = title,
@@ -172,15 +212,48 @@ internal object NeteaseHomeDiscoveryJsonMapper {
         )
     }
 
-    private fun JsonObject.toResourceItem(defaultTargetType: HomeDetailType?): HomeSectionItemUiModel? {
+    private fun List<JsonObject>.toSongPlaybackContext(
+        sectionCode: String,
+        sectionTitle: String
+    ): MappedHomeSongPlaybackContext {
+        val mappedSongs = mapNotNull { resource ->
+            resource.toMappedSongResource(
+                sectionCode = sectionCode,
+                sectionTitle = sectionTitle
+            )
+        }
+        val playbackItems = mappedSongs.map { it.playlistItem }
+        val activeIndexByResourceId = mappedSongs.mapIndexed { index, song ->
+            song.resourceId to index
+        }.toMap()
+        return MappedHomeSongPlaybackContext(
+            songByResourceId = mappedSongs.associateBy(MappedHomeSongResource::resourceId),
+            playbackItems = playbackItems,
+            activeIndexByResourceId = activeIndexByResourceId
+        )
+    }
+
+    private fun JsonObject.toResourceItem(
+        defaultTargetType: HomeDetailType?,
+        songPlaybackContext: MappedHomeSongPlaybackContext
+    ): HomeSectionItemUiModel? {
         val uiElement = objectValue("uiElement")
         val title = uiElement.objectValue("mainTitle").stringValue("title") ?: return null
         val subTitle = uiElement.objectValue("subTitle").stringValue("title").orEmpty()
         val labels = uiElement.arrayValue("labelTexts").mapNotNull { it.jsonPrimitive.contentOrNull }
-        val action = if (isDailyRecommendedShortcut(title = title)) {
-            ContentEntryAction.OpenDailyRecommendedSongs
+        val mappedSong = stringValue("resourceId")
+            ?.let(songPlaybackContext.songByResourceId::get)
+        val action = if (mappedSong != null && songPlaybackContext.playbackItems.isNotEmpty()) {
+            HomeEntryAction.ReplaceQueueAndOpenPlayer(
+                items = songPlaybackContext.playbackItems,
+                activeIndex = songPlaybackContext.activeIndexByResourceId[mappedSong.resourceId] ?: 0
+            )
+        } else if (isDailyRecommendedShortcut(title = title)) {
+            HomeEntryAction.OpenContent(ContentEntryAction.OpenDailyRecommendedSongs)
         } else {
-            toContentEntryAction(defaultTargetType = defaultTargetType)
+            HomeEntryAction.OpenContent(
+                toContentEntryAction(defaultTargetType = defaultTargetType)
+            )
         }
         return HomeSectionItemUiModel(
             id = stringValue("resourceId") ?: title,
@@ -188,7 +261,96 @@ internal object NeteaseHomeDiscoveryJsonMapper {
             subtitle = subTitle.ifBlank { labels.joinToString(separator = " · ") },
             imageUrl = uiElement.objectValue("image").stringValue("imageUrl"),
             badge = labels.firstOrNull(),
-            action = action
+            action = action,
+            songCard = mappedSong?.songCard
+        )
+    }
+
+    private fun JsonObject.toMappedSongResource(
+        sectionCode: String,
+        sectionTitle: String
+    ): MappedHomeSongResource? {
+        if (!isSongResource()) {
+            return null
+        }
+        val songId = stringValue("resourceId") ?: return null
+        val uiElement = objectValue("uiElement")
+        val title = uiElement.objectValue("mainTitle").stringValue("title") ?: return null
+        val recommendReason = uiElement.objectValue("subTitle").stringValue("title")
+            ?: objectValue("resourceExtInfo").stringValue("recommendReason")
+            ?: objectValue("resourceExtInfo").stringValue("reason")
+        val artists = resolveSongArtists()
+        val artistText = artists.mapNotNull { it.stringValue("name") }
+            .joinToString(separator = " / ")
+            .ifBlank { "歌曲" }
+        val primaryArtistId = artists.firstOrNull()?.stringValue("id")
+        val album = resolveSongAlbum()
+        val albumId = album.stringValue("id")
+        val albumTitle = album.stringValue("name")
+        val coverUrl = album.stringValue("picUrl")
+            ?: uiElement.objectValue("image").stringValue("imageUrl")
+        val durationMs = resolveSongDurationMs()
+        val playlistItem = PlaylistItem(
+            id = "home:$sectionCode:$songId",
+            displayName = title,
+            songId = songId,
+            title = title,
+            artistText = artistText,
+            primaryArtistId = primaryArtistId,
+            albumTitle = albumTitle,
+            coverUrl = coverUrl,
+            durationMs = durationMs,
+            contextType = "homepage_song_block",
+            contextId = sectionCode,
+            contextTitle = sectionTitle
+        )
+        val menuActions = buildList {
+            add(
+                HomeSongMenuActionUiModel(
+                    key = "insert_next",
+                    label = "下一首播放",
+                    action = HomeEntryAction.InsertNext(playlistItem)
+                )
+            )
+            if (!albumId.isNullOrBlank()) {
+                add(
+                    HomeSongMenuActionUiModel(
+                        key = "open_album",
+                        label = "查看专辑",
+                        action = HomeEntryAction.OpenContent(
+                            ContentEntryAction.OpenDetail(
+                                SearchRouteTarget.Album(albumId = albumId)
+                            )
+                        )
+                    )
+                )
+            }
+            if (!primaryArtistId.isNullOrBlank()) {
+                add(
+                    HomeSongMenuActionUiModel(
+                        key = "open_artist",
+                        label = "查看歌手",
+                        action = HomeEntryAction.OpenContent(
+                            ContentEntryAction.OpenDetail(
+                                SearchRouteTarget.Artist(artistId = primaryArtistId)
+                            )
+                        )
+                    )
+                )
+            }
+        }
+        return MappedHomeSongResource(
+            resourceId = songId,
+            playlistItem = playlistItem,
+            songCard = HomeSongCardUiModel(
+                metadataLine = buildSongMetadataLine(
+                    artistText = artistText,
+                    albumTitle = albumTitle
+                ),
+                recommendReason = recommendReason,
+                durationMs = durationMs,
+                menuActions = menuActions
+            )
         )
     }
 
@@ -275,7 +437,59 @@ internal object NeteaseHomeDiscoveryJsonMapper {
         }
         return null
     }
+
+    private fun JsonObject.isSongResource(): Boolean {
+        if (stringValue("action").equals("play_all_song_from_current_index", ignoreCase = true)) {
+            return true
+        }
+        return stringValue("resourceType").equals("song", ignoreCase = true)
+    }
+
+    private fun JsonObject.resolveSongArtists(): List<JsonObject> {
+        val extInfo = objectValue("resourceExtInfo")
+        val artists = extInfo.arrayValue("artists").mapNotNull { it as? JsonObject }
+        if (artists.isNotEmpty()) {
+            return artists
+        }
+        val songDataArtists = extInfo.objectValue("songData")
+            .arrayValue("artists")
+            .mapNotNull { it as? JsonObject }
+        if (songDataArtists.isNotEmpty()) {
+            return songDataArtists
+        }
+        return extInfo.objectValue("song")
+            .arrayValue("ar")
+            .mapNotNull { it as? JsonObject }
+    }
+
+    private fun JsonObject.resolveSongAlbum(): JsonObject {
+        val extInfo = objectValue("resourceExtInfo")
+        return extInfo.objectValue("songData").objectValue("album")
+            .takeIf { it.isNotEmpty() }
+            ?: extInfo.objectValue("song").objectValue("al")
+    }
+
+    private fun JsonObject.resolveSongDurationMs(): Long {
+        val extInfo = objectValue("resourceExtInfo")
+        val songDataDuration = extInfo.objectValue("songData").longValue("duration")
+        if (songDataDuration > 0L) {
+            return songDataDuration
+        }
+        return extInfo.objectValue("song").longValue("dt")
+    }
 }
+
+private data class MappedHomeSongResource(
+    val resourceId: String,
+    val playlistItem: PlaylistItem,
+    val songCard: HomeSongCardUiModel
+)
+
+private data class MappedHomeSongPlaybackContext(
+    val songByResourceId: Map<String, MappedHomeSongResource> = emptyMap(),
+    val playbackItems: List<PlaylistItem> = emptyList(),
+    val activeIndexByResourceId: Map<String, Int> = emptyMap()
+)
 
 private enum class HomeDetailType {
     ARTIST,
@@ -359,10 +573,26 @@ private fun JsonObject.intValue(key: String): Int {
         ?: 0
 }
 
+private fun JsonObject.longValue(key: String): Long {
+    return this[key]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+        ?: stringValue(key)?.toLongOrNull()
+        ?: 0L
+}
+
 private fun MutableList<String>.addIfNotBlank(value: String?) {
     if (!value.isNullOrBlank()) {
         add(value)
     }
+}
+
+private fun buildSongMetadataLine(
+    artistText: String,
+    albumTitle: String?
+): String {
+    return listOfNotNull(
+        artistText.takeIf { it.isNotBlank() },
+        albumTitle?.takeIf { it.isNotBlank() }
+    ).joinToString(separator = " · ").ifBlank { "单曲推荐" }
 }
 
 private val emptyJsonObject = JsonObject(emptyMap())

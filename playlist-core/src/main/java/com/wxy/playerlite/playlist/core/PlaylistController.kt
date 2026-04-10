@@ -114,6 +114,31 @@ class PlaylistController(
         )
     }
 
+    fun insertAfterActive(item: PlaylistItem): PlaylistState {
+        val activeIndex = state.activeIndex
+        if (activeIndex !in state.originalItems.indices) {
+            return state
+        }
+        val nextItems = state.originalItems.toMutableList().apply {
+            add(activeIndex + 1, item)
+        }
+        val nextShuffleOrder = when (state.playbackMode) {
+            PlaybackMode.SHUFFLE -> PlaylistState.normalizedPlaybackOrderIds(
+                nextItems,
+                state.shuffledOrderIds + item.id
+            )
+
+            else -> PlaylistState.normalizedPlaybackOrderIds(nextItems, state.shuffledOrderIds)
+        }
+        return updateState(
+            state.copy(
+                originalItems = nextItems,
+                shuffledOrderIds = nextShuffleOrder,
+                activeItemId = state.activeItemId
+            ).normalized()
+        )
+    }
+
     fun removeItemById(id: String): PlaylistState {
         val targetIndex = state.originalItems.indexOfFirst { it.id == id }
         if (targetIndex < 0) {

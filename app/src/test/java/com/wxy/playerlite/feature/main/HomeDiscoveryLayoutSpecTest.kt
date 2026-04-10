@@ -14,13 +14,13 @@ class HomeDiscoveryLayoutSpecTest {
     }
 
     @Test
-    fun horizontalSections_shouldReserveContainerPaddingForShadowSpace() {
+    fun horizontalSections_shouldUseTighterEdgePaddingForDenserViewport() {
         assertEquals(
-            8.dp,
+            4.dp,
             HomeDiscoveryLayoutSpec.rowContentPadding.calculateLeftPadding(LayoutDirection.Ltr)
         )
         assertEquals(
-            8.dp,
+            4.dp,
             HomeDiscoveryLayoutSpec.rowContentPadding.calculateRightPadding(LayoutDirection.Ltr)
         )
     }
@@ -29,7 +29,8 @@ class HomeDiscoveryLayoutSpecTest {
     fun cards_shouldUseFixedHeightsToAvoidViewportJitter() {
         assertEquals(206.dp, HomeDiscoveryLayoutSpec.bannerHeight)
         assertEquals(222.dp, HomeDiscoveryLayoutSpec.discoveryCardHeight)
-        assertEquals(58.dp, HomeDiscoveryLayoutSpec.compactCardHeight)
+        assertEquals(116.dp, HomeDiscoveryLayoutSpec.compactCardHeight)
+        assertEquals(82.dp, HomeDiscoveryLayoutSpec.songCardHeight)
     }
 
     @Test
@@ -65,7 +66,7 @@ class HomeDiscoveryLayoutSpecTest {
     @Test
     fun dailyShortcutCards_shouldUseCompactIconLeadingStyle() {
         assertTrue(HomeDiscoveryLayoutSpec.dailyShortcutUsesCompactIconStyle)
-        assertEquals(58.dp, HomeDiscoveryLayoutSpec.compactCardHeight)
+        assertEquals(116.dp, HomeDiscoveryLayoutSpec.compactCardHeight)
     }
 
     @Test
@@ -81,6 +82,36 @@ class HomeDiscoveryLayoutSpecTest {
     fun discoveryCards_shouldUseFullBleedSquareArtwork() {
         assertTrue(HomeDiscoveryLayoutSpec.discoveryImageUsesFullBleed)
         assertEquals(1f, HomeDiscoveryLayoutSpec.discoveryImageAspectRatio)
+    }
+
+    @Test
+    fun songCards_shouldUseStableWidthFractionAndSpacing() {
+        assertEquals(0.7f, HomeDiscoveryLayoutSpec.songCardWidthFraction)
+        assertEquals(18.dp, HomeDiscoveryLayoutSpec.songCardSpacing)
+        assertEquals(3, HomeDiscoveryLayoutSpec.songColumnItemCount)
+        assertEquals(0.dp, HomeDiscoveryLayoutSpec.songColumnItemSpacing)
+        assertEquals(0.dp, HomeDiscoveryLayoutSpec.songSectionCornerRadius)
+    }
+
+    @Test
+    fun homepageCards_shouldUseTighterCornerHierarchy() {
+        assertEquals(18.dp, HomeDiscoveryLayoutSpec.bannerCardCornerRadius)
+        assertEquals(16.dp, HomeDiscoveryLayoutSpec.standardCardCornerRadius)
+        assertEquals(22.dp, HomeDiscoveryLayoutSpec.compactCardCornerRadius)
+        assertEquals(10.dp, HomeDiscoveryLayoutSpec.songCardCornerRadius)
+    }
+
+    @Test
+    fun songCards_shouldReserveArtworkAndOverflowActionSpace() {
+        assertEquals(56.dp, HomeDiscoveryLayoutSpec.songCardCoverSize)
+        assertEquals(12.dp, HomeDiscoveryLayoutSpec.songCardCoverCornerRadius)
+        assertEquals(24.dp, HomeDiscoveryLayoutSpec.songCardMenuButtonSize)
+    }
+
+    @Test
+    fun homeSearchBox_shouldUseCalmerChrome() {
+        assertEquals(16.dp, HomeDiscoveryLayoutSpec.searchBoxCornerRadius)
+        assertEquals(0.dp, HomeDiscoveryLayoutSpec.searchBoxShadowElevation)
     }
 
     @Test

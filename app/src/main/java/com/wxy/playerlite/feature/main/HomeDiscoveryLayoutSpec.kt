@@ -5,16 +5,34 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 internal object HomeDiscoveryLayoutSpec {
-    val rowContentPadding = PaddingValues(horizontal = 8.dp)
+    val rowContentPadding = PaddingValues(horizontal = 4.dp)
     val bannerContentPadding = PaddingValues(horizontal = 0.dp)
 
     val bannerHeight = 206.dp
     val discoveryCardWidth = 152.dp
     val discoveryCardHeight = 222.dp
-    val compactCardWidth = 172.dp
-    val compactCardHeight = 58.dp
+    val compactCardWidth = 112.dp
+    val compactCardHeight = 116.dp
     val compactImageSize = 56.dp
     val itemSpacing = 14.dp
+    val sectionSpacing = 18.dp
+    val songCardHeight = 82.dp
+    const val songCardWidthFraction = 0.7f
+    val songCardSpacing = 18.dp
+    const val songColumnItemCount = 3
+    val songColumnItemSpacing = 0.dp
+    val songSectionCornerRadius = 0.dp
+    val songSectionContentPadding = PaddingValues(0.dp)
+    val searchBoxCornerRadius = 16.dp
+    val searchBoxHeight = 50.dp
+    val searchBoxShadowElevation = 0.dp
+    val bannerCardCornerRadius = 18.dp
+    val standardCardCornerRadius = 16.dp
+    val compactCardCornerRadius = 22.dp
+    val songCardCornerRadius = 10.dp
+    val songCardCoverSize = 56.dp
+    val songCardCoverCornerRadius = 12.dp
+    val songCardMenuButtonSize = 24.dp
 
     const val titleMaxLines = 1
     const val subtitleMaxLines = 1

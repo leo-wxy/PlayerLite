@@ -46,7 +46,6 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocalFireDepartment
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,6 +59,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,7 +74,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTheme
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 
@@ -227,7 +226,7 @@ private fun SearchTopBar(
         Surface(
             shape = CircleShape,
             tonalElevation = 0.dp,
-            color = SEARCH_PANEL_COLOR.copy(alpha = 0.9f),
+            color = SEARCH_PANEL_MUTED_COLOR,
             border = BorderStroke(
                 width = 1.dp,
                 color = SEARCH_DIVIDER_COLOR
@@ -255,7 +254,7 @@ private fun SearchTopBar(
             shape = RoundedCornerShape(if (usesExpandedTypography) 26.dp else 24.dp),
             color = SEARCH_PANEL_COLOR,
             tonalElevation = 0.dp,
-            shadowElevation = 1.dp,
+            shadowElevation = 0.dp,
             border = BorderStroke(
                 width = 1.dp,
                 color = SEARCH_DIVIDER_COLOR
@@ -274,7 +273,7 @@ private fun SearchTopBar(
                 Icon(
                     imageVector = Icons.Rounded.Search,
                     contentDescription = null,
-                    tint = SEARCH_PRIMARY_RED.copy(alpha = 0.82f),
+                    tint = SEARCH_ACCENT_MUTED_COLOR,
                     modifier = Modifier.size(if (usesExpandedTypography) 20.dp else 19.dp)
                 )
                 BasicTextField(
@@ -306,7 +305,7 @@ private fun SearchTopBar(
                                 } else {
                                     MaterialTheme.typography.bodyMedium
                                 },
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                                color = SEARCH_TEXT_MUTED
                             )
                         }
                         innerTextField()
@@ -336,13 +335,13 @@ private fun SearchPinnedHistorySection(
                 Icon(
                     imageVector = Icons.Rounded.History,
                     contentDescription = null,
-                    tint = SEARCH_PRIMARY_RED.copy(alpha = 0.9f),
+                    tint = SEARCH_ACCENT_MUTED_COLOR,
                     modifier = Modifier.size(17.dp)
                 )
             },
             action = {
                 Text(
-                    text = "Clear all",
+                    text = "清空",
                     style = MaterialTheme.typography.labelLarge,
                     color = SEARCH_PRIMARY_RED,
                     fontWeight = FontWeight.SemiBold,
@@ -622,14 +621,15 @@ private fun SearchResultPage(
                     .fillMaxSize()
                     .testTag("search_result_list"),
                 contentPadding = PaddingValues(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-                items(
+                itemsIndexed(
                     items = state.items,
-                    key = { item -> "${item.resultType.name}_${item.id}" }
-                ) { item ->
+                    key = { _, item -> "${item.resultType.name}_${item.id}" }
+                ) { index, item ->
                     SearchResultCard(
                         item = item,
+                        showDivider = index != state.items.lastIndex,
                         onClick = { onResultClick(item.routeTarget) }
                     )
                 }
@@ -765,7 +765,7 @@ private fun SearchHotBoard(
         shape = RoundedCornerShape(22.dp),
         color = SEARCH_PANEL_COLOR,
         tonalElevation = 0.dp,
-        shadowElevation = 1.dp,
+        shadowElevation = 0.dp,
         border = BorderStroke(
             width = 1.dp,
             color = SEARCH_DIVIDER_COLOR
@@ -803,9 +803,9 @@ private fun SearchHotBoardRow(
     val usesExpandedTypography = usesExpandedSearchTypography()
     val rankColor = when (index) {
         0 -> SEARCH_PRIMARY_RED
-        1 -> Color(0xFFE36A2E)
-        2 -> Color(0xFFEF9B2D)
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+        1 -> SEARCH_RANK_SECONDARY
+        2 -> SEARCH_RANK_TERTIARY
+        else -> SEARCH_TEXT_SECONDARY
     }
     val supportingText = item.content.ifBlank {
         item.score.takeIf { it > 0 }?.let { "热度 $it" } ?: ""
@@ -860,7 +860,7 @@ private fun SearchHotBoardRow(
                     } else {
                         MaterialTheme.typography.bodySmall
                     },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f),
+                    color = SEARCH_TEXT_SECONDARY,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -882,11 +882,11 @@ private fun SearchHistoryChip(
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(16.dp),
-        color = SEARCH_PANEL_COLOR.copy(alpha = 0.92f),
+        color = SEARCH_PANEL_MUTED_COLOR,
         tonalElevation = 0.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
+            color = SEARCH_DIVIDER_COLOR
         )
     ) {
         Row(
@@ -906,7 +906,7 @@ private fun SearchHistoryChip(
                     } else {
                         MaterialTheme.typography.bodySmall
                     },
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -951,7 +951,7 @@ private fun SearchSectionTitle(
             } else {
                 MaterialTheme.typography.titleSmall
             },
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+            color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.SemiBold
         )
         Spacer(modifier = Modifier.weight(1f))
@@ -962,6 +962,7 @@ private fun SearchSectionTitle(
 @Composable
 private fun SearchResultCard(
     item: SearchResultUiModel,
+    showDivider: Boolean,
     onClick: () -> Unit
 ) {
     val usesExpandedTypography = usesExpandedSearchTypography()
@@ -978,91 +979,88 @@ private fun SearchResultCard(
         shadowElevation = 0.dp,
         border = null
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (item.coverUrl.isNullOrBlank()) {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .background(
-                            color = SEARCH_PRIMARY_RED.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(14.dp)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Search,
-                        contentDescription = null,
-                        tint = SEARCH_PRIMARY_RED
-                    )
-                }
-            } else {
-                AsyncImage(
-                    model = item.coverUrl,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(56.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(14.dp)
-                        )
-                        .testTag("search_result_cover_${item.id}")
-                )
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Text(
-                    text = item.title,
-                    style = if (usesExpandedTypography) {
-                        MaterialTheme.typography.titleSmall.copy(fontSize = 15.sp)
-                    } else {
-                        MaterialTheme.typography.titleSmall
-                    },
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (supportingText.isNotBlank()) {
-                    Text(
-                        text = supportingText,
-                        style = if (usesExpandedTypography) {
-                            MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
-                        } else {
-                            MaterialTheme.typography.bodySmall
-                        },
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (tertiaryText.isNotBlank()) {
-                    Text(
-                        text = tertiaryText,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = SEARCH_PRIMARY_RED.copy(alpha = 0.92f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-            IconButton(
-                onClick = {},
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
                 modifier = Modifier
-                    .size(36.dp)
-                    .testTag("search_result_more_${item.id}")
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.MoreVert,
-                    contentDescription = "更多操作",
-                    tint = SEARCH_TEXT_SECONDARY
+                if (item.coverUrl.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(
+                                color = SEARCH_ACCENT_SOFT_COLOR,
+                                shape = RoundedCornerShape(14.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = null,
+                            tint = SEARCH_PRIMARY_RED
+                        )
+                    }
+                } else {
+                    AsyncImage(
+                        model = item.coverUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(
+                                color = SEARCH_PANEL_MUTED_COLOR,
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                            .testTag("search_result_cover_${item.id}")
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = item.title,
+                        style = if (usesExpandedTypography) {
+                            MaterialTheme.typography.titleSmall.copy(fontSize = 15.sp)
+                        } else {
+                            MaterialTheme.typography.titleSmall
+                        },
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (supportingText.isNotBlank()) {
+                        Text(
+                            text = supportingText,
+                            style = if (usesExpandedTypography) {
+                                MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
+                            } else {
+                                MaterialTheme.typography.bodySmall
+                            },
+                            color = SEARCH_TEXT_SECONDARY,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (tertiaryText.isNotBlank()) {
+                        Text(
+                            text = tertiaryText,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = SEARCH_PRIMARY_RED,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            if (showDivider) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(start = 74.dp, end = 4.dp),
+                    thickness = 1.dp,
+                    color = SEARCH_DIVIDER_COLOR
                 )
             }
         }
@@ -1081,7 +1079,9 @@ private fun SearchStatusCard(
             .fillMaxWidth()
             .testTag("search_status_card"),
         shape = RoundedCornerShape(20.dp),
-        tonalElevation = 1.dp
+        tonalElevation = 0.dp,
+        color = SEARCH_PANEL_COLOR,
+        border = BorderStroke(width = 1.dp, color = SEARCH_DIVIDER_COLOR)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 20.dp),
@@ -1138,11 +1138,11 @@ private fun SearchSuggestionCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
-        color = SEARCH_PANEL_COLOR.copy(alpha = 0.94f),
+        color = SEARCH_PANEL_MUTED_COLOR,
         tonalElevation = 0.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.06f)
+            color = SEARCH_DIVIDER_COLOR
         )
     ) {
         Row(
@@ -1157,7 +1157,7 @@ private fun SearchSuggestionCard(
                 modifier = Modifier
                     .size(28.dp)
                     .background(
-                        color = SEARCH_PRIMARY_RED.copy(alpha = 0.1f),
+                        color = SEARCH_ACCENT_SOFT_COLOR,
                         shape = CircleShape
                     ),
                 contentAlignment = Alignment.Center
@@ -1207,7 +1207,7 @@ private fun SearchHotBadge(
 
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = SEARCH_PRIMARY_RED.copy(alpha = 0.1f),
+        color = SEARCH_ACCENT_SOFT_COLOR,
         tonalElevation = 0.dp
     ) {
         Text(
@@ -1224,31 +1224,61 @@ private fun SearchHotBadge(
     }
 }
 
-private val SEARCH_PAGE_BACKGROUND_BRUSH = Brush.verticalGradient(
-    colors = listOf(
-        Color(0xFFFFF7F2),
-        Color(0xFFFFFBF8),
-        Color(0xFFFFFFFF)
-    )
-)
+private val SEARCH_PAGE_BACKGROUND_BRUSH: Brush
+    @Composable
+    get() {
+        val colors = SearchFeatureVisualTheme.colors
+        return remember(colors.pageBackgroundStart, colors.pageBackgroundEnd) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    colors.pageBackgroundStart,
+                    colors.pageBackgroundEnd
+                )
+            )
+        }
+    }
 
 internal val SEARCH_RESULT_TYPE_CHIP_HEIGHT = 36.dp
 internal val SEARCH_RESULT_TYPE_CHIP_WIDTH = 56.dp
 private val SEARCH_PANEL_COLOR: Color
     @Composable
-    get() = PlayerLiteVisualTheme.colors.surfacePrimary
+    get() = SearchFeatureVisualTheme.colors.panel
+
+private val SEARCH_PANEL_MUTED_COLOR: Color
+    @Composable
+    get() = SearchFeatureVisualTheme.colors.panelMuted
 
 private val SEARCH_PRIMARY_RED: Color
     @Composable
-    get() = PlayerLiteVisualTheme.colors.accentStrong
+    get() = SearchFeatureVisualTheme.colors.accent
+
+private val SEARCH_ACCENT_MUTED_COLOR: Color
+    @Composable
+    get() = SearchFeatureVisualTheme.colors.accentMuted
+
+private val SEARCH_ACCENT_SOFT_COLOR: Color
+    @Composable
+    get() = SearchFeatureVisualTheme.colors.accentSoft
 
 private val SEARCH_DIVIDER_COLOR: Color
     @Composable
-    get() = PlayerLiteVisualTheme.colors.dividerSubtle
+    get() = SearchFeatureVisualTheme.colors.divider
 
 private val SEARCH_TEXT_SECONDARY: Color
     @Composable
-    get() = PlayerLiteVisualTheme.colors.textSecondary
+    get() = SearchFeatureVisualTheme.colors.textSecondary
+
+private val SEARCH_TEXT_MUTED: Color
+    @Composable
+    get() = SearchFeatureVisualTheme.colors.textMuted
+
+private val SEARCH_RANK_SECONDARY: Color
+    @Composable
+    get() = SearchFeatureVisualTheme.colors.rankSecondary
+
+private val SEARCH_RANK_TERTIARY: Color
+    @Composable
+    get() = SearchFeatureVisualTheme.colors.rankTertiary
 private fun SearchResultUiModel.supportingText(): String {
     return when (this) {
         is SearchResultUiModel.Song -> listOf(artistText, albumTitle)

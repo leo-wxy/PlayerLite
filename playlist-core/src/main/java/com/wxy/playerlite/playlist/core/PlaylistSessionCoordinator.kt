@@ -49,6 +49,11 @@ class PlaylistSessionCoordinator(
         return state
     }
 
+    fun insertAfterActive(item: PlaylistItem): PlaylistState {
+        state = controller.insertAfterActive(item)
+        return state
+    }
+
     fun replaceAll(
         items: List<PlaylistItem>,
         activeIndex: Int
