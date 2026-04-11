@@ -249,6 +249,7 @@ python3 scripts/range_http_server.py --port 18080 --directory .
 player-lite/
 ├── app/
 ├── build-logic/
+├── feature-home/
 ├── playlist-core/
 ├── playback-orchestrator/
 ├── feature-player/
