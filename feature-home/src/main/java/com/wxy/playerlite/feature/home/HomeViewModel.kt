@@ -1,9 +1,8 @@
-package com.wxy.playerlite.feature.main
+package com.wxy.playerlite.feature.home
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.wxy.playerlite.core.AppContainer
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,14 +11,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-internal class HomeViewModel(
+class HomeViewModel(
     application: Application,
     private val repository: HomeDiscoveryRepository,
     private val keywordRotationIntervalMs: Long
-    ) : AndroidViewModel(application) {
+) : AndroidViewModel(application) {
     constructor(application: Application) : this(
         application = application,
-        repository = AppContainer.homeDiscoveryRepository(application.applicationContext),
+        repository = application.applicationContext.requireHomeHostDependencies().repository,
         keywordRotationIntervalMs = DEFAULT_ROTATION_INTERVAL_MS
     )
 
@@ -92,20 +91,4 @@ internal class HomeViewModel(
     private companion object {
         const val DEFAULT_ROTATION_INTERVAL_MS = 3_000L
     }
-}
-
-internal data class HomeOverviewUiState(
-    val isLoading: Boolean = true,
-    val sections: List<HomeSectionUiModel> = emptyList(),
-    val searchKeywords: List<String> = HomeDefaults.fallbackSearchKeywords,
-    val currentSearchKeywordIndex: Int = 0,
-    val errorMessage: String? = null
-) {
-    val currentSearchKeyword: String
-        get() {
-            if (searchKeywords.isEmpty()) {
-                return ""
-            }
-            return searchKeywords[currentSearchKeywordIndex.mod(searchKeywords.size)]
-        }
 }

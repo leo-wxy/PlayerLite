@@ -13,11 +13,10 @@ import com.wxy.playerlite.feature.album.NeteaseAlbumDetailRemoteDataSource
 import com.wxy.playerlite.feature.artist.ArtistDetailRepository
 import com.wxy.playerlite.feature.artist.DefaultArtistDetailRepository
 import com.wxy.playerlite.feature.artist.NeteaseArtistDetailRemoteDataSource
-import com.wxy.playerlite.feature.main.DefaultHomeDiscoveryRepository
+import com.wxy.playerlite.feature.home.HomeFeatureServiceFactory
+import com.wxy.playerlite.feature.home.HomeHostDependencies
 import com.wxy.playerlite.feature.main.DefaultDailyRecommendedSongsRepository
 import com.wxy.playerlite.feature.main.DailyRecommendedSongsRepository
-import com.wxy.playerlite.feature.main.HomeDiscoveryRepository
-import com.wxy.playerlite.feature.main.NeteaseHomeDiscoveryRemoteDataSource
 import com.wxy.playerlite.feature.main.NeteaseDailyRecommendedSongsRemoteDataSource
 import com.wxy.playerlite.feature.main.DefaultUserCenterRepository
 import com.wxy.playerlite.feature.main.NeteaseUserCenterRemoteDataSource
@@ -58,8 +57,8 @@ internal object AppContainer {
         return getServices(context).userRepository
     }
 
-    fun homeDiscoveryRepository(context: Context): HomeDiscoveryRepository {
-        return getServices(context).homeDiscoveryRepository
+    fun homeHostDependencies(context: Context): HomeHostDependencies {
+        return getServices(context).homeHostDependencies
     }
 
     fun dailyRecommendedSongsRepository(context: Context): DailyRecommendedSongsRepository {
@@ -147,8 +146,8 @@ internal object AppContainer {
                 storage = storage,
                 remoteDataSource = remoteDataSource
             ),
-            homeDiscoveryRepository = DefaultHomeDiscoveryRepository(
-                remoteDataSource = NeteaseHomeDiscoveryRemoteDataSource(httpClient)
+            homeHostDependencies = HomeHostDependencies(
+                repository = HomeFeatureServiceFactory.createRepository(httpClient)
             ),
             dailyRecommendedSongsRepository = DefaultDailyRecommendedSongsRepository(
                 remoteDataSource = NeteaseDailyRecommendedSongsRemoteDataSource(httpClient)
@@ -192,7 +191,7 @@ internal object AppContainer {
 
     private data class Services(
         val userRepository: UserRepository,
-        val homeDiscoveryRepository: HomeDiscoveryRepository,
+        val homeHostDependencies: HomeHostDependencies,
         val dailyRecommendedSongsRepository: DailyRecommendedSongsRepository,
         val searchRepository: SearchRepository,
         val userCenterRepository: UserCenterRepository,

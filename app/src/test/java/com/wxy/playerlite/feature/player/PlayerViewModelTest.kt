@@ -6,7 +6,6 @@ import androidx.media3.common.C
 import com.wxy.playerlite.core.playback.SongAudioQualityRepository
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
-import com.wxy.playerlite.feature.main.MainDispatcherRule
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
@@ -24,6 +23,7 @@ import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
 import com.wxy.playerlite.playback.model.SongAudioQualityOption
 import com.wxy.playerlite.playback.orchestrator.PlayerServiceController
 import com.wxy.playerlite.player.AudioEffectPreset
+import com.wxy.playerlite.test.MainDispatcherRule
 import com.wxy.playerlite.user.UserRepository
 import com.wxy.playerlite.user.model.LoginState
 import com.wxy.playerlite.user.model.UserSession

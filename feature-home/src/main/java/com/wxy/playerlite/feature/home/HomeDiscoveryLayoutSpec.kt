@@ -1,10 +1,10 @@
-package com.wxy.playerlite.feature.main
+package com.wxy.playerlite.feature.home
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-internal object HomeDiscoveryLayoutSpec {
+object HomeDiscoveryLayoutSpec {
     val rowContentPadding = PaddingValues(horizontal = 4.dp)
     val bannerContentPadding = PaddingValues(horizontal = 0.dp)
 

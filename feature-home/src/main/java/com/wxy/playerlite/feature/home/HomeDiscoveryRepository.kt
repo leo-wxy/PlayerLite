@@ -1,10 +1,8 @@
-package com.wxy.playerlite.feature.main
+package com.wxy.playerlite.feature.home
 
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.network.core.JsonHttpClient
-import com.wxy.playerlite.feature.search.SearchRouteTarget
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -13,8 +11,16 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-internal interface HomeDiscoveryRepository {
+interface HomeDiscoveryRepository {
     suspend fun fetchHomeOverview(): HomeOverviewContent
+}
+
+object HomeFeatureServiceFactory {
+    fun createRepository(httpClient: JsonHttpClient): HomeDiscoveryRepository {
+        return DefaultHomeDiscoveryRepository(
+            remoteDataSource = NeteaseHomeDiscoveryRemoteDataSource(httpClient)
+        )
+    }
 }
 
 internal class DefaultHomeDiscoveryRepository(
@@ -53,72 +59,6 @@ internal class NeteaseHomeDiscoveryRemoteDataSource(
     override suspend fun fetchDefaultSearch(): JsonObject {
         return httpClient.get(path = "/search/default")
     }
-}
-
-internal data class HomeOverviewContent(
-    val sections: List<HomeSectionUiModel>,
-    val searchKeywords: List<String>
-)
-
-internal sealed interface HomeEntryAction {
-    data class OpenContent(
-        val entry: ContentEntryAction
-    ) : HomeEntryAction
-
-    data class ReplaceQueueAndOpenPlayer(
-        val items: List<PlaylistItem>,
-        val activeIndex: Int
-    ) : HomeEntryAction
-
-    data class InsertNext(
-        val item: PlaylistItem
-    ) : HomeEntryAction
-}
-
-internal data class HomeSectionUiModel(
-    val code: String,
-    val title: String,
-    val layout: HomeSectionLayout,
-    val items: List<HomeSectionItemUiModel>
-)
-
-internal data class HomeSongMenuActionUiModel(
-    val key: String,
-    val label: String,
-    val action: HomeEntryAction
-)
-
-internal data class HomeSongCardUiModel(
-    val metadataLine: String,
-    val recommendReason: String? = null,
-    val durationMs: Long = 0L,
-    val menuActions: List<HomeSongMenuActionUiModel> = emptyList()
-)
-
-internal data class HomeSectionItemUiModel(
-    val id: String,
-    val title: String,
-    val subtitle: String,
-    val imageUrl: String?,
-    val badge: String? = null,
-    val action: HomeEntryAction = HomeEntryAction.OpenContent(
-        ContentEntryAction.Unsupported()
-    ),
-    val songCard: HomeSongCardUiModel? = null
-)
-
-internal enum class HomeSectionLayout {
-    BANNER,
-    ICON_GRID,
-    HORIZONTAL_LIST
-}
-
-internal object HomeDefaults {
-    val fallbackSearchKeywords: List<String> = listOf(
-        "搜索你喜欢的音乐",
-        "搜索热门歌单",
-        "搜索新歌热榜"
-    )
 }
 
 internal object NeteaseHomeDiscoveryJsonMapper {
@@ -172,8 +112,8 @@ internal object NeteaseHomeDiscoveryJsonMapper {
                     subtitle = banner.stringValue("url").orEmpty(),
                     imageUrl = banner.stringValue("pic"),
                     badge = banner.stringValue("typeTitle"),
-                    action = HomeEntryAction.OpenContent(
-                        banner.toContentEntryAction()
+                    action = HomeAction.OpenContent(
+                        banner.toHomeContentTarget()
                     )
                 )
             }
@@ -244,15 +184,15 @@ internal object NeteaseHomeDiscoveryJsonMapper {
         val mappedSong = stringValue("resourceId")
             ?.let(songPlaybackContext.songByResourceId::get)
         val action = if (mappedSong != null && songPlaybackContext.playbackItems.isNotEmpty()) {
-            HomeEntryAction.ReplaceQueueAndOpenPlayer(
+            HomeAction.ReplaceQueueAndOpenPlayer(
                 items = songPlaybackContext.playbackItems,
                 activeIndex = songPlaybackContext.activeIndexByResourceId[mappedSong.resourceId] ?: 0
             )
         } else if (isDailyRecommendedShortcut(title = title)) {
-            HomeEntryAction.OpenContent(ContentEntryAction.OpenDailyRecommendedSongs)
+            HomeAction.OpenContent(HomeContentTarget.DailyRecommendedSongs)
         } else {
-            HomeEntryAction.OpenContent(
-                toContentEntryAction(defaultTargetType = defaultTargetType)
+            HomeAction.OpenContent(
+                toHomeContentTarget(defaultTargetType = defaultTargetType)
             )
         }
         return HomeSectionItemUiModel(
@@ -309,7 +249,7 @@ internal object NeteaseHomeDiscoveryJsonMapper {
                 HomeSongMenuActionUiModel(
                     key = "insert_next",
                     label = "下一首播放",
-                    action = HomeEntryAction.InsertNext(playlistItem)
+                    action = HomeAction.InsertNext(playlistItem)
                 )
             )
             if (!albumId.isNullOrBlank()) {
@@ -317,10 +257,8 @@ internal object NeteaseHomeDiscoveryJsonMapper {
                     HomeSongMenuActionUiModel(
                         key = "open_album",
                         label = "查看专辑",
-                        action = HomeEntryAction.OpenContent(
-                            ContentEntryAction.OpenDetail(
-                                SearchRouteTarget.Album(albumId = albumId)
-                            )
+                        action = HomeAction.OpenContent(
+                            HomeContentTarget.Album(albumId = albumId)
                         )
                     )
                 )
@@ -330,10 +268,8 @@ internal object NeteaseHomeDiscoveryJsonMapper {
                     HomeSongMenuActionUiModel(
                         key = "open_artist",
                         label = "查看歌手",
-                        action = HomeEntryAction.OpenContent(
-                            ContentEntryAction.OpenDetail(
-                                SearchRouteTarget.Artist(artistId = primaryArtistId)
-                            )
+                        action = HomeAction.OpenContent(
+                            HomeContentTarget.Artist(artistId = primaryArtistId)
                         )
                     )
                 )
@@ -370,25 +306,25 @@ internal object NeteaseHomeDiscoveryJsonMapper {
         }
     }
 
-    private fun JsonObject.toContentEntryAction(
+    private fun JsonObject.toHomeContentTarget(
         defaultTargetType: HomeDetailType? = null
-    ): ContentEntryAction {
-        val routeTarget = resolveRouteTarget(defaultTargetType = defaultTargetType)
+    ): HomeContentTarget {
+        val routeTarget = resolveContentTarget(defaultTargetType = defaultTargetType)
         if (routeTarget != null) {
-            return ContentEntryAction.OpenDetail(routeTarget)
+            return routeTarget
         }
 
         val uri = resolveUriCandidate()
         if (uri != null) {
-            return ContentEntryAction.OpenUri(uri = uri)
+            return HomeContentTarget.ExternalUri(uri = uri)
         }
 
-        return ContentEntryAction.Unsupported()
+        return HomeContentTarget.Unsupported()
     }
 
-    private fun JsonObject.resolveRouteTarget(
+    private fun JsonObject.resolveContentTarget(
         defaultTargetType: HomeDetailType?
-    ): SearchRouteTarget? {
+    ): HomeContentTarget? {
         val candidates = listOf(
             this,
             objectValue("resourceExtInfo"),
@@ -399,13 +335,13 @@ internal object NeteaseHomeDiscoveryJsonMapper {
             val explicitType = candidate.toHomeDetailType()
             val explicitId = candidate.routeIdCandidate()
             if (explicitType != null && !explicitId.isNullOrBlank()) {
-                return explicitType.toRouteTarget(explicitId)
+                return explicitType.toContentTarget(explicitId)
             }
         }
 
         val fallbackId = routeIdCandidate()
         if (defaultTargetType != null && !fallbackId.isNullOrBlank()) {
-            return defaultTargetType.toRouteTarget(fallbackId)
+            return defaultTargetType.toContentTarget(fallbackId)
         }
         return null
     }
@@ -545,11 +481,11 @@ private fun JsonObject.routeIdCandidate(): String? {
     ).firstOrNull { !it.isNullOrBlank() }
 }
 
-private fun HomeDetailType.toRouteTarget(id: String): SearchRouteTarget {
+private fun HomeDetailType.toContentTarget(id: String): HomeContentTarget {
     return when (this) {
-        HomeDetailType.ARTIST -> SearchRouteTarget.Artist(artistId = id)
-        HomeDetailType.PLAYLIST -> SearchRouteTarget.Playlist(playlistId = id)
-        HomeDetailType.ALBUM -> SearchRouteTarget.Album(albumId = id)
+        HomeDetailType.ARTIST -> HomeContentTarget.Artist(artistId = id)
+        HomeDetailType.PLAYLIST -> HomeContentTarget.Playlist(playlistId = id)
+        HomeDetailType.ALBUM -> HomeContentTarget.Album(albumId = id)
     }
 }
 

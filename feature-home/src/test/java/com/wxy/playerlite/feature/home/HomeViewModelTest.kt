@@ -1,4 +1,4 @@
-package com.wxy.playerlite.feature.main
+package com.wxy.playerlite.feature.home
 
 import android.app.Application
 import kotlinx.coroutines.Dispatchers

@@ -1,6 +1,6 @@
 # PlayerLite
 
-一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要、系统 `MediaSession` 动态展示链路，以及当前音源管理、在线音质切换、默认音效 preset、横屏播放器独立沉浸布局、首页每日推荐站内入口与每日推荐歌曲页、首页横向歌曲推荐区块、搜索页共享主题统一和网页歌单导入等较完整的播放能力。近期进一步完成了项目结构重构：播放器展示层拆到 `:feature-player`，播放列表域拆到 `:playlist-core`，应用侧播放编排拆到 `:playback-orchestrator`，`app` 退回到宿主、装配与入口适配职责。
+一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要、系统 `MediaSession` 动态展示链路，以及当前音源管理、在线音质切换、默认音效 preset、横屏播放器独立沉浸布局、首页每日推荐站内入口与每日推荐歌曲页、首页横向歌曲推荐区块、搜索页共享主题统一和网页歌单导入等较完整的播放能力。近期进一步完成了项目结构重构：播放器展示层拆到 `:feature-player`，首页发现流拆到 `:feature-home`，播放列表域拆到 `:playlist-core`，应用侧播放编排拆到 `:playback-orchestrator`，`app` 退回到宿主、装配与入口适配职责。
 
 ## 主要能力
 
@@ -39,6 +39,8 @@
 
 - `:app`
   - 应用壳层、`Application`、`MainActivity` 双 Tab 主壳、`PlayerActivity` 宿主、`LikedContentActivity`、`RecentSongsActivity`、跨 feature 路由、Activity 适配器与 composition root
+- `:feature-home`
+  - 首页发现流模块，承载首页 screen、状态模型、ViewModel、repository、首页 JSON mapper、首页动作模型与宿主依赖契约
 - `:playlist-core`
   - 播放列表域核心，承载 `PlaylistController`、`PlaylistStorage`、状态编解码、active-index / shuffle / 重排规则
 - `:playback-orchestrator`
@@ -106,7 +108,7 @@ ArtistDetailActivity / AlbumDetailActivity / PlaylistDetailActivity
 
 ```text
 MainActivity / PlayerActivity / BasePlaybackDetailActivity
-  -> PlayerViewModel / HomeViewModel
+  -> PlayerViewModel / HomeViewModel (:feature-home)
   -> AppPlaybackGraph / PlayerRuntime (:app)
   -> playback-orchestrator
   -> PlayerServiceBridge (:playback-client)
@@ -184,7 +186,8 @@ PATH=/Users/wxy/.nvm/versions/node/v20.20.0/bin:$PATH openspec validate --specs
 
 ## 架构说明
 
-- `app` 已从“播放器 UI + 播放域核心 + 宿主壳”收口为应用入口、Activity 宿主、装配与 composition root；当前仍保留 `PlayerViewModel`、`PlayerRuntime` 与 `AppPlaybackGraph` 这类应用侧宿主逻辑。
+- `app` 已从“播放器 UI + 首页发现流 + 播放域核心 + 宿主壳”收口为应用入口、Activity 宿主、装配与 composition root；当前仍保留 `PlayerViewModel`、`PlayerRuntime` 与 `AppPlaybackGraph` 这类应用侧宿主逻辑。
+- `feature-home` 承载首页发现流的页面、状态、数据解析与首页动作模型；宿主通过 `HomeHostDependencies` 和桥接函数接入，不再在 `app` 内保留首页核心实现副本。
 - `playlist-core` 承载播放列表域规则和持久化契约，不再把 `PlaylistController` 留在 `app/core/playlist`。
 - `playback-orchestrator` 负责应用侧播放编排，不把队列同步、transport、settings 和 detail 播放协同继续堆在页面层。
 - `feature-player` 负责播放器页的 presentation 层、入口 contract 与宿主 callbacks，不再把播放器 UI 主体留在 `app/feature/player/ui`。

@@ -1,8 +1,4 @@
-## Purpose
-
-定义 `app` 模块作为应用壳层与依赖装配根的职责边界，确保业务 feature 迁移后，宿主仍以稳定入口完成集成，而不是继续把实现细节堆回 `app`。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: `app` 只承载应用壳层与依赖装配职责
 系统 SHALL 将 `app` 模块定义为应用入口、主导航、宿主路由与依赖装配层，而不是继续作为新业务实现代码的默认落点；当首页能力被迁移为独立 Home feature 后，`app` MUST 不再继续保存首页页面、首页 ViewModel、首页 repository、首页 remote data source、首页 mapper 或首页 layout spec 等核心实现。

@@ -1,4 +1,4 @@
-package com.wxy.playerlite.feature.main
+package com.wxy.playerlite.feature.home
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.LayoutDirection

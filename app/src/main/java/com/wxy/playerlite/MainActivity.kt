@@ -10,7 +10,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -19,14 +18,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wxy.playerlite.core.playback.AppPlaybackGraph
+import com.wxy.playerlite.feature.home.HomeAction
+import com.wxy.playerlite.feature.home.HomeContentTarget
+import com.wxy.playerlite.feature.home.HomeOverviewScreen
+import com.wxy.playerlite.feature.home.HomeViewModel
 import com.wxy.playerlite.feature.local.LocalSongsActivity
 import com.wxy.playerlite.feature.main.ContentEntryAction
-import com.wxy.playerlite.feature.main.HomeEntryAction
-import com.wxy.playerlite.feature.main.HomeOverviewScreen
 import com.wxy.playerlite.feature.main.HomeChromeLayoutSpec
-import com.wxy.playerlite.feature.main.HomeViewModel
 import com.wxy.playerlite.feature.main.LikedContentActivity
 import com.wxy.playerlite.feature.main.MainShellMiniPlayerChrome
 import com.wxy.playerlite.feature.main.MainShellScaffold
@@ -37,6 +38,7 @@ import com.wxy.playerlite.feature.main.SettingsActivity
 import com.wxy.playerlite.feature.main.UserCenterScreen
 import com.wxy.playerlite.feature.main.UserCenterViewModel
 import com.wxy.playerlite.feature.main.resolveContentEntryLaunch
+import com.wxy.playerlite.feature.main.toContentEntryAction
 import com.wxy.playerlite.feature.player.PlayerActivity
 import com.wxy.playerlite.feature.player.PlayerEntry
 import com.wxy.playerlite.feature.player.PlayerViewModel
@@ -154,15 +156,19 @@ class MainActivity : ComponentActivity() {
                         when (shellState.selectedTab) {
                             MainTab.HOME -> {
                                 HomeOverviewScreen(
-                                    playerState = state,
                                     overviewState = homeState,
+                                    bottomContentPadding = if (state.hasSelection) {
+                                        HomeChromeLayoutSpec.homeOverviewScrollBottomPadding
+                                    } else {
+                                        HomeChromeLayoutSpec.userCenterScrollBottomPadding
+                                    },
                                     onSearchClick = {
                                         startActivity(
                                             SearchActivity.createIntent(this@MainActivity)
                                         )
                                     },
                                     onRetry = homeViewModel::refresh,
-                                    onAction = ::handleHomeEntryAction,
+                                    onAction = ::handleHomeAction,
                                     modifier = Modifier.padding(top = topInset)
                                 )
                             }
@@ -266,10 +272,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun handleHomeEntryAction(action: HomeEntryAction) {
+    private fun handleHomeAction(action: HomeAction) {
         when (action) {
-            is HomeEntryAction.OpenContent -> handleContentEntryAction(action.entry)
-            is HomeEntryAction.ReplaceQueueAndOpenPlayer -> {
+            is HomeAction.OpenContent -> handleContentEntryAction(
+                action.target.toContentEntryAction()
+            )
+
+            is HomeAction.ReplaceQueueAndOpenPlayer -> {
                 val playbackGateway = AppPlaybackGraph.detailPlaybackGateway(this)
                 val played = playbackGateway.play(
                     DetailPlaybackRequest(
@@ -289,7 +298,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            is HomeEntryAction.InsertNext -> {
+            is HomeAction.InsertNext -> {
                 val inserted = AppPlaybackGraph.runtime(this)
                     .insertPlaylistItemNext(action.item)
                 showContentEntryMessage(
