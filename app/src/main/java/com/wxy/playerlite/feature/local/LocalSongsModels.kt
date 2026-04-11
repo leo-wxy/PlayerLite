@@ -2,6 +2,7 @@ package com.wxy.playerlite.feature.local
 
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
+import com.wxy.playerlite.feature.song.SongRef
 
 internal data class LocalSongEntry(
     val id: String,
@@ -21,6 +22,16 @@ internal data class LocalSongEntry(
             albumTitle = album,
             durationMs = durationMs,
             itemType = PlaylistItemType.LOCAL
+        )
+    }
+
+    fun toSongRef(): SongRef.Local {
+        return SongRef.Local(
+            playbackUri = contentUri,
+            title = title,
+            artistText = artist,
+            albumTitle = album,
+            durationMs = durationMs
         )
     }
 }

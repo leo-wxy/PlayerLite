@@ -327,6 +327,15 @@ internal object SearchItemMapper {
             title = title,
             artistText = artistText,
             albumTitle = albumTitle,
+            primaryArtistId = arrayValue("ar")
+                .mapNotNull { element -> element.jsonObject.stringValue("id") }
+                .ifEmpty {
+                    arrayValue("artists").mapNotNull { element ->
+                        element.jsonObject.stringValue("id")
+                    }
+                }
+                .firstOrNull(),
+            albumId = albumObject.stringValue("id"),
             coverUrl = albumObject.stringValue("picUrl"),
             routeTarget = SearchResultRouteMapper.song(id),
             durationMs = intValue("dt")?.toLong() ?: 0L

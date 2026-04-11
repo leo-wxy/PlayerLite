@@ -276,7 +276,6 @@ class PlayerRuntimeInteractionTest {
             activeIndex = 0
         )
         runtime.onTogglePlaylistSheet()
-        runtime.onShowSongWiki()
 
         runtime.clearPlaylist()
 
@@ -286,7 +285,6 @@ class PlayerRuntimeInteractionTest {
         assertEquals(-1, state.activePlaylistIndex)
         assertEquals("播放列表已清空", state.statusText)
         assertFalse(state.showPlaylistSheet)
-        assertFalse(state.showSongWikiSheet)
     }
 
     @Test

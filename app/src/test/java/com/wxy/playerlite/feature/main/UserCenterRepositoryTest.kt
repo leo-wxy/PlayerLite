@@ -304,6 +304,12 @@ class UserCenterRepositoryTest {
         assertEquals("Artist 1 / Artist 2", items.single().subtitle)
         assertEquals("http://example.com/cover.jpg", items.single().imageUrl)
         assertEquals("Album 1", items.single().meta)
+        assertEquals(
+            ContentEntryAction.OpenDetail(
+                SearchRouteTarget.Song(songId = "10")
+            ),
+            items.single().action
+        )
     }
 
     @Test(expected = UserSessionInvalidException::class)

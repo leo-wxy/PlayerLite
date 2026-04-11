@@ -18,6 +18,7 @@ import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
+import com.wxy.playerlite.feature.song.SongFavoriteRepository
 import com.wxy.playerlite.feature.user.model.UserSessionUiState
 import com.wxy.playerlite.feature.user.model.toUserSessionUiState
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
@@ -51,9 +52,9 @@ internal class PlayerViewModel(
         application.applicationContext
     ),
     private val userRepository: com.wxy.playerlite.user.UserRepository = AppContainer.userRepository(application.applicationContext),
-    private val songWikiRepository: SongWikiRepository = AppContainer.songWikiRepository(application.applicationContext),
     private val lyricRepository: LyricRepository = AppContainer.lyricRepository(application.applicationContext),
     private val songAudioQualityRepository: SongAudioQualityRepository = AppContainer.songAudioQualityRepository(application.applicationContext),
+    private val songFavoriteRepository: SongFavoriteRepository = AppContainer.songFavoriteRepository(application.applicationContext),
     private val serviceBridge: PlayerServiceController = AppPlaybackGraph.playerServiceController(
         context = application.applicationContext,
         onControllerError = { errorMessage ->
@@ -73,7 +74,6 @@ internal class PlayerViewModel(
     private val audioQualityTargetJob: Job
     private val lyricTargetJob: Job
     private val displayMetadataJob: Job
-    private var songWikiJob: Job? = null
     private var lyricJob: Job? = null
     private var audioQualityJob: Job? = null
     private var playbackModeToast: Toast? = null
@@ -111,9 +111,9 @@ internal class PlayerViewModel(
         application = application,
         runtime = AppPlaybackGraph.runtime(application.applicationContext),
         userRepository = AppContainer.userRepository(application.applicationContext),
-        songWikiRepository = AppContainer.songWikiRepository(application.applicationContext),
         lyricRepository = AppContainer.lyricRepository(application.applicationContext),
         songAudioQualityRepository = AppContainer.songAudioQualityRepository(application.applicationContext),
+        songFavoriteRepository = AppContainer.songFavoriteRepository(application.applicationContext),
         serviceBridge = AppPlaybackGraph.playerServiceController(
             context = application.applicationContext,
             onControllerError = { errorMessage ->
@@ -207,31 +207,6 @@ internal class PlayerViewModel(
 
     fun onDismissPlaylistSheet() {
         runtime.onDismissPlaylistSheet()
-    }
-
-    fun onShowSongWiki() {
-        val songId = uiStateFlow.value.currentSongId ?: return
-        when (uiStateFlow.value.songWikiUiState) {
-            is com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Content,
-            is com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Empty,
-            is com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Loading -> {
-                runtime.onShowSongWiki()
-            }
-
-            com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Placeholder,
-            is com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Error -> {
-                loadSongWiki(songId)
-            }
-        }
-    }
-
-    fun onDismissSongWiki() {
-        runtime.onDismissSongWiki()
-    }
-
-    fun onRetrySongWiki() {
-        val songId = uiStateFlow.value.currentSongId ?: return
-        loadSongWiki(songId)
     }
 
     fun onRetryLyrics() {
@@ -377,12 +352,21 @@ internal class PlayerViewModel(
         playbackTransportController.clearCache()
     }
 
-    fun onShareCurrentTrack() {
-        showTransientToast("分享功能待补充")
-    }
-
     fun onFavoriteCurrentTrack() {
-        showTransientToast("收藏功能待补充")
+        val songId = uiStateFlow.value.currentSongId
+        if (songId.isNullOrBlank()) {
+            showTransientToast("当前歌曲不支持收藏")
+            return
+        }
+        viewModelScope.launch {
+            songFavoriteRepository.favoriteSong(songId)
+                .onSuccess {
+                    showTransientToast("已加入我喜欢的音乐")
+                }
+                .onFailure { error ->
+                    showTransientToast(error.message ?: "收藏失败，请稍后重试")
+                }
+        }
     }
 
     fun onShowPlayerMoreActions() {
@@ -436,31 +420,6 @@ internal class PlayerViewModel(
     fun stopAll(updateStatus: Boolean) {
         playbackTransportController.stopPlayback()
         runtime.stopAll(updateStatus = updateStatus)
-    }
-
-    private fun loadSongWiki(songId: String) {
-        songWikiJob?.cancel()
-        runtime.onShowSongWiki()
-        runtime.updateSongWikiUiState(com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Loading)
-        songWikiJob = viewModelScope.launch {
-            val nextState = runCatching {
-                songWikiRepository.fetchSongWiki(songId)
-            }.fold(
-                onSuccess = { summary ->
-                    if (summary == null) {
-                        com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Empty("暂无歌曲百科")
-                    } else {
-                        com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Content(summary)
-                    }
-                },
-                onFailure = {
-                    com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Error("歌曲百科加载失败")
-                }
-            )
-            if (uiStateFlow.value.currentSongId == songId) {
-                runtime.updateSongWikiUiState(nextState)
-            }
-        }
     }
 
     private fun scheduleLyricsForTarget(target: LyricLoadTarget) {

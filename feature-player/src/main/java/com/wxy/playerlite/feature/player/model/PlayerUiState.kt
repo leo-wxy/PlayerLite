@@ -10,23 +10,6 @@ import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.player.PlaybackOutputInfo
 
-sealed interface PlayerSongWikiUiState {
-    data object Placeholder : PlayerSongWikiUiState
-    data object Loading : PlayerSongWikiUiState
-
-    data class Content(
-        val summary: SongWikiSummary
-    ) : PlayerSongWikiUiState
-
-    data class Empty(
-        val message: String
-    ) : PlayerSongWikiUiState
-
-    data class Error(
-        val message: String
-    ) : PlayerSongWikiUiState
-}
-
 sealed interface PlayerLyricUiState {
     data object Placeholder : PlayerLyricUiState
     data object Loading : PlayerLyricUiState
@@ -115,12 +98,10 @@ data class PlayerUiState(
     val playlistItems: List<PlaylistItem> = emptyList(),
     val activePlaylistIndex: Int = -1,
     val showPlaylistSheet: Boolean = false,
-    val showSongWikiSheet: Boolean = false,
     val showMoreActionsSheet: Boolean = false,
     val showAudioEffectPage: Boolean = false,
     val showAudioQualitySheet: Boolean = false,
     val moreActionsPage: PlayerMoreActionsPage = PlayerMoreActionsPage.ROOT,
-    val songWikiUiState: PlayerSongWikiUiState = PlayerSongWikiUiState.Placeholder,
     val lyricUiState: PlayerLyricUiState = PlayerLyricUiState.Placeholder,
     val audioQualityCatalogUiState: PlayerAudioQualityCatalogUiState = PlayerAudioQualityCatalogUiState.Placeholder,
     val selectedTopTab: PlayerTopTab = PlayerTopTab.SONG,

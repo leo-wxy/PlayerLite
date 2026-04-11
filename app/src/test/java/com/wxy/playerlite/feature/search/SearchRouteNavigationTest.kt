@@ -1,8 +1,10 @@
 package com.wxy.playerlite.feature.search
 
 import android.app.Application
+import com.wxy.playerlite.feature.album.AlbumDetailActivity
 import com.wxy.playerlite.feature.artist.ArtistDetailActivity
 import com.wxy.playerlite.feature.playlist.PlaylistDetailActivity
+import com.wxy.playerlite.feature.song.SongDetailActivity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -54,11 +56,22 @@ class SearchRouteNavigationTest {
     }
 
     @Test
-    fun searchRouteIntent_shouldReturnNullForUnsupportedTargets() {
+    fun searchRouteIntent_shouldCreateSongDetailIntent() {
         val songIntent = searchRouteIntent(
             context = context,
             target = SearchRouteTarget.Song(songId = "1")
         )
+
+        requireNotNull(songIntent)
+        assertEquals(SongDetailActivity::class.java.name, songIntent.component?.className)
+        assertEquals(
+            com.wxy.playerlite.feature.song.SongRef.Online(songId = "1"),
+            SongDetailActivity.songRefFrom(songIntent)
+        )
+    }
+
+    @Test
+    fun searchRouteIntent_shouldReturnNullForUnsupportedTargets() {
         val genericIntent = searchRouteIntent(
             context = context,
             target = SearchRouteTarget.Generic(
@@ -67,7 +80,6 @@ class SearchRouteNavigationTest {
             )
         )
 
-        assertNull(songIntent)
         assertNull(genericIntent)
     }
 }

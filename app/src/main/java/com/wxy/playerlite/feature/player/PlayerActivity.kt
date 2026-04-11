@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,8 +20,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wxy.playerlite.resolveCurrentPlayerArtistId
 import com.wxy.playerlite.feature.artist.ArtistDetailActivity
 import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
+import com.wxy.playerlite.feature.player.model.PlayerUiState
 import com.wxy.playerlite.feature.player.ui.PlayerScreenCallbacks
 import com.wxy.playerlite.feature.player.ui.PlayerScreen
+import com.wxy.playerlite.feature.song.SongDetailActivity
+import com.wxy.playerlite.feature.song.SongRef
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 class PlayerActivity : ComponentActivity() {
@@ -99,9 +103,6 @@ class PlayerActivity : ComponentActivity() {
                     },
                     onTogglePlaylistSheet = viewModel::onTogglePlaylistSheet,
                     onDismissPlaylistSheet = viewModel::onDismissPlaylistSheet,
-                    onShowSongWiki = viewModel::onShowSongWiki,
-                    onDismissSongWiki = viewModel::onDismissSongWiki,
-                    onRetrySongWiki = viewModel::onRetrySongWiki,
                     onRetryLyrics = viewModel::onRetryLyrics,
                     onSelectTopTab = viewModel::onSelectTopTab,
                     onCycleOrientationMode = viewModel::setPlayerOrientationMode,
@@ -129,7 +130,35 @@ class PlayerActivity : ComponentActivity() {
                     onSelectAudioQuality = viewModel::updatePreferredAudioQuality,
                     onSelectAudioEffectPreset = viewModel::updateAudioEffectPreset,
                     onBackClick = ::finish,
-                    onShareClick = viewModel::onShareCurrentTrack,
+                    onOpenSongDetail = {
+                        resolveCurrentSongRef(state)?.let { ref ->
+                            startActivity(
+                                SongDetailActivity.createIntent(
+                                    context = this@PlayerActivity,
+                                    ref = ref
+                                )
+                            )
+                        }
+                    },
+                    onShareClick = {
+                        val shareText = resolveCurrentSongShareText(state)
+                        if (shareText == null) {
+                            Toast.makeText(
+                                this@PlayerActivity,
+                                "当前歌曲暂不支持分享",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            startActivity(
+                                Intent.createChooser(
+                                    Intent(Intent.ACTION_SEND)
+                                        .setType("text/plain")
+                                        .putExtra(Intent.EXTRA_TEXT, shareText),
+                                    "分享歌曲"
+                                )
+                            )
+                        }
+                    },
                     onArtistClick = {
                         resolvedCurrentArtistId
                             ?.takeIf { it.isNotBlank() }
@@ -150,7 +179,7 @@ class PlayerActivity : ComponentActivity() {
                     currentDurationText = viewModel.formatDuration(state.displayedSeekMs),
                     totalDurationText = viewModel.formatDuration(state.durationMs),
                     currentArtistId = resolvedCurrentArtistId,
-                    showSongWikiInlineButton = true,
+                    canOpenSongDetail = resolveCurrentSongRef(state) != null,
                     enableEnterMotion = false,
                     callbacks = screenCallbacks
                 )
@@ -215,5 +244,43 @@ internal fun resolvePlayerRequestedOrientation(
         PlayerOrientationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         PlayerOrientationMode.LANDSCAPE_LOCKED -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         PlayerOrientationMode.PORTRAIT_LOCKED -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+    }
+}
+
+private fun resolveCurrentSongRef(state: PlayerUiState): SongRef? {
+    val activeItem = state.playlistItems.getOrNull(state.activePlaylistIndex) ?: return null
+    val onlineSongId = state.currentSongId?.takeIf { it.isNotBlank() } ?: activeItem.songId
+    if (!onlineSongId.isNullOrBlank()) {
+        return SongRef.Online(songId = onlineSongId)
+    }
+    val playbackUri = activeItem.uri.takeIf { it.isNotBlank() } ?: return null
+    return SongRef.Local(
+        playbackUri = playbackUri,
+        title = activeItem.title.ifBlank { state.currentTrackTitle },
+        artistText = activeItem.artistText ?: state.currentTrackArtist.orEmpty(),
+        albumTitle = activeItem.albumTitle,
+        durationMs = activeItem.durationMs,
+        coverUrl = activeItem.coverUrl
+    )
+}
+
+private fun resolveCurrentSongShareText(state: PlayerUiState): String? {
+    val ref = resolveCurrentSongRef(state) ?: return null
+    val activeItem = state.playlistItems.getOrNull(state.activePlaylistIndex)
+    val title = activeItem?.title?.takeIf { it.isNotBlank() }
+        ?: state.currentTrackTitle.takeIf { it.isNotBlank() }
+        ?: return null
+    val artist = activeItem?.artistText?.takeIf { it.isNotBlank() }
+        ?: state.currentTrackArtist?.takeIf { it.isNotBlank() }
+    return buildString {
+        append(title)
+        artist?.let {
+            append(" - ")
+            append(it)
+        }
+        if (ref is SongRef.Online) {
+            append("\nhttps://music.163.com/#/song?id=")
+            append(ref.songId)
+        }
     }
 }

@@ -331,8 +331,8 @@ internal object UserCenterJsonMapper {
                 subtitle = if (artists.isEmpty()) "歌曲" else artists.joinToString(" / "),
                 imageUrl = coverUrl,
                 meta = albumName,
-                action = ContentEntryAction.Unsupported(
-                    message = "当前版本暂不支持打开最近播放歌曲"
+                action = ContentEntryAction.OpenDetail(
+                    SearchRouteTarget.Song(songId = id)
                 )
             )
         }

@@ -55,7 +55,7 @@ class SearchResultTypeChipRobolectricTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }
@@ -99,7 +99,7 @@ class SearchResultTypeChipRobolectricTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }
@@ -156,7 +156,7 @@ class SearchResultTypeChipRobolectricTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }
@@ -204,7 +204,7 @@ class SearchResultTypeChipRobolectricTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }
@@ -252,7 +252,7 @@ class SearchResultTypeChipRobolectricTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }

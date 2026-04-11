@@ -8,6 +8,7 @@ data class MusicInfo(
     override val title: String,
     val artistNames: List<String> = emptyList(),
     val artistIds: List<String> = emptyList(),
+    val albumId: String? = null,
     override val albumTitle: String? = null,
     override val coverUrl: String? = null,
     override val durationMs: Long = 0L,
@@ -57,6 +58,7 @@ data class MusicInfo(
                     ?.map(String::trim)
                     ?.filter(String::isNotEmpty)
                     .orEmpty(),
+                albumId = null,
                 albumTitle = playable.albumTitle,
                 coverUrl = playable.coverUrl,
                 durationMs = playable.durationMs,

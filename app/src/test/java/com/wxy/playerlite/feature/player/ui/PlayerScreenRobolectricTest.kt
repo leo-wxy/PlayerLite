@@ -41,9 +41,7 @@ import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
-import com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
-import com.wxy.playerlite.feature.player.model.demoSongWikiSummary
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
@@ -76,8 +74,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -92,9 +88,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -145,7 +138,7 @@ class PlayerScreenRobolectricTest {
         composeRule.onNodeWithTag("player_screen_info_section").assertIsDisplayed()
         composeRule.onNodeWithText("歌词待补充").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_favorite_button").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_song_wiki_tool_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_song_detail_tool_button").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_more_button").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_playlist_button").assertIsDisplayed()
 
@@ -205,8 +198,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -221,9 +212,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -247,6 +235,60 @@ class PlayerScreenRobolectricTest {
     }
 
     @Test
+    fun activePlayback_shouldExposeSongDetailActionAndInvokeCallback() {
+        var detailClicks = 0
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "夜曲",
+                    artistText = "周杰伦",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylistWithCover,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 12_000L,
+                    currentDurationText = "00:12",
+                    durationMs = 120_000L,
+                    totalDurationText = "02:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {},
+                    onOpenSongDetail = { detailClicks += 1 }
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithTag("player_screen_song_detail_button").assertCountEquals(0)
+        composeRule.onNodeWithTag("player_screen_song_detail_tool_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_song_detail_tool_button").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, detailClicks)
+        }
+    }
+
+    @Test
     fun landscapeViewport_shouldUseDedicatedLandscapeLayoutAndExposeOrientationButton() {
         var orientationToggleCount = 0
         var requestedOrientationMode: PlayerOrientationMode? = null
@@ -262,8 +304,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
@@ -279,9 +319,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -337,8 +374,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         selectedTopTab = selectedTopTab,
                         orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
                         isPreparing = false,
@@ -355,9 +390,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectTopTab = { selectedTopTab = it },
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
@@ -395,8 +427,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         orientationMode = PlayerOrientationMode.PORTRAIT_LOCKED,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
@@ -412,9 +442,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -452,8 +479,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
@@ -469,9 +494,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -508,8 +530,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
@@ -525,9 +545,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -586,8 +603,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
@@ -603,9 +618,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -701,8 +713,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         lyricUiState = PlayerLyricUiState.Placeholder,
                         orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
                         isPreparing = false,
@@ -719,9 +729,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -756,8 +763,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         lyricUiState = demoLyricUiState(),
                         orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
                         isPreparing = false,
@@ -774,9 +779,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onRetryLyrics = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
@@ -812,8 +814,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
@@ -829,9 +829,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -865,8 +862,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
@@ -882,9 +877,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -980,8 +972,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
@@ -997,9 +987,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -1017,7 +1004,7 @@ class PlayerScreenRobolectricTest {
             }
         }
 
-        composeRule.onAllNodesWithTag("player_screen_song_wiki_tool_button").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_song_detail_tool_button").assertCountEquals(0)
         composeRule.onAllNodesWithTag("player_screen_favorite_button").assertCountEquals(0)
         composeRule.onAllNodesWithTag("player_screen_more_button").assertCountEquals(0)
         composeRule.onAllNodesWithTag("player_screen_combined_status_row").assertCountEquals(0)
@@ -1037,8 +1024,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         orientationMode = PlayerOrientationMode.LANDSCAPE_LOCKED,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
@@ -1054,9 +1039,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -1089,8 +1071,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = emptyList(),
                     activePlaylistIndex = -1,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = 0,
                     isSeekSupported = false,
@@ -1105,9 +1085,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -1136,10 +1113,9 @@ class PlayerScreenRobolectricTest {
     @Test
     fun activePlayback_controls_shouldKeepModeAndPlaylistActionsReachable() {
         var showPlaylistSheet by mutableStateOf(false)
-        var showSongWikiSheet by mutableStateOf(false)
-        var songWikiUiState by mutableStateOf<PlayerSongWikiUiState>(PlayerSongWikiUiState.Placeholder)
         var playbackMode by mutableStateOf(PlaybackMode.LIST_LOOP)
         var playbackState by mutableStateOf(AUDIO_TRACK_PLAYSTATE_PLAYING)
+        var detailClicks = 0
 
         composeRule.setContent {
             PlayerLiteTheme {
@@ -1150,8 +1126,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylist,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = showPlaylistSheet,
-                    showSongWikiSheet = showSongWikiSheet,
-                    songWikiUiState = songWikiUiState,
                     isPreparing = false,
                     playbackState = playbackState,
                     isSeekSupported = true,
@@ -1168,16 +1142,6 @@ class PlayerScreenRobolectricTest {
                         showPlaylistSheet = true
                     },
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {
-                        showSongWikiSheet = true
-                        songWikiUiState = PlayerSongWikiUiState.Loading
-                    },
-                    onDismissSongWiki = {
-                        showSongWikiSheet = false
-                    },
-                    onRetrySongWiki = {
-                        songWikiUiState = PlayerSongWikiUiState.Loading
-                    },
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -1193,7 +1157,8 @@ class PlayerScreenRobolectricTest {
                     },
                     onShowOriginalOrderInShuffleChange = {},
                     onSeekValueChange = {},
-                    onSeekFinished = {}
+                    onSeekFinished = {},
+                    onOpenSongDetail = { detailClicks += 1 }
                 )
             }
         }
@@ -1201,11 +1166,12 @@ class PlayerScreenRobolectricTest {
         composeRule.onNodeWithTag("player_screen_toggle_button").performClick()
         composeRule.onNodeWithTag("player_screen_playback_mode_button", useUnmergedTree = true).performClick()
         composeRule.onNodeWithTag("player_screen_playlist_button").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_song_wiki_tool_button").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_song_wiki_tool_button").performClick()
-        composeRule.onNodeWithTag("player_screen_song_wiki_sheet").assertIsDisplayed()
-        composeRule.onNodeWithText("正在加载歌曲百科…").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_song_detail_tool_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_song_detail_tool_button").performClick()
         composeRule.onNodeWithContentDescription("播放").assertIsDisplayed()
+        composeRule.runOnIdle {
+            assertEquals(1, detailClicks)
+        }
     }
 
     @Test
@@ -1225,11 +1191,9 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylist,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
                     showMoreActionsSheet = showMoreActionsSheet,
                     showAudioEffectPage = showAudioEffectPage,
                     moreActionsPage = moreActionsPage,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -1246,9 +1210,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -1329,12 +1290,10 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylist,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
                     showMoreActionsSheet = showMoreActionsSheet,
                     showAudioEffectPage = showAudioEffectPage,
                     showAudioQualitySheet = showAudioQualitySheet,
                     moreActionsPage = moreActionsPage,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -1373,9 +1332,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -1469,11 +1425,9 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylist,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
                     showMoreActionsSheet = false,
                     showAudioEffectPage = showAudioEffectPage,
                     showAudioQualitySheet = showAudioQualitySheet,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -1511,9 +1465,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -1575,8 +1526,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylist,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = true,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -1614,9 +1563,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -1647,9 +1593,7 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylist,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
                     showAudioQualitySheet = true,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -1694,9 +1638,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -1732,8 +1673,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -1748,9 +1687,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -1792,8 +1728,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -1808,9 +1742,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -1857,8 +1788,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = true,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -1873,9 +1802,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -1911,8 +1837,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     lyricUiState = demoLyricUiState(),
                     selectedTopTab = selectedTopTab,
                     isPreparing = false,
@@ -1929,9 +1853,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onRetryLyrics = {},
                     onSelectTopTab = { selectedTopTab = it },
                     onSelectPlaylistItem = {},
@@ -2009,8 +1930,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     lyricUiState = demoLongLyricUiState(),
                     selectedTopTab = selectedTopTab,
                     isPreparing = false,
@@ -2027,9 +1946,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onRetryLyrics = {},
                     onSelectTopTab = { selectedTopTab = it },
                     onSelectPlaylistItem = {},
@@ -2086,8 +2002,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     lyricUiState = demoLongLyricUiState(lineCount = 48),
                     selectedTopTab = PlayerTopTab.LYRICS,
                     isPreparing = false,
@@ -2104,9 +2018,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onRetryLyrics = {},
                     onSelectTopTab = {},
                     onSelectPlaylistItem = {},
@@ -2264,8 +2175,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     lyricUiState = PlayerLyricUiState.Error("歌词加载失败"),
                     selectedTopTab = selectedTopTab,
                     isPreparing = false,
@@ -2282,9 +2191,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onRetryLyrics = { retryCount += 1 },
                     onSelectTopTab = { selectedTopTab = it },
                     onSelectPlaylistItem = {},
@@ -2332,8 +2238,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         lyricUiState = demoLongLyricUiState(),
                         selectedTopTab = selectedTopTab,
                         isPreparing = false,
@@ -2351,9 +2255,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onRetryLyrics = {},
                         onSelectTopTab = { selectedTopTab = it },
                         onSelectPlaylistItem = {},
@@ -2424,8 +2325,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         selectedTopTab = PlayerTopTab.SONG,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PAUSED,
@@ -2442,9 +2341,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -2491,8 +2387,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     lyricUiState = demoLyricUiState(),
                     selectedTopTab = PlayerTopTab.LYRICS,
                     isPreparing = false,
@@ -2509,9 +2403,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onRetryLyrics = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
@@ -2560,8 +2451,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -2577,9 +2466,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -2643,8 +2529,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = interactivePlaylist,
                     activePlaylistIndex = 1,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = true,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -2659,9 +2543,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = { playlistClicks += 1 },
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -2720,8 +2601,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = interactivePlaylist,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -2736,9 +2615,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -2781,8 +2657,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                         isSeekSupported = true,
@@ -2798,9 +2672,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -2850,8 +2721,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                         isSeekSupported = true,
@@ -2867,9 +2736,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -2931,8 +2797,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                         isSeekSupported = true,
@@ -2948,9 +2812,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -3000,8 +2861,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                         isSeekSupported = true,
@@ -3016,9 +2875,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -3072,8 +2928,6 @@ class PlayerScreenRobolectricTest {
                         playlistItems = demoOnlinePlaylistWithCover,
                         activePlaylistIndex = 0,
                         showPlaylistSheet = false,
-                        showSongWikiSheet = false,
-                        songWikiUiState = PlayerSongWikiUiState.Placeholder,
                         isPreparing = false,
                         playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                         isSeekSupported = true,
@@ -3088,9 +2942,6 @@ class PlayerScreenRobolectricTest {
                         onPickAudio = {},
                         onTogglePlaylistSheet = {},
                         onDismissPlaylistSheet = {},
-                        onShowSongWiki = {},
-                        onDismissSongWiki = {},
-                        onRetrySongWiki = {},
                         onSelectPlaylistItem = {},
                         onRemovePlaylistItem = {},
                         onMovePlaylistItem = { _, _ -> },
@@ -3137,8 +2988,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylist,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = showPlaylistSheet,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -3156,9 +3005,6 @@ class PlayerScreenRobolectricTest {
                         dismissClicks += 1
                         showPlaylistSheet = false
                     },
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onClearPlaylist = {},
                     onRemovePlaylistItem = {},
@@ -3198,8 +3044,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylist,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = true,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -3214,9 +3058,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onClearPlaylist = { clearClicks += 1 },
                     onRemovePlaylistItem = {},
@@ -3243,7 +3084,9 @@ class PlayerScreenRobolectricTest {
     }
 
     @Test
-    fun localPlayback_shouldNotShowSongWikiButton() {
+    fun localPlayback_shouldExposeSongDetailAction() {
+        var detailClicks = 0
+
         composeRule.setContent {
             PlayerLiteTheme {
                 PlayerScreen(
@@ -3253,8 +3096,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoPlaylist,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -3269,9 +3110,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -3283,151 +3121,16 @@ class PlayerScreenRobolectricTest {
                     onCyclePlaybackMode = {},
                     onShowOriginalOrderInShuffleChange = {},
                     onSeekValueChange = {},
-                    onSeekFinished = {}
+                    onSeekFinished = {},
+                    onOpenSongDetail = { detailClicks += 1 }
                 )
             }
         }
 
-        composeRule.onAllNodesWithTag("player_screen_song_wiki_button").assertCountEquals(0)
-    }
-
-    @Test
-    fun songWikiSheet_shouldRenderStructuredSummaryAndRetryState() {
-        var retryClicks = 0
-        var songWikiUiState by mutableStateOf<PlayerSongWikiUiState>(
-            PlayerSongWikiUiState.Content(
-                summary = demoSongWikiSummary()
-            )
-        )
-
-        composeRule.setContent {
-            PlayerLiteTheme {
-                PlayerScreen(
-                    fileName = "周杰伦 - 夜曲.mp3",
-                    status = "正在播放",
-                    hasSelection = true,
-                    playlistItems = demoOnlinePlaylist,
-                    activePlaylistIndex = 0,
-                    showPlaylistSheet = false,
-                    showSongWikiSheet = true,
-                    songWikiUiState = songWikiUiState,
-                    isPreparing = false,
-                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
-                    isSeekSupported = true,
-                    playbackMode = PlaybackMode.LIST_LOOP,
-                    showOriginalOrderInShuffle = false,
-                    canReorderPlaylist = true,
-                    seekValueMs = 10_000L,
-                    currentDurationText = "00:10",
-                    durationMs = 120_000L,
-                    totalDurationText = "02:00",
-                    enableEnterMotion = false,
-                    onPickAudio = {},
-                    onTogglePlaylistSheet = {},
-                    onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {
-                        retryClicks += 1
-                        songWikiUiState = PlayerSongWikiUiState.Loading
-                    },
-                    onSelectPlaylistItem = {},
-                    onRemovePlaylistItem = {},
-                    onMovePlaylistItem = { _, _ -> },
-                    onPlay = {},
-                    onPrevious = {},
-                    onNext = {},
-                    onPause = {},
-                    onResume = {},
-                    onCyclePlaybackMode = {},
-                    onShowOriginalOrderInShuffleChange = {},
-                    onSeekValueChange = {},
-                    onSeekFinished = {}
-                )
-            }
-        }
-
-        composeRule.onNodeWithText("音乐百科").assertIsDisplayed()
-        composeRule.onNodeWithText("曲风").assertIsDisplayed()
-        composeRule.onNodeWithText("流行-华语流行").assertIsDisplayed()
-        composeRule.onNodeWithText("推荐标签").assertIsDisplayed()
-        composeRule.onNodeWithText("治愈 · 悲伤").assertIsDisplayed()
-        composeRule.onNodeWithText("参与共建").assertIsDisplayed()
-
+        composeRule.onNodeWithTag("player_screen_song_detail_tool_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_song_detail_tool_button").performClick()
         composeRule.runOnIdle {
-            songWikiUiState = PlayerSongWikiUiState.Error(
-                message = "歌曲百科加载失败"
-            )
-        }
-
-        composeRule.onNodeWithText("歌曲百科加载失败").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_song_wiki_retry").performClick()
-        composeRule.onNodeWithText("正在加载歌曲百科…").assertIsDisplayed()
-        composeRule.runOnIdle {
-            assertTrue("Expected retry action to be reachable", retryClicks >= 1)
-        }
-    }
-
-    @Test
-    fun songWikiSheet_shouldDismissWhenCloseButtonClicked() {
-        var showSongWikiSheet by mutableStateOf(true)
-        var dismissClicks = 0
-
-        composeRule.setContent {
-            PlayerLiteTheme {
-                PlayerScreen(
-                    fileName = "周杰伦 - 夜曲.mp3",
-                    status = "正在播放",
-                    hasSelection = true,
-                    playlistItems = demoOnlinePlaylist,
-                    activePlaylistIndex = 0,
-                    showPlaylistSheet = false,
-                    showSongWikiSheet = showSongWikiSheet,
-                    songWikiUiState = PlayerSongWikiUiState.Content(
-                        summary = demoSongWikiSummary()
-                    ),
-                    isPreparing = false,
-                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
-                    isSeekSupported = true,
-                    playbackMode = PlaybackMode.LIST_LOOP,
-                    showOriginalOrderInShuffle = false,
-                    canReorderPlaylist = true,
-                    seekValueMs = 10_000L,
-                    currentDurationText = "00:10",
-                    durationMs = 120_000L,
-                    totalDurationText = "02:00",
-                    enableEnterMotion = false,
-                    onPickAudio = {},
-                    onTogglePlaylistSheet = {},
-                    onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {
-                        dismissClicks += 1
-                        showSongWikiSheet = false
-                    },
-                    onRetrySongWiki = {},
-                    onSelectPlaylistItem = {},
-                    onRemovePlaylistItem = {},
-                    onMovePlaylistItem = { _, _ -> },
-                    onPlay = {},
-                    onPrevious = {},
-                    onNext = {},
-                    onPause = {},
-                    onResume = {},
-                    onCyclePlaybackMode = {},
-                    onShowOriginalOrderInShuffleChange = {},
-                    onSeekValueChange = {},
-                    onSeekFinished = {}
-                )
-            }
-        }
-
-        composeRule.onNodeWithTag("player_screen_song_wiki_sheet").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("关闭歌曲百科").performClick()
-        composeRule.waitForIdle()
-        composeRule.onAllNodesWithTag("player_screen_song_wiki_sheet").assertCountEquals(0)
-        composeRule.runOnIdle {
-            assertEquals(1, dismissClicks)
+            assertEquals(1, detailClicks)
         }
     }
 
@@ -3443,8 +3146,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -3459,9 +3160,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -3494,8 +3192,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = true,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -3510,9 +3206,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -3568,8 +3261,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = playlistItems,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = true,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -3584,9 +3275,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -3625,8 +3313,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylist,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = playbackState,
                     isSeekSupported = true,
@@ -3641,9 +3327,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -3698,8 +3381,6 @@ class PlayerScreenRobolectricTest {
                     playlistItems = demoOnlinePlaylistWithCover,
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -3714,9 +3395,6 @@ class PlayerScreenRobolectricTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },

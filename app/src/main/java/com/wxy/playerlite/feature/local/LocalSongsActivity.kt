@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
@@ -50,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.wxy.playerlite.feature.song.SongDetailActivity
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 class LocalSongsActivity : ComponentActivity() {
@@ -106,7 +108,15 @@ class LocalSongsActivity : ComponentActivity() {
                         }
                     },
                     onPlayAll = viewModel::playAll,
-                    onSongClick = viewModel::playSong
+                    onSongClick = viewModel::playSong,
+                    onSongDetailClick = { song ->
+                        startActivity(
+                            SongDetailActivity.createIntent(
+                                context = this@LocalSongsActivity,
+                                ref = song.toSongRef()
+                            )
+                        )
+                    }
                 )
             }
         }
@@ -156,7 +166,8 @@ internal fun LocalSongsScreen(
     onRequestPermission: () -> Unit,
     onScan: () -> Unit,
     onPlayAll: () -> Unit,
-    onSongClick: (Int) -> Unit
+    onSongClick: (Int) -> Unit,
+    onSongDetailClick: (LocalSongEntry) -> Unit
 ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -291,6 +302,15 @@ internal fun LocalSongsScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onSongDetailClick(item) },
+                                    modifier = Modifier.testTag("local_songs_item_detail_${item.id}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Info,
+                                        contentDescription = "查看歌曲详情"
                                     )
                                 }
                             }

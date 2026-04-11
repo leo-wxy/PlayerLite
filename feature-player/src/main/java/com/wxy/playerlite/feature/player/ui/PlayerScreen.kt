@@ -123,10 +123,8 @@ import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
-import com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
 import com.wxy.playerlite.feature.player.model.PlayerUiState
-import com.wxy.playerlite.feature.player.model.SongWikiSummary
 import com.wxy.playerlite.feature.player.model.resolvePlayerOrientationToggleTarget
 import com.wxy.playerlite.feature.player.ui.components.PlaybackControls
 import com.wxy.playerlite.feature.player.ui.components.PlayerMoreActionsSheet
@@ -156,7 +154,16 @@ fun PlayerScreen(
             .getOrNull(uiState.activePlaylistIndex)
             ?.primaryArtistId
             ?.takeIf { it.isNotBlank() },
-    showSongWikiInlineButton: Boolean = true,
+    canOpenSongDetail: Boolean = uiState.playlistItems
+        .getOrNull(uiState.activePlaylistIndex)
+        ?.let { item ->
+            !(
+                uiState.currentSongId.isNullOrBlank() &&
+                    item.songId.isNullOrBlank() &&
+                    item.uri.isBlank()
+                )
+        }
+        ?: false,
     enableEnterMotion: Boolean = true,
     modifier: Modifier = Modifier,
     callbacks: PlayerScreenCallbacks
@@ -169,12 +176,10 @@ fun PlayerScreen(
         playlistItems = uiState.playlistItems,
         activePlaylistIndex = uiState.activePlaylistIndex,
         showPlaylistSheet = uiState.showPlaylistSheet,
-        showSongWikiSheet = uiState.showSongWikiSheet,
         showMoreActionsSheet = uiState.showMoreActionsSheet,
         showAudioEffectPage = uiState.showAudioEffectPage,
         showAudioQualitySheet = uiState.showAudioQualitySheet,
         moreActionsPage = uiState.moreActionsPage,
-        songWikiUiState = uiState.songWikiUiState,
         lyricUiState = uiState.lyricUiState,
         selectedTopTab = uiState.selectedTopTab,
         orientationMode = uiState.orientationMode,
@@ -198,15 +203,12 @@ fun PlayerScreen(
         currentSongId = uiState.currentSongId,
         currentArtistId = currentArtistId,
         currentCoverUrl = uiState.currentCoverUrl,
-        showSongWikiInlineButton = showSongWikiInlineButton,
+        canOpenSongDetail = canOpenSongDetail,
         enableEnterMotion = enableEnterMotion,
         modifier = modifier,
         onPickAudio = callbacks.onPickAudio,
         onTogglePlaylistSheet = callbacks.onTogglePlaylistSheet,
         onDismissPlaylistSheet = callbacks.onDismissPlaylistSheet,
-        onShowSongWiki = callbacks.onShowSongWiki,
-        onDismissSongWiki = callbacks.onDismissSongWiki,
-        onRetrySongWiki = callbacks.onRetrySongWiki,
         onRetryLyrics = callbacks.onRetryLyrics,
         onSelectTopTab = callbacks.onSelectTopTab,
         onCycleOrientationMode = callbacks.onCycleOrientationMode,
@@ -234,6 +236,7 @@ fun PlayerScreen(
         onSelectAudioQuality = callbacks.onSelectAudioQuality,
         onSelectAudioEffectPreset = callbacks.onSelectAudioEffectPreset,
         onBackClick = callbacks.onBackClick,
+        onOpenSongDetail = callbacks.onOpenSongDetail,
         onShareClick = callbacks.onShareClick,
         onArtistClick = callbacks.onArtistClick,
         onFavoriteClick = callbacks.onFavoriteClick,
@@ -250,12 +253,10 @@ fun PlayerScreen(
     playlistItems: List<PlaylistItem>,
     activePlaylistIndex: Int,
     showPlaylistSheet: Boolean,
-    showSongWikiSheet: Boolean,
     showMoreActionsSheet: Boolean = false,
     showAudioEffectPage: Boolean = false,
     showAudioQualitySheet: Boolean = false,
     moreActionsPage: PlayerMoreActionsPage = PlayerMoreActionsPage.ROOT,
-    songWikiUiState: PlayerSongWikiUiState,
     lyricUiState: PlayerLyricUiState = PlayerLyricUiState.Placeholder,
     selectedTopTab: PlayerTopTab = PlayerTopTab.SONG,
     orientationMode: PlayerOrientationMode = PlayerOrientationMode.AUTO,
@@ -288,15 +289,17 @@ fun PlayerScreen(
         .getOrNull(activePlaylistIndex)
         ?.coverUrl
         ?.takeIf { it.isNotBlank() },
-    showSongWikiInlineButton: Boolean = true,
+    canOpenSongDetail: Boolean = playlistItems
+        .getOrNull(activePlaylistIndex)
+        ?.let { item ->
+            !(currentSongId.isNullOrBlank() && item.songId.isNullOrBlank() && item.uri.isBlank())
+        }
+        ?: false,
     enableEnterMotion: Boolean = true,
     modifier: Modifier = Modifier,
     onPickAudio: () -> Unit,
     onTogglePlaylistSheet: () -> Unit,
     onDismissPlaylistSheet: () -> Unit,
-    onShowSongWiki: () -> Unit,
-    onDismissSongWiki: () -> Unit,
-    onRetrySongWiki: () -> Unit,
     onRetryLyrics: () -> Unit = {},
     onSelectTopTab: ((PlayerTopTab) -> Unit)? = null,
     onCycleOrientationMode: (PlayerOrientationMode) -> Unit = {},
@@ -324,6 +327,7 @@ fun PlayerScreen(
     onSelectAudioQuality: (PlaybackAudioQuality) -> Unit = {},
     onSelectAudioEffectPreset: (AudioEffectPreset) -> Unit = {},
     onBackClick: () -> Unit = {},
+    onOpenSongDetail: () -> Unit = {},
     onShareClick: () -> Unit = {},
     onArtistClick: () -> Unit = {},
     onFavoriteClick: () -> Unit = {},
@@ -437,7 +441,7 @@ fun PlayerScreen(
                 artistText = artistText,
                 status = status,
                 coverUrl = resolvedCoverUrl,
-                showSongWikiAction = showSongWikiInlineButton && currentSongId != null,
+                showSongDetailAction = canOpenSongDetail,
                 lyricUiState = lyricUiState,
                 selectedTopTab = effectiveSelectedTopTab,
                 orientationMode = orientationMode,
@@ -454,12 +458,14 @@ fun PlayerScreen(
                 currentPositionMs = seekValueMs,
                 currentDurationText = currentDurationText,
                 totalDurationText = totalDurationText,
+                currentSongId = currentSongId,
                 currentArtistId = resolvedArtistId,
                 combinedStatusUi = combinedStatusUi,
                 showInlineCombinedStatusRow = !showSettingsSheet,
                 onSeekValueChange = onSeekValueChange,
                 onSeekFinished = onSeekFinished,
                 onBackClick = onBackClick,
+                onOpenSongDetail = onOpenSongDetail,
                 onShareClick = onShareClick,
                 onArtistClick = onArtistClick,
                 onPlay = onPlay,
@@ -469,7 +475,6 @@ fun PlayerScreen(
                 onResume = onResume,
                 onCyclePlaybackMode = onCyclePlaybackMode,
                 onTogglePlaylistSheet = onTogglePlaylistSheet,
-                onShowSongWiki = onShowSongWiki,
                 onRetryLyrics = onRetryLyrics,
                 onSelectTopTab = handleSelectTopTab,
                 onCycleOrientationMode = onCycleOrientationMode,
@@ -480,15 +485,6 @@ fun PlayerScreen(
                 onMoreClick = onMoreClick,
                 visualTokens = visualTokens,
                 modifier = Modifier.fillMaxSize()
-            )
-
-            PlayerSongWikiSheet(
-                visible = showSongWikiSheet,
-                songId = currentSongId,
-                state = songWikiUiState,
-                onDismiss = onDismissSongWiki,
-                onRetry = onRetrySongWiki,
-                modifier = Modifier.align(Alignment.BottomCenter)
             )
 
             PlaylistBottomSheet(
@@ -564,34 +560,6 @@ fun PlayerScreen(
     }
 }
 }
-
-@Composable
-internal fun PlayerSongWikiButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.testTag("player_screen_song_wiki_button"),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-        tonalElevation = 4.dp,
-        shadowElevation = 10.dp
-    ) {
-        IconButton(
-            onClick = onClick,
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = Color.Transparent,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            )
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.MenuBook,
-                contentDescription = "歌曲百科"
-            )
-        }
-    }
-}
-
 @Composable
 private fun PlayerAudioEffectPage(
     visible: Boolean,
@@ -1486,9 +1454,9 @@ private fun PlayerTopBarActionButton(
 
 @Composable
 private fun PlayerToolActionRow(
-    showSongWikiAction: Boolean,
+    showSongDetailAction: Boolean,
     showFavoriteAction: Boolean = false,
-    onShowSongWiki: () -> Unit,
+    onOpenSongDetail: () -> Unit,
     onFavoriteClick: (() -> Unit)? = null,
     onMoreClick: () -> Unit,
     layoutMetrics: PlayerScreenLayoutMetrics,
@@ -1518,14 +1486,14 @@ private fun PlayerToolActionRow(
         },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (showSongWikiAction) {
+        if (showSongDetailAction) {
             PlayerToolActionButton(
-                tag = "player_screen_song_wiki_tool_button",
+                tag = "player_screen_song_detail_tool_button",
                 icon = Icons.AutoMirrored.Rounded.MenuBook,
-                contentDescription = "打开歌曲百科",
+                contentDescription = "打开歌曲详情",
                 buttonSize = buttonSize,
                 iconSize = iconSize,
-                onClick = onShowSongWiki
+                onClick = onOpenSongDetail
             )
         }
 
@@ -1686,227 +1654,6 @@ private fun PlayerScreenEmptyState(
     }
 }
 
-@Composable
-private fun PlayerSongWikiSheet(
-    visible: Boolean,
-    songId: String?,
-    state: PlayerSongWikiUiState,
-    onDismiss: () -> Unit,
-    onRetry: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    if (!visible || songId.isNullOrBlank()) {
-        return
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .testTag("player_screen_song_wiki_sheet")
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.18f))
-                .clickable(onClick = onDismiss)
-                .testTag("player_screen_song_wiki_scrim")
-        )
-
-        Surface(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 18.dp),
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 8.dp,
-            shadowElevation = 18.dp
-        ) {
-            Column(
-                modifier = Modifier
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "歌曲百科",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "基于当前播放歌曲的简要百科信息",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.testTag("player_screen_song_wiki_close")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = "关闭歌曲百科"
-                        )
-                    }
-                }
-
-                when (state) {
-                    PlayerSongWikiUiState.Placeholder -> {
-                        Text(
-                            text = "轻触右上角即可查看歌曲百科。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    PlayerSongWikiUiState.Loading -> {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Text(
-                                text = "正在加载歌曲百科…",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    }
-
-                    is PlayerSongWikiUiState.Content -> {
-                        SongWikiSummaryContent(summary = state.summary)
-                    }
-
-                    is PlayerSongWikiUiState.Empty -> {
-                        Text(
-                            text = state.message,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    is PlayerSongWikiUiState.Error -> {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = state.message,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            TextButton(
-                                onClick = onRetry,
-                                modifier = Modifier.testTag("player_screen_song_wiki_retry")
-                            ) {
-                                Text(text = "重试")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SongWikiSummaryContent(
-    summary: SongWikiSummary,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        summary.contributionText?.takeIf { it.isNotBlank() }?.let { contributionText ->
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color.Transparent,
-                modifier = Modifier.border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(16.dp)
-                )
-            ) {
-                Text(
-                    text = contributionText,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        if (summary.coverUrl != null) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                AsyncImage(
-                    model = summary.coverUrl,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(78.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentScale = ContentScale.Crop
-                )
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = summary.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "为当前歌曲整理的基础信息摘要",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
-        summary.sections.forEach { section ->
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = section.title,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = section.values.joinToString(separator = " · "),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-        }
-
-    }
-}
-
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 private fun PlayerScreenContent(
@@ -1914,7 +1661,7 @@ private fun PlayerScreenContent(
     artistText: String?,
     status: String,
     coverUrl: String?,
-    showSongWikiAction: Boolean,
+    showSongDetailAction: Boolean,
     lyricUiState: PlayerLyricUiState,
     selectedTopTab: PlayerTopTab,
     orientationMode: PlayerOrientationMode,
@@ -1931,6 +1678,7 @@ private fun PlayerScreenContent(
     currentPositionMs: Long,
     currentDurationText: String,
     totalDurationText: String,
+    currentSongId: String?,
     currentArtistId: String?,
     combinedStatusUi: com.wxy.playerlite.feature.player.model.PlayerCombinedStatusUi?,
     showInlineCombinedStatusRow: Boolean,
@@ -1946,13 +1694,13 @@ private fun PlayerScreenContent(
     onResume: () -> Unit,
     onCyclePlaybackMode: () -> Unit,
     onTogglePlaylistSheet: () -> Unit,
-    onShowSongWiki: () -> Unit,
     onRetryLyrics: () -> Unit,
     onSelectTopTab: (PlayerTopTab) -> Unit,
     onCycleOrientationMode: (PlayerOrientationMode) -> Unit,
     onBackdropColorChange: (Color) -> Unit,
     onShowAudioQualitySettings: () -> Unit,
     onShowAudioEffectSettings: () -> Unit,
+    onOpenSongDetail: () -> Unit,
     onFavoriteClick: () -> Unit,
     onMoreClick: () -> Unit,
     visualTokens: com.wxy.playerlite.designsystem.theme.PlayerLiteVisualTokens,
@@ -2193,14 +1941,16 @@ private fun PlayerScreenContent(
                                             )
                                         }
 
-                                        PlayerToolActionButton(
-                                            tag = "player_screen_favorite_button",
-                                            icon = Icons.Rounded.FavoriteBorder,
-                                            contentDescription = "收藏当前歌曲",
-                                            buttonSize = layoutMetrics.toolButtonSize,
-                                            iconSize = layoutMetrics.toolIconSize,
-                                            onClick = onFavoriteClick
-                                        )
+                                        if (!currentSongId.isNullOrBlank()) {
+                                            PlayerToolActionButton(
+                                                tag = "player_screen_favorite_button",
+                                                icon = Icons.Rounded.FavoriteBorder,
+                                                contentDescription = "收藏当前歌曲",
+                                                buttonSize = layoutMetrics.toolButtonSize,
+                                                iconSize = layoutMetrics.toolIconSize,
+                                                onClick = onFavoriteClick
+                                            )
+                                        }
                                     }
                                     Text(
                                         text = formatLyricSummaryLine(lyricPresentation.summaryText),
@@ -2219,8 +1969,8 @@ private fun PlayerScreenContent(
                                 }
 
                                 PlayerToolActionRow(
-                                    showSongWikiAction = showSongWikiAction,
-                                    onShowSongWiki = onShowSongWiki,
+                                    showSongDetailAction = showSongDetailAction,
+                                    onOpenSongDetail = onOpenSongDetail,
                                     onMoreClick = onMoreClick,
                                     layoutMetrics = layoutMetrics
                                 )

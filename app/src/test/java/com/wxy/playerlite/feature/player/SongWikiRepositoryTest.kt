@@ -143,6 +143,108 @@ class SongWikiRepositoryTest {
         assertEquals(listOf("治愈", "悲伤"), summary.sections[1].values)
         assertEquals("乐谱", summary.sections[4].title)
         assertEquals(listOf("2个", "吉他"), summary.sections[4].values)
+        assertTrue(summary.similarSongs.isEmpty())
+        assertTrue(summary.relatedPlaylists.isEmpty())
+    }
+
+    @Test
+    fun fetchSongWiki_shouldMapSimilarSongsAndRelatedPlaylists() = runBlocking {
+        val repository = DefaultSongWikiRepository(
+            remoteDataSource = FakeSongWikiRemoteDataSource(
+                payload = jsonObject(
+                    """
+                    {
+                      "code": 200,
+                      "data": {
+                        "blocks": [
+                          {
+                            "code": "SONG_PLAY_ABOUT_SONG_BASIC",
+                            "uiElement": {
+                              "mainTitle": { "title": "音乐百科" }
+                            },
+                            "creatives": []
+                          },
+                          {
+                            "code": "SONG_PLAY_ABOUT_SIMILAR_SONG",
+                            "uiElement": {
+                              "mainTitle": { "title": "相似歌曲" }
+                            },
+                            "creatives": [
+                              {
+                                "resources": [
+                                  {
+                                    "resourceType": "SONG",
+                                    "resourceId": "song-1",
+                                    "uiElement": {
+                                      "mainTitle": { "title": "夜的第七章" },
+                                      "subTitles": [
+                                        { "title": "周杰伦" }
+                                      ],
+                                      "images": [
+                                        { "imageUrl": "http://example.com/song-1.jpg" }
+                                      ]
+                                    }
+                                  },
+                                  {
+                                    "resourceType": "SONG",
+                                    "resourceId": "song-2",
+                                    "uiElement": {
+                                      "mainTitle": { "title": "发如雪" },
+                                      "subTitles": [
+                                        { "title": "周杰伦" }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "code": "SONG_PLAY_ABOUT_RELATED_PLAYLIST",
+                            "uiElement": {
+                              "mainTitle": { "title": "相关歌单" }
+                            },
+                            "creatives": [
+                              {
+                                "resources": [
+                                  {
+                                    "resourceType": "PLAYLIST",
+                                    "resourceId": "playlist-1",
+                                    "resourceExt": {
+                                      "playCount": 123456
+                                    },
+                                    "uiElement": {
+                                      "mainTitle": { "title": "深夜循环" },
+                                      "images": [
+                                        { "imageUrl": "http://example.com/playlist-1.jpg" }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                    """
+                )
+            )
+        )
+
+        val summary = repository.fetchSongWiki("1973665667")
+
+        requireNotNull(summary)
+        assertEquals(2, summary.similarSongs.size)
+        assertEquals("song-1", summary.similarSongs[0].songId)
+        assertEquals("夜的第七章", summary.similarSongs[0].title)
+        assertEquals("周杰伦", summary.similarSongs[0].subtitle)
+        assertEquals("http://example.com/song-1.jpg", summary.similarSongs[0].coverUrl)
+        assertEquals(1, summary.relatedPlaylists.size)
+        assertEquals("playlist-1", summary.relatedPlaylists[0].playlistId)
+        assertEquals("深夜循环", summary.relatedPlaylists[0].title)
+        assertEquals("12.3 万播放", summary.relatedPlaylists[0].subtitle)
+        assertEquals("http://example.com/playlist-1.jpg", summary.relatedPlaylists[0].coverUrl)
     }
 
     @Test

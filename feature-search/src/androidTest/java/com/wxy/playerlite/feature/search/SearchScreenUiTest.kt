@@ -43,7 +43,7 @@ class SearchScreenUiTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }
@@ -101,7 +101,7 @@ class SearchScreenUiTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }
@@ -150,7 +150,7 @@ class SearchScreenUiTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = { selectedType = it },
-                    onResultClick = { clickedTarget = it },
+                    onResultClick = { item, _ -> clickedTarget = item.routeTarget },
                     onRetry = {}
                 )
             }
@@ -195,7 +195,7 @@ class SearchScreenUiTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }
@@ -241,7 +241,7 @@ class SearchScreenUiTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }

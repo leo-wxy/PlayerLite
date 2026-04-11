@@ -3,6 +3,7 @@ package com.wxy.playerlite.feature.search
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -46,6 +47,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocalFireDepartment
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -106,13 +108,42 @@ class SearchActivity : ComponentActivity() {
                     onSuggestionClick = viewModel::onSuggestionClick,
                     onHotKeywordClick = viewModel::onHotKeywordClick,
                     onResultTypeSelected = viewModel::onResultTypeSelected,
-                    onResultClick = { target ->
-                        hostDependencies.routeHandler.open(this@SearchActivity, target)
+                    onResultClick = { item, visibleItems ->
+                        handleSearchResultClick(
+                            item = item,
+                            visibleItems = visibleItems
+                        )
+                    },
+                    onSongOverflowClick = { song ->
+                        hostDependencies.routeHandler.open(this, song.routeTarget)
                     },
                     onRetry = viewModel::retryCurrentMode
                 )
             }
         }
+    }
+
+    private fun handleSearchResultClick(
+        item: SearchResultUiModel,
+        visibleItems: List<SearchResultUiModel>
+    ) {
+        if (item is SearchResultUiModel.Song) {
+            val visibleSongs = visibleItems.filterIsInstance<SearchResultUiModel.Song>()
+            val played = hostDependencies.songPlaybackHandler.play(
+                context = this,
+                songs = visibleSongs,
+                activeSongId = item.id
+            )
+            if (!played) {
+                showMessage("播放失败：当前搜索结果没有可播放歌曲")
+            }
+            return
+        }
+        hostDependencies.routeHandler.open(this, item.routeTarget)
+    }
+
+    private fun showMessage(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     companion object {
@@ -134,7 +165,8 @@ internal fun SearchScreen(
     onSuggestionClick: (SearchSuggestionUiModel) -> Unit,
     onHotKeywordClick: (SearchHotKeywordUiModel) -> Unit,
     onResultTypeSelected: (SearchResultType) -> Unit,
-    onResultClick: (SearchRouteTarget) -> Unit,
+    onResultClick: (SearchResultUiModel, List<SearchResultUiModel>) -> Unit,
+    onSongOverflowClick: (SearchResultUiModel.Song) -> Unit = {},
     onRetry: () -> Unit
 ) {
     val usesExpandedTypography = usesExpandedSearchTypography()
@@ -200,6 +232,7 @@ internal fun SearchScreen(
                             hasSubmittedQuery = state.lastSubmittedQuery.isNotBlank(),
                             onResultTypeSelected = onResultTypeSelected,
                             onResultClick = onResultClick,
+                            onSongOverflowClick = onSongOverflowClick,
                             onRetry = onRetry
                         )
                     }
@@ -506,7 +539,8 @@ private fun SearchResultContent(
     availableResultTypes: List<SearchResultType>,
     hasSubmittedQuery: Boolean,
     onResultTypeSelected: (SearchResultType) -> Unit,
-    onResultClick: (SearchRouteTarget) -> Unit,
+    onResultClick: (SearchResultUiModel, List<SearchResultUiModel>) -> Unit,
+    onSongOverflowClick: (SearchResultUiModel.Song) -> Unit,
     onRetry: () -> Unit
 ) {
     val selectedPageIndex = availableResultTypes.indexOf(selectedResultType).coerceAtLeast(0)
@@ -562,6 +596,7 @@ private fun SearchResultContent(
             SearchResultPage(
                 state = pageState,
                 onResultClick = onResultClick,
+                onSongOverflowClick = onSongOverflowClick,
                 onRetry = onRetry
             )
         }
@@ -584,7 +619,8 @@ private fun resolveVisibleSearchResultPageState(
 @Composable
 private fun SearchResultPage(
     state: SearchResultUiState,
-    onResultClick: (SearchRouteTarget) -> Unit,
+    onResultClick: (SearchResultUiModel, List<SearchResultUiModel>) -> Unit,
+    onSongOverflowClick: (SearchResultUiModel.Song) -> Unit,
     onRetry: () -> Unit
 ) {
     when (state) {
@@ -630,7 +666,8 @@ private fun SearchResultPage(
                     SearchResultCard(
                         item = item,
                         showDivider = index != state.items.lastIndex,
-                        onClick = { onResultClick(item.routeTarget) }
+                        onClick = { onResultClick(item, state.items) },
+                        onSongOverflowClick = onSongOverflowClick
                     )
                 }
             }
@@ -963,7 +1000,8 @@ private fun SearchSectionTitle(
 private fun SearchResultCard(
     item: SearchResultUiModel,
     showDivider: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onSongOverflowClick: (SearchResultUiModel.Song) -> Unit
 ) {
     val usesExpandedTypography = usesExpandedSearchTypography()
     val supportingText = item.supportingText()
@@ -1052,6 +1090,23 @@ private fun SearchResultCard(
                             color = SEARCH_PRIMARY_RED,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                if (item is SearchResultUiModel.Song) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .clickable { onSongOverflowClick(item) }
+                            .testTag("search_result_more_${item.id}"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreHoriz,
+                            contentDescription = "查看歌曲详情",
+                            modifier = Modifier.size(18.dp),
+                            tint = SEARCH_TEXT_SECONDARY
                         )
                     }
                 }

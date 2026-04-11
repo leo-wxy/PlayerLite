@@ -6,7 +6,9 @@ import com.wxy.playerlite.feature.home.HomeHostDependencies
 import com.wxy.playerlite.feature.home.HomeHostDependenciesProvider
 import com.wxy.playerlite.feature.search.SearchHostDependencies
 import com.wxy.playerlite.feature.search.SearchHostDependenciesProvider
+import com.wxy.playerlite.feature.search.SearchSongPlaybackHandler
 import com.wxy.playerlite.feature.search.SearchRouteHandler
+import com.wxy.playerlite.feature.search.playSearchSongs
 import com.wxy.playerlite.feature.search.searchRouteIntent
 
 class PlayerLiteApplication : Application(), SearchHostDependenciesProvider, HomeHostDependenciesProvider {
@@ -19,6 +21,13 @@ class PlayerLiteApplication : Application(), SearchHostDependenciesProvider, Hom
             repository = AppContainer.searchRepository(this),
             routeHandler = SearchRouteHandler { context, target ->
                 searchRouteIntent(context, target)?.let(context::startActivity)
+            },
+            songPlaybackHandler = SearchSongPlaybackHandler { context, songs, activeSongId ->
+                playSearchSongs(
+                    context = context,
+                    songs = songs,
+                    activeSongId = activeSongId
+                )
             }
         )
     }

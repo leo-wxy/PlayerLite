@@ -8,11 +8,22 @@ interface SearchHostDependenciesProvider {
 
 data class SearchHostDependencies(
     val repository: SearchRepository,
-    val routeHandler: SearchRouteHandler = SearchRouteHandler { _, _ -> Unit }
+    val routeHandler: SearchRouteHandler = SearchRouteHandler { _, _ -> Unit },
+    val songPlaybackHandler: SearchSongPlaybackHandler = SearchSongPlaybackHandler { _, _, _ ->
+        false
+    }
 )
 
 fun interface SearchRouteHandler {
     fun open(context: Context, target: SearchRouteTarget)
+}
+
+fun interface SearchSongPlaybackHandler {
+    fun play(
+        context: Context,
+        songs: List<SearchResultUiModel.Song>,
+        activeSongId: String
+    ): Boolean
 }
 
 internal fun Context.requireSearchHostDependencies(): SearchHostDependencies {

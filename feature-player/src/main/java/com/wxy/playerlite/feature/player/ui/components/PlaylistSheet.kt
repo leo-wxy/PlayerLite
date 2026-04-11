@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -83,6 +85,39 @@ val PlaylistSheetFirstVisibleIndexKey =
 
 internal var SemanticsPropertyReceiver.playlistSheetFirstVisibleIndex by
     PlaylistSheetFirstVisibleIndexKey
+
+data class PlaylistSheetLayoutSpec(
+    val isLandscape: Boolean,
+    val widthFraction: Float,
+    val minWidthDp: Float? = null,
+    val maxWidthDp: Float? = null,
+    val heightFraction: Float,
+    val dockToEnd: Boolean
+)
+
+fun resolvePlaylistSheetLayoutSpec(
+    viewportWidthDp: Float,
+    viewportHeightDp: Float
+): PlaylistSheetLayoutSpec {
+    val isLandscape = viewportWidthDp > viewportHeightDp
+    return if (isLandscape) {
+        PlaylistSheetLayoutSpec(
+            isLandscape = true,
+            widthFraction = 0.5f,
+            minWidthDp = 360f,
+            maxWidthDp = 560f,
+            heightFraction = 0.84f,
+            dockToEnd = true
+        )
+    } else {
+        PlaylistSheetLayoutSpec(
+            isLandscape = false,
+            widthFraction = 1f,
+            heightFraction = 0.74f,
+            dockToEnd = false
+        )
+    }
+}
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
@@ -147,7 +182,33 @@ fun PlaylistBottomSheet(
         ),
         modifier = modifier.fillMaxSize()
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val layoutSpec = resolvePlaylistSheetLayoutSpec(
+                viewportWidthDp = maxWidth.value,
+                viewportHeightDp = maxHeight.value
+            )
+            val surfaceShape = if (layoutSpec.isLandscape) {
+                RoundedCornerShape(28.dp)
+            } else {
+                RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
+            }
+            val surfaceModifier = if (layoutSpec.isLandscape) {
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 16.dp, top = 16.dp, bottom = 16.dp)
+                    .fillMaxWidth(layoutSpec.widthFraction)
+                    .widthIn(
+                        min = (layoutSpec.minWidthDp ?: 0f).dp,
+                        max = (layoutSpec.maxWidthDp ?: Float.MAX_VALUE).dp
+                    )
+                    .fillMaxHeight(layoutSpec.heightFraction)
+            } else {
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth(layoutSpec.widthFraction)
+                    .fillMaxHeight(layoutSpec.heightFraction)
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -160,12 +221,9 @@ fun PlaylistBottomSheet(
             )
 
             Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.74f)
+                modifier = surfaceModifier
                     .testTag("playlist_sheet_surface"),
-                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+                shape = surfaceShape,
                 color = brandPalette.neutral,
                 tonalElevation = 0.dp,
                 shadowElevation = 24.dp,

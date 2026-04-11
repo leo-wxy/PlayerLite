@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -44,7 +45,7 @@ class SearchScreenRobolectricTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }
@@ -81,7 +82,7 @@ class SearchScreenRobolectricTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }
@@ -118,7 +119,7 @@ class SearchScreenRobolectricTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }
@@ -145,7 +146,9 @@ class SearchScreenRobolectricTest {
     }
 
     @Test
-    fun resultMode_shouldRenderUnderlineTabsAndCompactResultRowsWithoutFakeMoreAction() {
+    fun resultMode_shouldRenderUnderlineTabsAndOpenSongDetailFromOverflowAction() {
+        var overflowTarget: SearchRouteTarget? = null
+
         composeRule.setContent {
             SearchFeatureTheme {
                 SearchScreen(
@@ -182,7 +185,8 @@ class SearchScreenRobolectricTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
+                    onSongOverflowClick = { overflowTarget = it.routeTarget },
                     onRetry = {}
                 )
             }
@@ -193,7 +197,72 @@ class SearchScreenRobolectricTest {
         composeRule.onAllNodesWithTag("search_result_type_album_indicator", useUnmergedTree = true)
             .assertCountEquals(0)
         composeRule.onNodeWithTag("search_result_card_song-1").assertIsDisplayed()
-        composeRule.onAllNodesWithTag("search_result_more_song-1").assertCountEquals(0)
+        composeRule.onNodeWithTag("search_result_more_song-1").assertIsDisplayed().performClick()
+        composeRule.onAllNodesWithText("下一首播放", useUnmergedTree = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("查看歌曲详情", useUnmergedTree = true).assertCountEquals(0)
+        assertEquals(SearchRouteTarget.Song(songId = "song-1"), overflowTarget)
+    }
+
+    @Test
+    fun resultMode_songPrimaryClick_shouldExposeCurrentVisibleSongResultsToHost() {
+        var clickedSongId: String? = null
+        var visibleSongIds: List<String> = emptyList()
+
+        composeRule.setContent {
+            SearchFeatureTheme {
+                SearchScreen(
+                    state = SearchUiState(
+                        query = "田馥甄",
+                        pageMode = SearchPageMode.RESULT,
+                        selectedResultType = SearchResultType.SONG,
+                        availableResultTypes = listOf(SearchResultType.SONG),
+                        resultStatesByType = mapOf(
+                            SearchResultType.SONG to SearchResultUiState.Content(
+                                listOf(
+                                    SearchResultUiModel.Song(
+                                        id = "song-1",
+                                        title = "无人知晓",
+                                        artistText = "田馥甄",
+                                        albumTitle = "无人知晓",
+                                        coverUrl = null,
+                                        routeTarget = SearchRouteTarget.Song(songId = "song-1")
+                                    ),
+                                    SearchResultUiModel.Song(
+                                        id = "song-2",
+                                        title = "先知",
+                                        artistText = "田馥甄",
+                                        albumTitle = "无人知晓",
+                                        coverUrl = null,
+                                        routeTarget = SearchRouteTarget.Song(songId = "song-2")
+                                    )
+                                )
+                            )
+                        )
+                    ),
+                    onBack = {},
+                    onQueryChanged = {},
+                    onSubmitSearch = {},
+                    onHistoryKeywordClick = {},
+                    onRemoveHistoryKeyword = {},
+                    onClearHistory = {},
+                    onSuggestionClick = {},
+                    onHotKeywordClick = {},
+                    onResultTypeSelected = {},
+                    onResultClick = { item, visibleItems ->
+                        clickedSongId = item.id
+                        visibleSongIds = visibleItems
+                            .filterIsInstance<SearchResultUiModel.Song>()
+                            .map(SearchResultUiModel.Song::id)
+                    },
+                    onRetry = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("search_result_card_song-2").performClick()
+
+        assertEquals("song-2", clickedSongId)
+        assertEquals(listOf("song-1", "song-2"), visibleSongIds)
     }
 
     @Test
@@ -234,7 +303,7 @@ class SearchScreenRobolectricTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }
@@ -268,7 +337,7 @@ class SearchScreenRobolectricTest {
                     onSuggestionClick = {},
                     onHotKeywordClick = {},
                     onResultTypeSelected = {},
-                    onResultClick = {},
+                    onResultClick = { _, _ -> },
                     onRetry = {}
                 )
             }

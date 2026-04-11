@@ -129,6 +129,8 @@ sealed interface SearchResultUiModel {
         override val title: String,
         val artistText: String,
         val albumTitle: String,
+        val primaryArtistId: String? = null,
+        val albumId: String? = null,
         override val coverUrl: String?,
         override val routeTarget: SearchRouteTarget,
         val durationMs: Long = 0L

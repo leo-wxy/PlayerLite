@@ -1,6 +1,6 @@
 # PlayerLite
 
-一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要、系统 `MediaSession` 动态展示链路，以及当前音源管理、在线音质切换、默认音效 preset、横屏播放器独立沉浸布局、首页每日推荐站内入口与每日推荐歌曲页、首页横向歌曲推荐区块、搜索页共享主题统一和网页歌单导入等较完整的播放能力。近期进一步完成了项目结构重构：播放器展示层拆到 `:feature-player`，首页发现流拆到 `:feature-home`，播放列表域拆到 `:playlist-core`，应用侧播放编排拆到 `:playback-orchestrator`，`app` 退回到宿主、装配与入口适配职责。
+一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、歌曲详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要、系统 `MediaSession` 动态展示链路，以及当前音源管理、在线音质切换、默认音效 preset、横屏播放器独立沉浸布局、首页每日推荐站内入口与每日推荐歌曲页、首页横向歌曲推荐区块、搜索页共享主题统一和网页歌单导入等较完整的播放能力。近期进一步完成了项目结构重构：播放器展示层拆到 `:feature-player`，首页发现流拆到 `:feature-home`，播放列表域拆到 `:playlist-core`，应用侧播放编排拆到 `:playback-orchestrator`，`app` 退回到宿主、装配与入口适配职责。
 
 ## 主要能力
 
@@ -27,9 +27,11 @@
 - 歌手 / 专辑 / 歌单详情页采用 `hero + sticky tabs + HorizontalPager` 结构，支持头部与当前 tab 列表之间的连续纵向滚动接力
 - 首页 `minibar`、详情页 `minibar` 与系统 `MediaSession` 可随播放进度动态展示当前歌词摘要，并稳定回退为 `歌名 - 歌手`
 - 首页发现流、悬浮搜索入口、热搜 / 搜索建议 / 搜索结果页
+- 独立歌曲详情页与统一歌曲对象入口：在线歌曲支持详情、收藏、分享、查看专辑 / 歌手，本地歌曲按来源降级承载基础信息与播放动作
 - 首页 `song` 资源块采用“三首一列、横向滑动”的歌曲推荐区块，点击任意歌曲会按当前 block 的完整队列替换播放列表并从当前项开始播放
 - 首页“每日推荐”快捷入口可直达站内每日推荐歌曲页，登录态下支持“播放全部”、单曲播放与推荐理由展示
 - 搜索页基于共享 `design-system` token 统一背景、面板、分割线与强调色，历史搜索、热搜板、建议列表和结果列表保持同一套红白主题层级
+- 搜索单曲结果主点击按当前可见结果列表直接开播，右侧三个点作为轻量详情入口直达歌曲详情页
 - 歌手详情、歌单详情、专辑详情，以及首页/搜索/个人中心/喜欢页到详情页的跳转闭环
 - 手机号/邮箱登录、用户会话恢复、个人中心主页、喜欢内容页、最近播放页与本地歌曲入口
 - 个人中心采用“资料头部 + 喜欢 / 最近 / 本地快捷入口 + 自建歌单”结构
@@ -46,7 +48,7 @@
 - `:playback-orchestrator`
   - 应用侧播放编排层，承载队列同步、transport / settings / queue 控制器、detail 播放 gateway 与远端播放状态协同
 - `:feature-player`
-  - 播放器 feature 展示层，承载 `PlayerScreen`、播放器页面态模型、歌词/百科展示辅助、播放器入口 contract 与宿主 callbacks
+  - 播放器 feature 展示层，承载 `PlayerScreen`、播放器页面态模型、歌词展示辅助、播放器入口 contract 与宿主 callbacks
 - `build-logic`
   - 共享 Gradle convention plugin，集中治理 Android application / library / Compose 构建约束
 - `:feature-detail-support`
@@ -59,6 +61,8 @@
   - 艺人详情页 feature：repository、mapper、UI state、ViewModel、screen composable
 - `:feature-search`
   - 独立搜索页模块，承载热搜、搜索建议、结果分页、详情路由与搜索状态管理
+- `:feature-song-detail`
+  - 独立歌曲详情模块，承载统一 `SongRef`、歌曲详情状态、在线 / 本地歌曲详情屏、相似歌曲 / 相关歌单内容、歌曲动作与宿主回调契约
 - `:design-system`
   - 共享主题 contract、语义色 token 与首页/搜索/播放器复用的视觉基础
 - `:network-core`
@@ -258,6 +262,7 @@ player-lite/
 ├── feature-album-detail/
 ├── feature-artist-detail/
 ├── feature-search/
+├── feature-song-detail/
 ├── design-system/
 ├── network-core/
 ├── user/

@@ -31,6 +31,9 @@ import com.wxy.playerlite.feature.player.LyricRepository
 import com.wxy.playerlite.feature.player.NeteaseLyricRemoteDataSource
 import com.wxy.playerlite.feature.player.NeteaseSongWikiRemoteDataSource
 import com.wxy.playerlite.feature.player.SongWikiRepository
+import com.wxy.playerlite.feature.song.DefaultSongFavoriteRepository
+import com.wxy.playerlite.feature.song.NeteaseSongFavoriteRemoteDataSource
+import com.wxy.playerlite.feature.song.SongFavoriteRepository
 import com.wxy.playerlite.feature.search.SearchRepository
 import com.wxy.playerlite.feature.search.SearchFeatureServiceFactory
 import com.wxy.playerlite.feature.webplaylistimport.DefaultQqMusicPlaylistRemoteDataSource
@@ -99,6 +102,10 @@ internal object AppContainer {
 
     fun songAudioQualityRepository(context: Context): SongAudioQualityRepository {
         return getServices(context).songAudioQualityRepository
+    }
+
+    fun songFavoriteRepository(context: Context): SongFavoriteRepository {
+        return getServices(context).songFavoriteRepository
     }
 
     fun webPlaylistImportRepository(context: Context): WebPlaylistImportRepository {
@@ -177,6 +184,9 @@ internal object AppContainer {
             songAudioQualityRepository = DefaultSongAudioQualityRepository(
                 remoteDataSource = NeteaseSongAudioQualityRemoteDataSource(httpClient)
             ),
+            songFavoriteRepository = DefaultSongFavoriteRepository(
+                remoteDataSource = NeteaseSongFavoriteRemoteDataSource(httpClient)
+            ),
             songWikiRepository = DefaultSongWikiRepository(
                 remoteDataSource = NeteaseSongWikiRemoteDataSource(httpClient)
             ),
@@ -201,6 +211,7 @@ internal object AppContainer {
         val albumDetailRepository: AlbumDetailRepository,
         val songDetailRepository: SongDetailRepository,
         val songAudioQualityRepository: SongAudioQualityRepository,
+        val songFavoriteRepository: SongFavoriteRepository,
         val songWikiRepository: SongWikiRepository,
         val lyricRepository: LyricRepository
     )

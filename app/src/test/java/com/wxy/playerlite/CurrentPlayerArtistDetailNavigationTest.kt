@@ -10,7 +10,6 @@ import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.feature.artist.ArtistDetailActivity
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.PlayerUiState
-import com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState
 import com.wxy.playerlite.feature.player.ui.PlayerScreen
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
@@ -44,8 +43,6 @@ class CurrentPlayerArtistDetailNavigationTest {
                     playlistItems = listOf(currentArtistPlayableItem()),
                     activePlaylistIndex = 0,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -63,9 +60,6 @@ class CurrentPlayerArtistDetailNavigationTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },
@@ -119,8 +113,6 @@ class CurrentPlayerArtistDetailNavigationTest {
                     playlistItems = state.playlistItems,
                     activePlaylistIndex = state.activePlaylistIndex,
                     showPlaylistSheet = false,
-                    showSongWikiSheet = false,
-                    songWikiUiState = PlayerSongWikiUiState.Placeholder,
                     isPreparing = false,
                     playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
                     isSeekSupported = true,
@@ -138,9 +130,6 @@ class CurrentPlayerArtistDetailNavigationTest {
                     onPickAudio = {},
                     onTogglePlaylistSheet = {},
                     onDismissPlaylistSheet = {},
-                    onShowSongWiki = {},
-                    onDismissSongWiki = {},
-                    onRetrySongWiki = {},
                     onSelectPlaylistItem = {},
                     onRemovePlaylistItem = {},
                     onMovePlaylistItem = { _, _ -> },

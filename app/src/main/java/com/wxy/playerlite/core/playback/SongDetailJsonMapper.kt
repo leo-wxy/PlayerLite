@@ -34,6 +34,7 @@ internal object SongDetailJsonMapper {
                 .mapNotNull { artist ->
                     (artist as? JsonObject)?.stringValue("id")
                 },
+            albumId = track.objectValue("al").stringValue("id"),
             albumTitle = track.objectValue("al").stringValue("name"),
             coverUrl = track.objectValue("al").stringValue("picUrl"),
             durationMs = track.longValue("dt"),

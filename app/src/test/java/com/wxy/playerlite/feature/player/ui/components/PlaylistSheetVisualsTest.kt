@@ -77,6 +77,36 @@ class PlaylistSheetVisualsTest {
     }
 
     @Test
+    fun resolvePlaylistSheetLayoutSpec_shouldUseHalfWidthSidePanelInLandscape() {
+        val spec = resolvePlaylistSheetLayoutSpec(
+            viewportWidthDp = 960f,
+            viewportHeightDp = 540f
+        )
+
+        assertTrue(spec.isLandscape)
+        assertEquals(0.5f, spec.widthFraction)
+        assertEquals(360f, spec.minWidthDp)
+        assertEquals(560f, spec.maxWidthDp)
+        assertEquals(0.84f, spec.heightFraction)
+        assertTrue(spec.dockToEnd)
+    }
+
+    @Test
+    fun resolvePlaylistSheetLayoutSpec_shouldKeepFullWidthBottomSheetInPortrait() {
+        val spec = resolvePlaylistSheetLayoutSpec(
+            viewportWidthDp = 360f,
+            viewportHeightDp = 760f
+        )
+
+        assertTrue(!spec.isLandscape)
+        assertEquals(1f, spec.widthFraction)
+        assertEquals(null, spec.minWidthDp)
+        assertEquals(null, spec.maxWidthDp)
+        assertEquals(0.74f, spec.heightFraction)
+        assertTrue(!spec.dockToEnd)
+    }
+
+    @Test
     fun playlistBottomSheet_shouldScrollActiveItemIntoViewportWhenOpened() {
         val items = buildPlaylistItems(prefix = "opened")
 

@@ -80,7 +80,6 @@ internal class PlayerRuntime(
         val nextVisible = !uiState.showPlaylistSheet
         uiState = uiState.copy(
             showPlaylistSheet = nextVisible,
-            showSongWikiSheet = if (nextVisible) false else uiState.showSongWikiSheet,
             showMoreActionsSheet = if (nextVisible) false else uiState.showMoreActionsSheet,
             showAudioEffectPage = if (nextVisible) false else uiState.showAudioEffectPage,
             showAudioQualitySheet = if (nextVisible) false else uiState.showAudioQualitySheet,
@@ -92,28 +91,9 @@ internal class PlayerRuntime(
         uiState = uiState.copy(showPlaylistSheet = false)
     }
 
-    fun onShowSongWiki() {
-        if (uiState.currentSongId.isNullOrBlank()) {
-            return
-        }
-        uiState = uiState.copy(
-            showSongWikiSheet = true,
-            showPlaylistSheet = false,
-            showMoreActionsSheet = false,
-            showAudioEffectPage = false,
-            showAudioQualitySheet = false,
-            moreActionsPage = PlayerMoreActionsPage.ROOT
-        )
-    }
-
-    fun onDismissSongWiki() {
-        uiState = uiState.copy(showSongWikiSheet = false)
-    }
-
     fun onShowPlayerMoreActions() {
         uiState = uiState.copy(
             showPlaylistSheet = false,
-            showSongWikiSheet = false,
             showMoreActionsSheet = true,
             showAudioEffectPage = false,
             showAudioQualitySheet = false,
@@ -176,10 +156,6 @@ internal class PlayerRuntime(
 
     fun updateAudioQualityCatalogUiState(audioQualityCatalogUiState: PlayerAudioQualityCatalogUiState) {
         uiState = uiState.copy(audioQualityCatalogUiState = audioQualityCatalogUiState)
-    }
-
-    fun updateSongWikiUiState(songWikiUiState: com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState) {
-        uiState = uiState.copy(songWikiUiState = songWikiUiState)
     }
 
     fun updateLyricUiState(lyricUiState: PlayerLyricUiState) {
@@ -282,7 +258,6 @@ internal class PlayerRuntime(
             uiState = uiState.copy(
                 statusText = "播放列表已清空",
                 showPlaylistSheet = false,
-                showSongWikiSheet = false,
                 showMoreActionsSheet = false,
                 showAudioEffectPage = false,
                 showAudioQualitySheet = false,
@@ -296,7 +271,6 @@ internal class PlayerRuntime(
             uiState = uiState.copy(
                 statusText = "已移除当前项",
                 showPlaylistSheet = false,
-                showSongWikiSheet = false,
                 showMoreActionsSheet = false,
                 showAudioEffectPage = false,
                 showAudioQualitySheet = false,
@@ -308,7 +282,6 @@ internal class PlayerRuntime(
         uiState = uiState.copy(
             statusText = "已移除: ${target.displayName}",
             showPlaylistSheet = false,
-            showSongWikiSheet = false,
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
             showAudioQualitySheet = false,
@@ -321,7 +294,6 @@ internal class PlayerRuntime(
             uiState = uiState.copy(
                 statusText = "播放列表已清空",
                 showPlaylistSheet = false,
-                showSongWikiSheet = false,
                 showMoreActionsSheet = false,
                 showAudioEffectPage = false,
                 showAudioQualitySheet = false,
@@ -336,7 +308,6 @@ internal class PlayerRuntime(
         uiState = uiState.copy(
             statusText = "播放列表已清空",
             showPlaylistSheet = false,
-            showSongWikiSheet = false,
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
             moreActionsPage = PlayerMoreActionsPage.ROOT
@@ -368,7 +339,6 @@ internal class PlayerRuntime(
         uiState = uiState.copy(
             statusText = "已加入下一首播放: ${queueItem.displayName}",
             showPlaylistSheet = false,
-            showSongWikiSheet = false,
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
             showAudioQualitySheet = false,
@@ -716,7 +686,6 @@ internal class PlayerRuntime(
             appliedAudioQuality = null,
             isPreparing = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
-            showSongWikiSheet = false,
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
             showAudioQualitySheet = false,
@@ -784,7 +753,6 @@ internal class PlayerRuntime(
         }
         uiState = uiState.copy(
             showPlaylistSheet = false,
-            showSongWikiSheet = false,
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
             showAudioQualitySheet = false,
@@ -867,7 +835,6 @@ internal class PlayerRuntime(
             appliedAudioQuality = null,
             isPreparing = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
-            showSongWikiSheet = false,
             showMoreActionsSheet = false,
             showAudioEffectPage = false,
             showAudioQualitySheet = false,
@@ -897,7 +864,6 @@ internal class PlayerRuntime(
         val nextSongId = nextSongIdOverride?.takeIf { it.isNotBlank() }
             ?: activeItem?.songId?.takeIf { it.isNotBlank() }
         val songChanged = previousSongId != nextSongId
-        val canShowSongWiki = !activeItem?.songId.isNullOrBlank()
         uiState = uiState.copy(
             selectedFileName = if (shouldRefreshActiveMetadata) {
                 activeItem?.displayName ?: "No audio selected"
@@ -933,16 +899,6 @@ internal class PlayerRuntime(
                 uiState.currentSongIdOverride
             },
             showPlaylistSheet = if (playlistSession.items.isEmpty()) false else uiState.showPlaylistSheet,
-            showSongWikiSheet = if (songChanged) {
-                false
-            } else {
-                uiState.showSongWikiSheet && canShowSongWiki
-            },
-            songWikiUiState = if (songChanged || !canShowSongWiki) {
-                com.wxy.playerlite.feature.player.model.PlayerSongWikiUiState.Placeholder
-            } else {
-                uiState.songWikiUiState
-            },
             lyricUiState = if (songChanged) {
                 PlayerLyricUiState.Placeholder
             } else {
