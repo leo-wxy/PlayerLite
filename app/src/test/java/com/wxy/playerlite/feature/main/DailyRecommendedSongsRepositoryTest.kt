@@ -54,6 +54,7 @@ class DailyRecommendedSongsRepositoryTest {
         assertEquals("1887297743", songs.single().songId)
         assertEquals("L’Amour, Les Baguettes, Paris", songs.single().title)
         assertEquals("Stella Jang", songs.single().artistText)
+        assertEquals("134839887", songs.single().albumId)
         assertEquals("Stairs", songs.single().albumTitle)
         assertEquals("http://example.com/cover.jpg", songs.single().coverUrl)
         assertEquals(167172L, songs.single().durationMs)
@@ -95,6 +96,7 @@ class DailyRecommendedSongsRepositoryTest {
 
         assertEquals(1, songs.size)
         assertEquals("Artist A", songs.single().artistText)
+        assertEquals("8", songs.single().albumId)
         assertEquals("Album A", songs.single().albumTitle)
         assertNull(songs.single().recommendReason)
     }
@@ -134,6 +136,7 @@ class DailyRecommendedSongsRepositoryTest {
         assertEquals(1, songs.size)
         assertEquals("11", songs.single().songId)
         assertEquals("Artist B", songs.single().artistText)
+        assertEquals("10", songs.single().albumId)
         assertEquals("Album B", songs.single().albumTitle)
         assertEquals("与你口味相似", songs.single().recommendReason)
     }

@@ -22,6 +22,7 @@ internal data class DailyRecommendedSongUiModel(
     val title: String,
     val artistText: String,
     val primaryArtistId: String? = null,
+    val albumId: String? = null,
     val albumTitle: String? = null,
     val coverUrl: String? = null,
     val durationMs: Long = 0L,
@@ -89,6 +90,7 @@ internal object DailyRecommendedSongsJsonMapper {
                 .joinToString(separator = " / ")
                 .ifBlank { "歌曲" },
             primaryArtistId = artists.firstOrNull()?.stringValue("id"),
+            albumId = album.stringValue("id"),
             albumTitle = album.stringValue("name"),
             coverUrl = album.stringValue("picUrl")
                 ?: stringValue("picUrl")

@@ -23,6 +23,10 @@ sealed interface HomeAction {
 sealed interface HomeContentTarget {
     data object DailyRecommendedSongs : HomeContentTarget
 
+    data class Song(
+        val songId: String
+    ) : HomeContentTarget
+
     data class Artist(
         val artistId: String
     ) : HomeContentTarget

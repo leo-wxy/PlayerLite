@@ -191,15 +191,19 @@ class HomeDiscoveryRepositoryTest {
         assertEquals(3, fourthAction.activeIndex)
 
         val menuActions = firstSongCard?.menuActions.orEmpty()
-        assertEquals(listOf("下一首播放", "查看专辑", "查看歌手"), menuActions.map { it.label })
+        assertEquals(listOf("下一首播放", "查看歌曲详情", "查看歌手", "查看专辑"), menuActions.map { it.label })
         assertTrue(menuActions[0].action is HomeAction.InsertNext)
         assertEquals(
-            HomeAction.OpenContent(HomeContentTarget.Album(albumId = "10001")),
+            HomeAction.OpenContent(HomeContentTarget.Song(songId = "song-1")),
             menuActions[1].action
         )
         assertEquals(
             HomeAction.OpenContent(HomeContentTarget.Artist(artistId = "1")),
             menuActions[2].action
+        )
+        assertEquals(
+            HomeAction.OpenContent(HomeContentTarget.Album(albumId = "10001")),
+            menuActions[3].action
         )
     }
 }

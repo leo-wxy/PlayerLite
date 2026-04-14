@@ -15,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -28,11 +29,13 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +46,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -51,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.wxy.playerlite.core.playback.AppPlaybackGraph
 import com.wxy.playerlite.feature.song.SongDetailActivity
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
@@ -109,7 +117,20 @@ class LocalSongsActivity : ComponentActivity() {
                     },
                     onPlayAll = viewModel::playAll,
                     onSongClick = viewModel::playSong,
-                    onSongDetailClick = { song ->
+                    onSongInsertNext = { song ->
+                        val inserted = AppPlaybackGraph.runtime(this@LocalSongsActivity)
+                            .insertPlaylistItemNext(song.toPlaylistItem())
+                        Toast.makeText(
+                            this@LocalSongsActivity,
+                            if (inserted) {
+                                "已加入下一首播放"
+                            } else {
+                                "当前没有可插入的播放上下文"
+                            },
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onSongOpenDetail = { song ->
                         startActivity(
                             SongDetailActivity.createIntent(
                                 context = this@LocalSongsActivity,
@@ -167,7 +188,8 @@ internal fun LocalSongsScreen(
     onScan: () -> Unit,
     onPlayAll: () -> Unit,
     onSongClick: (Int) -> Unit,
-    onSongDetailClick: (LocalSongEntry) -> Unit
+    onSongInsertNext: (LocalSongEntry) -> Unit,
+    onSongOpenDetail: (LocalSongEntry) -> Unit
 ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -304,14 +326,36 @@ internal fun LocalSongsScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                IconButton(
-                                    onClick = { onSongDetailClick(item) },
-                                    modifier = Modifier.testTag("local_songs_item_detail_${item.id}")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Info,
-                                        contentDescription = "查看歌曲详情"
-                                    )
+                                var menuExpanded by remember(item.id) { mutableStateOf(false) }
+                                Box {
+                                    IconButton(
+                                        onClick = { menuExpanded = true },
+                                        modifier = Modifier.testTag("local_songs_item_more_${item.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.MoreVert,
+                                            contentDescription = "更多操作"
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = menuExpanded,
+                                        onDismissRequest = { menuExpanded = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("下一首播放") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                onSongInsertNext(item)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("查看歌曲详情") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                onSongOpenDetail(item)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }

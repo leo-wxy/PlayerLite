@@ -18,6 +18,12 @@ class HomeFeatureRouteBridgeTest {
     fun detailTargets_shouldMapToSearchRouteDetails() {
         assertEquals(
             ContentEntryAction.OpenDetail(
+                SearchRouteTarget.Song(songId = "song-1")
+            ),
+            HomeContentTarget.Song(songId = "song-1").toContentEntryAction()
+        )
+        assertEquals(
+            ContentEntryAction.OpenDetail(
                 SearchRouteTarget.Artist(artistId = "artist-1")
             ),
             HomeContentTarget.Artist(artistId = "artist-1").toContentEntryAction()

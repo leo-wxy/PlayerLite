@@ -6,6 +6,10 @@ import com.wxy.playerlite.feature.search.SearchRouteTarget
 internal fun HomeContentTarget.toContentEntryAction(): ContentEntryAction {
     return when (this) {
         HomeContentTarget.DailyRecommendedSongs -> ContentEntryAction.OpenDailyRecommendedSongs
+        is HomeContentTarget.Song -> ContentEntryAction.OpenDetail(
+            SearchRouteTarget.Song(songId = songId)
+        )
+
         is HomeContentTarget.Artist -> ContentEntryAction.OpenDetail(
             SearchRouteTarget.Artist(artistId = artistId)
         )

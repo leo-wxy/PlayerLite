@@ -36,10 +36,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,7 +53,9 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,6 +74,11 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.wxy.playerlite.core.playback.AppPlaybackGraph
+import com.wxy.playerlite.core.playlist.PlaylistItem
+import com.wxy.playerlite.core.playlist.PlaylistItemType
+import com.wxy.playerlite.feature.album.AlbumDetailActivity
+import com.wxy.playerlite.feature.artist.ArtistDetailActivity
 import com.wxy.playerlite.feature.detail.BasePlaybackDetailActivity
 import com.wxy.playerlite.feature.detail.DetailBottomScrim
 import com.wxy.playerlite.feature.detail.DetailErrorCard
@@ -79,6 +90,7 @@ import com.wxy.playerlite.feature.detail.formatTrackDuration
 import com.wxy.playerlite.feature.detail.rememberDynamicHeroAccentColor
 import com.wxy.playerlite.feature.detail.rememberDynamicHeroBrush
 import com.wxy.playerlite.feature.detail.shouldUseLightStatusBarContent
+import com.wxy.playerlite.feature.song.SongDetailActivity
 import com.wxy.playerlite.feature.user.LoginActivity
 import kotlin.math.max
 
@@ -139,6 +151,10 @@ class DailyRecommendedSongsActivity : BasePlaybackDetailActivity() {
                 onRetry = viewModel::retry,
                 onPlayAll = viewModel::playAll,
                 onItemClick = viewModel::playAt,
+                onItemInsertNext = ::insertSongNext,
+                onItemOpenDetail = ::openSongDetail,
+                onItemOpenArtist = ::openArtistDetail,
+                onItemOpenAlbum = ::openAlbumDetail,
                 onHeaderChromeProgressChange = {
                     headerChromeProgressState.floatValue = it
                 },
@@ -149,6 +165,45 @@ class DailyRecommendedSongsActivity : BasePlaybackDetailActivity() {
 
     private fun showMessage(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun insertSongNext(item: DailyRecommendedSongUiModel) {
+        val inserted = AppPlaybackGraph.runtime(this)
+            .insertPlaylistItemNext(item.toPlaylistItem(queueIndex = 0))
+        showMessage(
+            if (inserted) {
+                "已加入下一首播放"
+            } else {
+                "当前没有可插入的播放上下文"
+            }
+        )
+    }
+
+    private fun openSongDetail(item: DailyRecommendedSongUiModel) {
+        startActivity(
+            SongDetailActivity.createOnlineIntent(
+                context = this,
+                songId = item.songId
+            )
+        )
+    }
+
+    private fun openArtistDetail(artistId: String) {
+        startActivity(
+            ArtistDetailActivity.createIntent(
+                context = this,
+                artistId = artistId
+            )
+        )
+    }
+
+    private fun openAlbumDetail(albumId: String) {
+        startActivity(
+            AlbumDetailActivity.createIntent(
+                context = this,
+                albumId = albumId
+            )
+        )
     }
 
     companion object {
@@ -168,6 +223,10 @@ internal fun DailyRecommendedSongsScreen(
     onRetry: () -> Unit,
     onPlayAll: () -> Unit,
     onItemClick: (Int) -> Unit,
+    onItemInsertNext: (DailyRecommendedSongUiModel) -> Unit,
+    onItemOpenDetail: (DailyRecommendedSongUiModel) -> Unit,
+    onItemOpenArtist: (String) -> Unit,
+    onItemOpenAlbum: (String) -> Unit,
     onHeaderChromeProgressChange: ((Float) -> Unit)? = null,
     bottomOverlayPadding: Dp = 0.dp
 ) {
@@ -180,6 +239,10 @@ internal fun DailyRecommendedSongsScreen(
             onBack = onBack,
             onPlayAll = onPlayAll,
             onItemClick = onItemClick,
+            onItemInsertNext = onItemInsertNext,
+            onItemOpenDetail = onItemOpenDetail,
+            onItemOpenArtist = onItemOpenArtist,
+            onItemOpenAlbum = onItemOpenAlbum,
             onHeaderChromeProgressChange = onHeaderChromeProgressChange,
             bottomOverlayPadding = bottomOverlayPadding
         )
@@ -206,6 +269,10 @@ private fun DailyRecommendedSongsContentScreen(
     onBack: () -> Unit,
     onPlayAll: () -> Unit,
     onItemClick: (Int) -> Unit,
+    onItemInsertNext: (DailyRecommendedSongUiModel) -> Unit,
+    onItemOpenDetail: (DailyRecommendedSongUiModel) -> Unit,
+    onItemOpenArtist: (String) -> Unit,
+    onItemOpenAlbum: (String) -> Unit,
     onHeaderChromeProgressChange: ((Float) -> Unit)?,
     bottomOverlayPadding: Dp
 ) {
@@ -269,7 +336,11 @@ private fun DailyRecommendedSongsContentScreen(
             DailyRecommendedSongRow(
                 item = item,
                 order = index + 1,
-                onClick = { onItemClick(index) }
+                onClick = { onItemClick(index) },
+                onInsertNext = { onItemInsertNext(item) },
+                onOpenDetail = { onItemOpenDetail(item) },
+                onOpenArtist = onItemOpenArtist,
+                onOpenAlbum = onItemOpenAlbum
             )
         }
     }
@@ -709,8 +780,13 @@ private fun DailyRecommendedSongsTracksSectionHeader(
 private fun DailyRecommendedSongRow(
     item: DailyRecommendedSongUiModel,
     order: Int,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onInsertNext: () -> Unit,
+    onOpenDetail: () -> Unit,
+    onOpenArtist: (String) -> Unit,
+    onOpenAlbum: (String) -> Unit
 ) {
+    var menuExpanded by remember(item.id) { mutableStateOf(false) }
     val metaLine = buildList {
         if (item.artistText.isNotBlank()) {
             add(item.artistText)
@@ -771,8 +847,74 @@ private fun DailyRecommendedSongRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            Box {
+                IconButton(
+                    onClick = { menuExpanded = true },
+                    modifier = Modifier.testTag("daily_recommended_row_more_${item.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreVert,
+                        contentDescription = "更多操作"
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("下一首播放") },
+                        onClick = {
+                            menuExpanded = false
+                            onInsertNext()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("查看歌曲详情") },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenDetail()
+                        }
+                    )
+                    item.primaryArtistId?.takeIf { it.isNotBlank() }?.let { artistId ->
+                        DropdownMenuItem(
+                            text = { Text("查看歌手") },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenArtist(artistId)
+                            }
+                        )
+                    }
+                    item.albumId?.takeIf { it.isNotBlank() }?.let { albumId ->
+                        DropdownMenuItem(
+                            text = { Text("查看专辑") },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenAlbum(albumId)
+                            }
+                        )
+                    }
+                }
+            }
         }
     }
+}
+
+private fun DailyRecommendedSongUiModel.toPlaylistItem(queueIndex: Int): PlaylistItem {
+    return PlaylistItem(
+        id = "daily-reco:$queueIndex:$songId",
+        displayName = title,
+        songId = songId,
+        title = title,
+        artistText = artistText,
+        primaryArtistId = primaryArtistId,
+        albumTitle = albumTitle,
+        coverUrl = coverUrl,
+        durationMs = durationMs,
+        itemType = PlaylistItemType.ONLINE,
+        contextType = "daily_recommended_songs",
+        contextId = "daily-reco",
+        contextTitle = "每日推荐"
+    )
 }
 
 private fun DailyRecommendedSongsUiState.heroImageUrl(): String? {

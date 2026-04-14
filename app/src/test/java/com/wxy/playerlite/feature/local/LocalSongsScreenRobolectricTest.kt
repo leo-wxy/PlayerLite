@@ -23,6 +23,7 @@ class LocalSongsScreenRobolectricTest {
         var scanCount = 0
         var playAllCount = 0
         var playTrackIndex = -1
+        var insertNextTrackId: String? = null
         var detailTrackId: String? = null
 
         composeRule.setContent {
@@ -46,7 +47,8 @@ class LocalSongsScreenRobolectricTest {
                     onScan = { scanCount += 1 },
                     onPlayAll = { playAllCount += 1 },
                     onSongClick = { playTrackIndex = it },
-                    onSongDetailClick = { detailTrackId = it.id }
+                    onSongInsertNext = { insertNextTrackId = it.id },
+                    onSongOpenDetail = { detailTrackId = it.id }
                 )
             }
         }
@@ -54,18 +56,22 @@ class LocalSongsScreenRobolectricTest {
         composeRule.onNodeWithTag("local_songs_scan_action").assertIsDisplayed().assertHasClickAction()
         composeRule.onNodeWithTag("local_songs_play_all").assertIsDisplayed().assertHasClickAction()
         composeRule.onNodeWithTag("local_songs_item_local-1").assertIsDisplayed().assertHasClickAction()
-        composeRule.onNodeWithTag("local_songs_item_detail_local-1").assertIsDisplayed().assertHasClickAction()
+        composeRule.onNodeWithTag("local_songs_item_more_local-1").assertIsDisplayed().assertHasClickAction()
         composeRule.onNodeWithText("晴天").assertIsDisplayed()
 
         composeRule.onNodeWithTag("local_songs_scan_action").performClick()
         composeRule.onNodeWithTag("local_songs_play_all").performClick()
         composeRule.onNodeWithTag("local_songs_item_local-1").performClick()
-        composeRule.onNodeWithTag("local_songs_item_detail_local-1").performClick()
+        composeRule.onNodeWithTag("local_songs_item_more_local-1").performClick()
+        composeRule.onNodeWithText("下一首播放").performClick()
+        composeRule.onNodeWithTag("local_songs_item_more_local-1").performClick()
+        composeRule.onNodeWithText("查看歌曲详情").performClick()
 
         composeRule.runOnIdle {
             assertEquals(1, scanCount)
             assertEquals(1, playAllCount)
             assertEquals(0, playTrackIndex)
+            assertEquals("local-1", insertNextTrackId)
             assertEquals("local-1", detailTrackId)
         }
     }

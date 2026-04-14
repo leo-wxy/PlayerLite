@@ -252,17 +252,15 @@ internal object NeteaseHomeDiscoveryJsonMapper {
                     action = HomeAction.InsertNext(playlistItem)
                 )
             )
-            if (!albumId.isNullOrBlank()) {
-                add(
-                    HomeSongMenuActionUiModel(
-                        key = "open_album",
-                        label = "查看专辑",
-                        action = HomeAction.OpenContent(
-                            HomeContentTarget.Album(albumId = albumId)
-                        )
+            add(
+                HomeSongMenuActionUiModel(
+                    key = "open_song_detail",
+                    label = "查看歌曲详情",
+                    action = HomeAction.OpenContent(
+                        HomeContentTarget.Song(songId = songId)
                     )
                 )
-            }
+            )
             if (!primaryArtistId.isNullOrBlank()) {
                 add(
                     HomeSongMenuActionUiModel(
@@ -270,6 +268,17 @@ internal object NeteaseHomeDiscoveryJsonMapper {
                         label = "查看歌手",
                         action = HomeAction.OpenContent(
                             HomeContentTarget.Artist(artistId = primaryArtistId)
+                        )
+                    )
+                )
+            }
+            if (!albumId.isNullOrBlank()) {
+                add(
+                    HomeSongMenuActionUiModel(
+                        key = "open_album",
+                        label = "查看专辑",
+                        action = HomeAction.OpenContent(
+                            HomeContentTarget.Album(albumId = albumId)
                         )
                     )
                 )
