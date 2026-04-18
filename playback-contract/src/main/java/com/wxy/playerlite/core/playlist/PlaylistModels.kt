@@ -23,6 +23,7 @@ data class PlaylistItem(
     val title: String = displayName,
     val artistText: String? = null,
     val primaryArtistId: String? = null,
+    val albumId: String? = null,
     val albumTitle: String? = null,
     val coverUrl: String? = null,
     val durationMs: Long = 0L,

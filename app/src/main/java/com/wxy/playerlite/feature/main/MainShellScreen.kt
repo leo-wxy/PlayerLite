@@ -1,5 +1,6 @@
 package com.wxy.playerlite.feature.main
 
+import com.wxy.playerlite.core.playlist.PlaylistItem
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -239,6 +240,9 @@ internal fun MainShellScaffold(
     onSelectPlaylistItem: (Int) -> Unit,
     onClearPlaylist: () -> Unit,
     onRemovePlaylistItem: (Int) -> Unit,
+    onOpenQueueSongDetail: (PlaylistItem) -> Unit = {},
+    onOpenQueueArtist: (String) -> Unit = {},
+    onOpenQueueAlbum: (String) -> Unit = {},
     onMovePlaylistItem: (Int, Int) -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -283,6 +287,9 @@ internal fun MainShellScaffold(
             onSelectPlaylistItem = onSelectPlaylistItem,
             onClearPlaylist = onClearPlaylist,
             onRemovePlaylistItem = onRemovePlaylistItem,
+            onOpenQueueSongDetail = onOpenQueueSongDetail,
+            onOpenQueueArtist = onOpenQueueArtist,
+            onOpenQueueAlbum = onOpenQueueAlbum,
             onMovePlaylistItem = onMovePlaylistItem,
             onSkipPrevious = onSkipPrevious,
             onSkipNext = onSkipNext
@@ -332,6 +339,9 @@ internal fun BoxScope.MainShellMiniPlayerChrome(
     onSelectPlaylistItem: (Int) -> Unit,
     onClearPlaylist: () -> Unit,
     onRemovePlaylistItem: (Int) -> Unit,
+    onOpenQueueSongDetail: (PlaylistItem) -> Unit = {},
+    onOpenQueueArtist: (String) -> Unit = {},
+    onOpenQueueAlbum: (String) -> Unit = {},
     onMovePlaylistItem: (Int, Int) -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit
@@ -357,6 +367,9 @@ internal fun BoxScope.MainShellMiniPlayerChrome(
         onSelect = onSelectPlaylistItem,
         onClearAll = onClearPlaylist,
         onRemove = onRemovePlaylistItem,
+        onOpenSongDetail = onOpenQueueSongDetail,
+        onOpenArtist = onOpenQueueArtist,
+        onOpenAlbum = onOpenQueueAlbum,
         onMove = onMovePlaylistItem
     )
 }

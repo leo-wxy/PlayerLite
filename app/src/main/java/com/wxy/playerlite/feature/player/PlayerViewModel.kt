@@ -10,6 +10,9 @@ import androidx.media3.common.Player
 import com.wxy.playerlite.core.AppContainer
 import com.wxy.playerlite.core.playback.AppPlaybackGraph
 import com.wxy.playerlite.core.playback.SongAudioQualityRepository
+import com.wxy.playerlite.core.playlist.PlaylistItemType
+import com.wxy.playerlite.core.recentplayback.LocalRecentPlaybackRecord
+import com.wxy.playerlite.core.recentplayback.LocalRecentPlaybackStore
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
@@ -55,6 +58,7 @@ internal class PlayerViewModel(
     private val lyricRepository: LyricRepository = AppContainer.lyricRepository(application.applicationContext),
     private val songAudioQualityRepository: SongAudioQualityRepository = AppContainer.songAudioQualityRepository(application.applicationContext),
     private val songFavoriteRepository: SongFavoriteRepository = AppContainer.songFavoriteRepository(application.applicationContext),
+    private val localRecentPlaybackStore: LocalRecentPlaybackStore = AppContainer.localRecentPlaybackStore(application.applicationContext),
     private val serviceBridge: PlayerServiceController = AppPlaybackGraph.playerServiceController(
         context = application.applicationContext,
         onControllerError = { errorMessage ->
@@ -71,6 +75,7 @@ internal class PlayerViewModel(
     private val remoteSyncJob: Job
     private val uiProgressJob: Job
     private val userStateJob: Job
+    private val localRecentPlaybackJob: Job
     private val audioQualityTargetJob: Job
     private val lyricTargetJob: Job
     private val displayMetadataJob: Job
@@ -114,6 +119,7 @@ internal class PlayerViewModel(
         lyricRepository = AppContainer.lyricRepository(application.applicationContext),
         songAudioQualityRepository = AppContainer.songAudioQualityRepository(application.applicationContext),
         songFavoriteRepository = AppContainer.songFavoriteRepository(application.applicationContext),
+        localRecentPlaybackStore = AppContainer.localRecentPlaybackStore(application.applicationContext),
         serviceBridge = AppPlaybackGraph.playerServiceController(
             context = application.applicationContext,
             onControllerError = { errorMessage ->
@@ -132,6 +138,38 @@ internal class PlayerViewModel(
         serviceBridge.prewarmConnection()
         userStateJob = viewModelScope.launch {
             userRepository.loginStateFlow.collect(::publishUserState)
+        }
+        localRecentPlaybackJob = viewModelScope.launch {
+            var lastRecordedKey: String? = null
+            uiStateFlow.map(::resolveLocalRecentPlaybackTarget)
+                .collect { target ->
+                    if (target?.shouldRecord != true) {
+                        if (target == null || target.recordKey != lastRecordedKey) {
+                            lastRecordedKey = null
+                        }
+                        return@collect
+                    }
+                    if (lastRecordedKey == target.recordKey) {
+                        return@collect
+                    }
+                    lastRecordedKey = target.recordKey
+                    localRecentPlaybackStore.record(
+                        LocalRecentPlaybackRecord(
+                            recordKey = target.recordKey,
+                            sourceType = target.sourceType,
+                            songId = target.songId,
+                            playbackUri = target.playbackUri,
+                            title = target.title,
+                            artistText = target.artistText,
+                            albumTitle = target.albumTitle,
+                            primaryArtistId = target.primaryArtistId,
+                            albumId = target.albumId,
+                            coverUrl = target.coverUrl,
+                            durationMs = target.durationMs,
+                            playedAtMs = 0L
+                        )
+                    )
+                }
         }
         audioQualityTargetJob = viewModelScope.launch {
             uiStateFlow.map { state ->
@@ -542,6 +580,7 @@ internal class PlayerViewModel(
         lyricTargetJob.cancel()
         displayMetadataJob.cancel()
         userStateJob.cancel()
+        localRecentPlaybackJob.cancel()
         remoteSyncJob.cancel()
         uiProgressJob.cancel()
         runtime.onHostStop()
@@ -572,6 +611,40 @@ internal class PlayerViewModel(
         return DisplayMetadataTarget(
             title = projection.displayMetadataTitle.takeIf { it.isNotBlank() },
             subtitle = projection.songArtistLine.takeIf { it.isNotBlank() }
+        )
+    }
+
+    private fun resolveLocalRecentPlaybackTarget(state: PlayerUiState): LocalRecentPlaybackTarget? {
+        val activeItem = state.playlistItems.getOrNull(state.activePlaylistIndex) ?: return null
+        val title = activeItem.title.ifBlank { state.currentTrackTitle }.ifBlank { return null }
+        val artistText = activeItem.artistText
+            ?.takeIf { it.isNotBlank() }
+            ?: state.currentTrackArtist?.takeIf { it.isNotBlank() }
+            ?: "未知歌手"
+        val sourceType = activeItem.itemType
+        val songId = when (sourceType) {
+            PlaylistItemType.ONLINE -> activeItem.songId?.takeIf { it.isNotBlank() }
+                ?: state.currentSongId?.takeIf { it.isNotBlank() }
+            PlaylistItemType.LOCAL -> null
+        }
+        val playbackUri = activeItem.uri.takeIf { it.isNotBlank() }
+        val recordKey = when (sourceType) {
+            PlaylistItemType.ONLINE -> songId?.let { "online:$it" } ?: return null
+            PlaylistItemType.LOCAL -> playbackUri?.let { "local:$it" } ?: return null
+        }
+        return LocalRecentPlaybackTarget(
+            recordKey = recordKey,
+            sourceType = sourceType,
+            songId = songId,
+            playbackUri = playbackUri,
+            title = title,
+            artistText = artistText,
+            albumTitle = activeItem.albumTitle.orEmpty(),
+            primaryArtistId = activeItem.primaryArtistId,
+            albumId = activeItem.albumId,
+            coverUrl = activeItem.coverUrl,
+            durationMs = activeItem.durationMs,
+            shouldRecord = state.isPreparing || state.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING
         )
     }
 
@@ -633,4 +706,19 @@ private data class AudioQualityLoadTarget(
 private data class DisplayMetadataTarget(
     val title: String?,
     val subtitle: String?
+)
+
+private data class LocalRecentPlaybackTarget(
+    val recordKey: String,
+    val sourceType: PlaylistItemType,
+    val songId: String?,
+    val playbackUri: String?,
+    val title: String,
+    val artistText: String,
+    val albumTitle: String,
+    val primaryArtistId: String?,
+    val albumId: String?,
+    val coverUrl: String?,
+    val durationMs: Long,
+    val shouldRecord: Boolean
 )

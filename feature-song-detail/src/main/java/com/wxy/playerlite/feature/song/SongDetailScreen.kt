@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -66,6 +67,7 @@ fun SongDetailScreen(
     onOpenLandscapeClick: () -> Unit,
     onOpenArtistClick: () -> Unit,
     onOpenAlbumClick: () -> Unit,
+    onRemoveFromRecentClick: () -> Unit,
     onOpenSongClick: (String) -> Unit,
     onOpenPlaylistClick: (String) -> Unit,
     bottomOverlayPadding: Dp = 0.dp,
@@ -91,6 +93,7 @@ fun SongDetailScreen(
             onOpenLandscapeClick = onOpenLandscapeClick,
             onOpenArtistClick = onOpenArtistClick,
             onOpenAlbumClick = onOpenAlbumClick,
+            onRemoveFromRecentClick = onRemoveFromRecentClick,
             onOpenSongClick = onOpenSongClick,
             onOpenPlaylistClick = onOpenPlaylistClick,
             bottomOverlayPadding = bottomOverlayPadding
@@ -161,6 +164,7 @@ private fun SongDetailContentScreen(
     onOpenLandscapeClick: () -> Unit,
     onOpenArtistClick: () -> Unit,
     onOpenAlbumClick: () -> Unit,
+    onRemoveFromRecentClick: () -> Unit,
     onOpenSongClick: (String) -> Unit,
     onOpenPlaylistClick: (String) -> Unit,
     bottomOverlayPadding: Dp,
@@ -179,12 +183,13 @@ private fun SongDetailContentScreen(
         }
         item {
             SongDetailActionListSection(
-                content = content,
-                onPlayNextClick = onPlayNextClick,
-                onOpenLandscapeClick = onOpenLandscapeClick,
-                onOpenArtistClick = onOpenArtistClick,
-                onOpenAlbumClick = onOpenAlbumClick
-            )
+            content = content,
+            onPlayNextClick = onPlayNextClick,
+            onOpenLandscapeClick = onOpenLandscapeClick,
+            onOpenArtistClick = onOpenArtistClick,
+            onOpenAlbumClick = onOpenAlbumClick,
+            onRemoveFromRecentClick = onRemoveFromRecentClick
+        )
         }
         content.wiki?.let { wiki ->
             if (wiki.similarSongs.isNotEmpty()) {
@@ -426,7 +431,8 @@ private fun SongDetailActionListSection(
     onPlayNextClick: () -> Unit,
     onOpenLandscapeClick: () -> Unit,
     onOpenArtistClick: () -> Unit,
-    onOpenAlbumClick: () -> Unit
+    onOpenAlbumClick: () -> Unit,
+    onRemoveFromRecentClick: () -> Unit
 ) {
     SongDetailPanel(
         modifier = Modifier.testTag("song_detail_action_list"),
@@ -461,6 +467,15 @@ private fun SongDetailActionListSection(
             enabled = !content.albumId.isNullOrBlank(),
             onClick = onOpenAlbumClick
         )
+        if (content.canRemoveFromRecent) {
+            SongDetailActionDivider()
+            SongDetailActionRow(
+                testTag = "song_detail_remove_from_recent",
+                icon = Icons.Rounded.DeleteOutline,
+                label = "从最近播放删除",
+                onClick = onRemoveFromRecentClick
+            )
+        }
     }
 }
 

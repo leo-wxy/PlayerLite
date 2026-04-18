@@ -57,4 +57,41 @@ class SongDetailActivityIntentTest {
             SongDetailActivity.songRefFrom(intent)
         )
     }
+
+    @Test
+    fun createIntent_withRecentRecordKey_shouldExposeRemovalResultFlag() {
+        val intent = SongDetailActivity.createIntent(
+            context = context,
+            ref = SongRef.Online(songId = "1973665667"),
+            recentRecordKey = "online:1973665667"
+        )
+
+        assertEquals(
+            SongRef.Online(songId = "1973665667"),
+            SongDetailActivity.songRefFrom(intent)
+        )
+        assertEquals(false, SongDetailActivity.wasRemovedFromRecent(intent))
+    }
+
+    @Test
+    fun createOnlineIntent_withFallbackMetadata_shouldKeepOnlineSongRef() {
+        val intent = SongDetailActivity.createOnlineIntent(
+            context = context,
+            songId = "1973665667",
+            recentRecordKey = "online:1973665667",
+            fallbackTitle = "夜曲",
+            fallbackArtistText = "周杰伦",
+            fallbackAlbumTitle = "十一月的肖邦",
+            fallbackDurationMs = 213000L,
+            fallbackCoverUrl = "https://example.com/night-song.jpg",
+            fallbackPrimaryArtistId = "artist-1",
+            fallbackAlbumId = "album-1"
+        )
+
+        assertEquals(
+            SongRef.Online(songId = "1973665667"),
+            SongDetailActivity.songRefFrom(intent)
+        )
+        assertEquals(false, SongDetailActivity.wasRemovedFromRecent(intent))
+    }
 }

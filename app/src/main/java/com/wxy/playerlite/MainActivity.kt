@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wxy.playerlite.core.playback.AppPlaybackGraph
+import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.feature.home.HomeAction
 import com.wxy.playerlite.feature.home.HomeContentTarget
 import com.wxy.playerlite.feature.home.HomeOverviewScreen
@@ -46,6 +47,9 @@ import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.runtime.DetailPlaybackRequest
 import com.wxy.playerlite.feature.search.SearchActivity
+import com.wxy.playerlite.feature.song.createAlbumDetailIntent
+import com.wxy.playerlite.feature.song.createArtistDetailIntent
+import com.wxy.playerlite.feature.song.createSongDetailIntent
 import com.wxy.playerlite.feature.user.InitialLoginLaunchGate
 import com.wxy.playerlite.feature.user.LoginActivity
 import com.wxy.playerlite.feature.webplaylistimport.WebPlaylistImportActivity
@@ -148,6 +152,9 @@ class MainActivity : ComponentActivity() {
                         onSelectPlaylistItem = viewModel::selectPlaylistItem,
                         onClearPlaylist = viewModel::clearPlaylist,
                         onRemovePlaylistItem = viewModel::removePlaylistItem,
+                        onOpenQueueSongDetail = ::openQueueSongDetail,
+                        onOpenQueueArtist = ::openQueueArtist,
+                        onOpenQueueAlbum = ::openQueueAlbum,
                         onMovePlaylistItem = viewModel::movePlaylistItem,
                         onSkipPrevious = viewModel::skipToPreviousTrack,
                         onSkipNext = viewModel::skipToNextTrack
@@ -314,6 +321,33 @@ class MainActivity : ComponentActivity() {
 
     private fun showContentEntryMessage(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun openQueueSongDetail(item: PlaylistItem) {
+        val intent = item.createSongDetailIntent(this)
+        if (intent == null) {
+            showContentEntryMessage("当前歌曲详情暂时无法打开")
+            return
+        }
+        startActivity(intent)
+    }
+
+    private fun openQueueArtist(artistId: String) {
+        PlaylistItem(
+            id = "artist:$artistId",
+            displayName = "",
+            primaryArtistId = artistId
+        ).createArtistDetailIntent(this)?.let(::startActivity)
+            ?: showContentEntryMessage("当前歌手暂时无法打开")
+    }
+
+    private fun openQueueAlbum(albumId: String) {
+        PlaylistItem(
+            id = "album:$albumId",
+            displayName = "",
+            albumId = albumId
+        ).createAlbumDetailIntent(this)?.let(::startActivity)
+            ?: showContentEntryMessage("当前专辑暂时无法打开")
     }
 
     @Suppress("DEPRECATION")

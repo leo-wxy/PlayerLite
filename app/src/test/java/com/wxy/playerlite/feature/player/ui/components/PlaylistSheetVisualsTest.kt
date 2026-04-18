@@ -6,14 +6,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.graphics.Color
 import com.wxy.playerlite.core.playlist.PlaylistItem
@@ -257,6 +260,108 @@ class PlaylistSheetVisualsTest {
         composeRule.runOnIdle {
             assertEquals(2, cycleCount)
         }
+    }
+
+    @Test
+    fun playlistBottomSheet_shouldOpenQueueAwareMoreMenuAndDispatchActions() {
+        var detailId: String? = null
+        var artistId: String? = null
+        var albumId: String? = null
+        var removedIndex = -1
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlaylistBottomSheet(
+                    visible = true,
+                    items = listOf(
+                        PlaylistItem(
+                            id = "queue-1",
+                            uri = "https://example.com/queue-1.mp3",
+                            displayName = "夜曲",
+                            songId = "song-1",
+                            title = "夜曲",
+                            artistText = "周杰伦",
+                            primaryArtistId = "artist-1",
+                            albumId = "album-1",
+                            albumTitle = "十一月的萧邦"
+                        )
+                    ),
+                    activeIndex = 0,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorder = true,
+                    onDismiss = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSelect = {},
+                    onClearAll = {},
+                    onRemove = { removedIndex = it },
+                    onMove = { _, _ -> },
+                    onOpenSongDetail = { detailId = it.id },
+                    onOpenArtist = { artistId = it },
+                    onOpenAlbum = { albumId = it },
+                    expandedMenuItemIdOverride = "queue-1"
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("playlist_sheet_more_queue-1").assertIsDisplayed()
+        composeRule.onAllNodesWithText("下一首播放").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("playlist_sheet_action_detail_queue-1").assertCountEquals(1)
+        composeRule.onNodeWithTag("playlist_sheet_action_detail_queue-1")
+            .performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.onAllNodesWithTag("playlist_sheet_action_artist_queue-1").assertCountEquals(1)
+        composeRule.onNodeWithTag("playlist_sheet_action_artist_queue-1")
+            .performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.onAllNodesWithTag("playlist_sheet_action_album_queue-1").assertCountEquals(1)
+        composeRule.onNodeWithTag("playlist_sheet_action_album_queue-1")
+            .performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.onAllNodesWithTag("playlist_sheet_action_remove_queue-1").assertCountEquals(1)
+        composeRule.onNodeWithTag("playlist_sheet_action_remove_queue-1")
+            .performSemanticsAction(SemanticsActions.OnClick)
+
+        composeRule.runOnIdle {
+            assertEquals("queue-1", detailId)
+            assertEquals("artist-1", artistId)
+            assertEquals("album-1", albumId)
+            assertEquals(0, removedIndex)
+        }
+    }
+
+    @Test
+    fun playlistBottomSheet_missingArtistOrAlbumId_shouldHideUnsupportedQueueActions() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlaylistBottomSheet(
+                    visible = true,
+                    items = listOf(
+                        PlaylistItem(
+                            id = "queue-2",
+                            uri = "https://example.com/queue-2.mp3",
+                            displayName = "稻香",
+                            songId = "song-2",
+                            title = "稻香"
+                        )
+                    ),
+                    activeIndex = 0,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorder = true,
+                    onDismiss = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSelect = {},
+                    onClearAll = {},
+                    onRemove = {},
+                    onMove = { _, _ -> },
+                    expandedMenuItemIdOverride = "queue-2"
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("playlist_sheet_more_queue-2").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("playlist_sheet_action_detail_queue-2").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("playlist_sheet_action_remove_queue-2").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("playlist_sheet_action_artist_queue-2").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("playlist_sheet_action_album_queue-2").assertCountEquals(0)
     }
 
     private fun scrollAwayFromActiveItem() {

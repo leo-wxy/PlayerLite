@@ -1,8 +1,10 @@
 package com.wxy.playerlite.feature.song
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToNode
@@ -31,6 +33,7 @@ class SongDetailScreenRobolectricTest {
                             SongDetailContent(
                                 ref = SongRef.Online(songId = "1973665667"),
                                 source = ONLINE,
+                                recentRecordKey = "online:1973665667",
                                 title = "夜曲",
                                 artistText = "周杰伦",
                                 primaryArtistId = "artist-1",
@@ -85,6 +88,7 @@ class SongDetailScreenRobolectricTest {
                     onOpenLandscapeClick = {},
                     onOpenArtistClick = {},
                     onOpenAlbumClick = {},
+                    onRemoveFromRecentClick = {},
                     onOpenSongClick = {},
                     onOpenPlaylistClick = {}
                 )
@@ -103,6 +107,7 @@ class SongDetailScreenRobolectricTest {
         composeRule.onNodeWithTag("song_detail_landscape_action").assertIsDisplayed()
         composeRule.onNodeWithTag("song_detail_open_artist").assertIsDisplayed()
         composeRule.onNodeWithTag("song_detail_open_album").assertIsDisplayed()
+        composeRule.onNodeWithTag("song_detail_remove_from_recent").assertIsDisplayed()
         composeRule.onNodeWithTag("detail_scaffold_list")
             .performScrollToNode(hasTestTag("song_detail_similar_songs_section"))
         composeRule.onNodeWithTag("song_detail_similar_songs_section").assertIsDisplayed()
@@ -113,5 +118,46 @@ class SongDetailScreenRobolectricTest {
         composeRule.onNodeWithTag("song_detail_related_playlists_section").assertIsDisplayed()
         composeRule.onNodeWithText("相关歌单").assertIsDisplayed()
         composeRule.onNodeWithText("深夜循环").assertIsDisplayed()
+    }
+
+    @Test
+    fun nonRecentSong_shouldHideRemoveFromRecentAction() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                SongDetailScreen(
+                    state = SongDetailUiState(
+                        contentState = Content(
+                            SongDetailContent(
+                                ref = SongRef.Online(songId = "1973665667"),
+                                source = ONLINE,
+                                title = "夜曲",
+                                artistText = "周杰伦",
+                                playlistItem = PlaylistItem(
+                                    id = "song-detail:1973665667",
+                                    songId = "1973665667",
+                                    displayName = "夜曲",
+                                    title = "夜曲",
+                                    artistText = "周杰伦",
+                                    durationMs = 213000L,
+                                    itemType = PlaylistItemType.ONLINE
+                                )
+                            )
+                        )
+                    ),
+                    onBack = {},
+                    onRetry = {},
+                    onPlayClick = {},
+                    onPlayNextClick = {},
+                    onOpenLandscapeClick = {},
+                    onOpenArtistClick = {},
+                    onOpenAlbumClick = {},
+                    onRemoveFromRecentClick = {},
+                    onOpenSongClick = {},
+                    onOpenPlaylistClick = {}
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithTag("song_detail_remove_from_recent").assertCountEquals(0)
     }
 }

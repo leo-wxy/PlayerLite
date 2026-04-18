@@ -1,6 +1,9 @@
 package com.wxy.playerlite.feature.main
 
 import com.sun.net.httpserver.HttpServer
+import com.wxy.playerlite.core.playlist.PlaylistItemType
+import com.wxy.playerlite.core.recentplayback.LocalRecentPlaybackRecord
+import com.wxy.playerlite.core.recentplayback.LocalRecentPlaybackStore
 import com.wxy.playerlite.network.core.AuthHeaderProvider
 import com.wxy.playerlite.network.core.JsonHttpClient
 import com.wxy.playerlite.feature.search.SearchRouteTarget
@@ -38,7 +41,8 @@ class UserCenterRepositoryTest {
                 ),
                 columnPayload = jsonObject("""{"code":200,"djRadios":[]}"""),
                 playlistPayload = jsonObject("""{"code":200,"playlist":[]}""")
-            )
+            ),
+            localRecentPlaybackStore = emptyLocalRecentPlaybackStore()
         )
 
         val items = repository.fetchFavoriteArtists()
@@ -83,7 +87,8 @@ class UserCenterRepositoryTest {
                     """
                 ),
                 playlistPayload = jsonObject("""{"code":200,"playlist":[]}""")
-            )
+            ),
+            localRecentPlaybackStore = emptyLocalRecentPlaybackStore()
         )
 
         val items = repository.fetchFavoriteColumns()
@@ -125,7 +130,8 @@ class UserCenterRepositoryTest {
                     }
                     """
                 )
-            )
+            ),
+            localRecentPlaybackStore = emptyLocalRecentPlaybackStore()
         )
 
         val items = repository.fetchFavoriteMvs()
@@ -168,7 +174,8 @@ class UserCenterRepositoryTest {
                     }
                     """
                 )
-            )
+            ),
+            localRecentPlaybackStore = emptyLocalRecentPlaybackStore()
         )
 
         val items = repository.fetchCreatedPlaylists(77462767L)
@@ -213,7 +220,8 @@ class UserCenterRepositoryTest {
                     }
                     """
                 )
-            )
+            ),
+            localRecentPlaybackStore = emptyLocalRecentPlaybackStore()
         )
 
         val items = repository.fetchCollectedPlaylists(77462767L)
@@ -281,10 +289,11 @@ class UserCenterRepositoryTest {
                       "id": 10,
                       "name": "Song A",
                       "ar": [
-                        { "name": "Artist 1" },
+                        { "id": 101, "name": "Artist 1" },
                         { "name": "Artist 2" }
                       ],
                       "al": {
+                        "id": 202,
                         "name": "Album 1",
                         "picUrl": "http://example.com/cover.jpg"
                       }
@@ -301,15 +310,56 @@ class UserCenterRepositoryTest {
         assertEquals(1, items.size)
         assertEquals("10", items.single().id)
         assertEquals("Song A", items.single().title)
-        assertEquals("Artist 1 / Artist 2", items.single().subtitle)
+        assertEquals("Artist 1 / Artist 2", items.single().artistText)
         assertEquals("http://example.com/cover.jpg", items.single().imageUrl)
-        assertEquals("Album 1", items.single().meta)
+        assertEquals("Album 1", items.single().albumTitle)
+        assertEquals("101", items.single().primaryArtistId)
+        assertEquals("202", items.single().albumId)
         assertEquals(
             ContentEntryAction.OpenDetail(
                 SearchRouteTarget.Song(songId = "10")
             ),
-            items.single().action
+            items.single().detailAction
         )
+    }
+
+    @Test
+    fun fetchLocalRecentPlaybackItems_shouldMapStoredRecords() = runBlocking {
+        val repository = DefaultUserCenterRepository(
+            remoteDataSource = FakeUserCenterRemoteDataSource(
+                artistPayload = jsonObject("""{"code":200,"data":[]}"""),
+                columnPayload = jsonObject("""{"code":200,"data":[]}"""),
+                playlistPayload = jsonObject("""{"code":200,"playlist":[]}""")
+            ),
+            localRecentPlaybackStore = fixedLocalRecentPlaybackStore(
+                LocalRecentPlaybackRecord(
+                    recordKey = "online:song-1",
+                    sourceType = PlaylistItemType.ONLINE,
+                    songId = "song-1",
+                    playbackUri = null,
+                    title = "本地歌曲",
+                    artistText = "本地歌手",
+                    albumTitle = "本地专辑",
+                    primaryArtistId = "artist-1",
+                    albumId = "album-1",
+                    coverUrl = "http://example.com/local.jpg",
+                    durationMs = 215_000L,
+                    playedAtMs = 1234L
+                )
+            )
+        )
+
+        val items = repository.fetchLocalRecentPlaybackItems(limit = 100)
+
+        assertEquals(1, items.size)
+        assertEquals("online:song-1", items.single().recordKey)
+        assertEquals("song-1", items.single().songId)
+        assertEquals(PlaylistItemType.ONLINE, items.single().sourceType)
+        assertEquals("本地歌曲", items.single().title)
+        assertEquals("本地歌手", items.single().artistText)
+        assertEquals("本地专辑", items.single().albumTitle)
+        assertEquals("http://example.com/local.jpg", items.single().imageUrl)
+        assertEquals(215_000L, items.single().durationMs)
     }
 
     @Test(expected = UserSessionInvalidException::class)
@@ -399,10 +449,15 @@ class UserCenterRepositoryTest {
     }
 
     @Test
-    fun fetchRecentSongs_shouldRequestProtectedEndpointAndForwardAuthHeaders() = runBlocking {
+    fun fetchRecentRequests_shouldUseProtectedEndpointsAndForwardAuthHeaders() = runBlocking {
         val server = UserCenterHttpServer(
             responses = mapOf(
-                "/record/recent/song" to """{"code":200,"data":{"list":[]}}"""
+                "/record/recent/song" to """{"code":200,"data":{"list":[]}}""",
+                "/record/recent/video" to """{"code":200,"data":{"list":[]}}""",
+                "/record/recent/voice" to """{"code":200,"data":{"list":[]}}""",
+                "/record/recent/playlist" to """{"code":200,"data":{"list":[]}}""",
+                "/record/recent/album" to """{"code":200,"data":{"list":[]}}""",
+                "/record/recent/dj" to """{"code":200,"data":{"list":[]}}"""
             )
         )
         server.start()
@@ -419,13 +474,35 @@ class UserCenterRepositoryTest {
             val remoteDataSource = NeteaseUserCenterRemoteDataSource(client)
 
             remoteDataSource.fetchRecentSongs(limit = 1)
+            remoteDataSource.fetchRecentVideos(limit = 1)
+            remoteDataSource.fetchRecentVoices(limit = 1)
+            remoteDataSource.fetchRecentPlaylists(limit = 1)
+            remoteDataSource.fetchRecentAlbums(limit = 1)
+            remoteDataSource.fetchRecentDjRadios(limit = 1)
 
             assertEquals(
-                listOf("/record/recent/song?limit=1"),
+                listOf(
+                    "/record/recent/song?limit=1",
+                    "/record/recent/video?limit=1",
+                    "/record/recent/voice?limit=1",
+                    "/record/recent/playlist?limit=1",
+                    "/record/recent/album?limit=1",
+                    "/record/recent/dj?limit=1"
+                ),
                 server.requestPaths
             )
             assertTrue(server.cookieHeaders.all { it.contains("MUSIC_U=token") })
-            assertEquals(listOf("csrf-token"), server.csrfHeaders)
+            assertEquals(
+                listOf(
+                    "csrf-token",
+                    "csrf-token",
+                    "csrf-token",
+                    "csrf-token",
+                    "csrf-token",
+                    "csrf-token"
+                ),
+                server.csrfHeaders
+            )
         } finally {
             server.close()
         }
@@ -439,7 +516,12 @@ private class FakeUserCenterRemoteDataSource(
     private val createdPlaylistPayload: JsonObject = playlistPayload,
     private val collectedPlaylistPayload: JsonObject = jsonObject("""{"code":200,"playlist":[]}"""),
     private val mvPayload: JsonObject = jsonObject("""{"code":200,"data":[]}"""),
-    private val recentSongsPayload: JsonObject = jsonObject("""{"code":200,"data":{"list":[]}}""")
+    private val recentSongsPayload: JsonObject = jsonObject("""{"code":200,"data":{"list":[]}}"""),
+    private val recentVideosPayload: JsonObject = jsonObject("""{"code":200,"data":{"list":[]}}"""),
+    private val recentVoicesPayload: JsonObject = jsonObject("""{"code":200,"data":{"list":[]}}"""),
+    private val recentPlaylistsPayload: JsonObject = jsonObject("""{"code":200,"data":{"list":[]}}"""),
+    private val recentAlbumsPayload: JsonObject = jsonObject("""{"code":200,"data":{"list":[]}}"""),
+    private val recentDjRadiosPayload: JsonObject = jsonObject("""{"code":200,"data":{"list":[]}}""")
 ) : UserCenterRemoteDataSource {
     override suspend fun fetchFavoriteArtists(): JsonObject = artistPayload
 
@@ -454,6 +536,16 @@ private class FakeUserCenterRemoteDataSource(
     override suspend fun fetchUserPlaylists(userId: Long): JsonObject = playlistPayload
 
     override suspend fun fetchRecentSongs(limit: Int): JsonObject = recentSongsPayload
+
+    override suspend fun fetchRecentVideos(limit: Int): JsonObject = recentVideosPayload
+
+    override suspend fun fetchRecentVoices(limit: Int): JsonObject = recentVoicesPayload
+
+    override suspend fun fetchRecentPlaylists(limit: Int): JsonObject = recentPlaylistsPayload
+
+    override suspend fun fetchRecentAlbums(limit: Int): JsonObject = recentAlbumsPayload
+
+    override suspend fun fetchRecentDjRadios(limit: Int): JsonObject = recentDjRadiosPayload
 }
 
 private class UserCenterHttpServer(
@@ -499,4 +591,22 @@ private class UserCenterHttpServer(
 
 private fun jsonObject(raw: String): JsonObject {
     return Json.parseToJsonElement(raw.trimIndent()).jsonObject
+}
+
+private fun emptyLocalRecentPlaybackStore(): LocalRecentPlaybackStore {
+    return fixedLocalRecentPlaybackStore()
+}
+
+private fun fixedLocalRecentPlaybackStore(
+    vararg records: LocalRecentPlaybackRecord
+): LocalRecentPlaybackStore {
+    return object : LocalRecentPlaybackStore {
+        override fun read(limit: Int): List<LocalRecentPlaybackRecord> {
+            return records.take(limit)
+        }
+
+        override fun record(record: LocalRecentPlaybackRecord) = Unit
+
+        override fun remove(recordKey: String): Boolean = false
+    }
 }

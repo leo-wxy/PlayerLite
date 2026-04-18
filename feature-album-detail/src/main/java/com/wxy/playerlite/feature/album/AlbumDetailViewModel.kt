@@ -241,6 +241,7 @@ private fun buildAlbumPlaybackRequest(
                 title = track.title,
                 artistText = track.artistText,
                 primaryArtistId = track.primaryArtistId,
+                albumId = content.albumId,
                 albumTitle = track.albumTitle,
                 coverUrl = track.coverUrl ?: content.coverUrl,
                 durationMs = track.durationMs,

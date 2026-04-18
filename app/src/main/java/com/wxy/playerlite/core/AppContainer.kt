@@ -7,6 +7,8 @@ import com.wxy.playerlite.core.playback.NeteaseSongAudioQualityRemoteDataSource
 import com.wxy.playerlite.core.playback.NeteaseSongDetailRemoteDataSource
 import com.wxy.playerlite.core.playback.SongAudioQualityRepository
 import com.wxy.playerlite.core.playback.SongDetailRepository
+import com.wxy.playerlite.core.recentplayback.LocalRecentPlaybackStore
+import com.wxy.playerlite.core.recentplayback.SharedPreferencesLocalRecentPlaybackStore
 import com.wxy.playerlite.feature.album.AlbumDetailRepository
 import com.wxy.playerlite.feature.album.DefaultAlbumDetailRepository
 import com.wxy.playerlite.feature.album.NeteaseAlbumDetailRemoteDataSource
@@ -52,6 +54,7 @@ import com.wxy.playerlite.user.storage.SharedPreferencesUserSessionStorage
 internal object AppContainer {
     private const val USER_SESSION_PREFS = "user_session"
     private const val SEARCH_HISTORY_PREFS = "search_history"
+    private const val LOCAL_RECENT_PLAYBACK_PREFS = "local_recent_playback"
 
     @Volatile
     private var services: Services? = null
@@ -74,6 +77,10 @@ internal object AppContainer {
 
     fun userCenterRepository(context: Context): UserCenterRepository {
         return getServices(context).userCenterRepository
+    }
+
+    fun localRecentPlaybackStore(context: Context): LocalRecentPlaybackStore {
+        return getServices(context).localRecentPlaybackStore
     }
 
     fun artistDetailRepository(context: Context): ArtistDetailRepository {
@@ -127,6 +134,12 @@ internal object AppContainer {
     private fun buildServices(context: Context): Services {
         val preferences = context.getSharedPreferences(USER_SESSION_PREFS, Context.MODE_PRIVATE)
         val storage = SharedPreferencesUserSessionStorage(preferences)
+        val localRecentPlaybackStore = SharedPreferencesLocalRecentPlaybackStore(
+            preferences = context.getSharedPreferences(
+                LOCAL_RECENT_PLAYBACK_PREFS,
+                Context.MODE_PRIVATE
+            )
+        )
         val authHeaderProvider = AuthHeaderProvider {
             storage.read()?.toAuthHeaders() ?: emptyMap()
         }
@@ -161,7 +174,8 @@ internal object AppContainer {
             ),
             searchRepository = searchRepository,
             userCenterRepository = DefaultUserCenterRepository(
-                remoteDataSource = NeteaseUserCenterRemoteDataSource(httpClient)
+                remoteDataSource = NeteaseUserCenterRemoteDataSource(httpClient),
+                localRecentPlaybackStore = localRecentPlaybackStore
             ),
             artistDetailRepository = DefaultArtistDetailRepository(
                 remoteDataSource = NeteaseArtistDetailRemoteDataSource(httpClient)
@@ -195,7 +209,8 @@ internal object AppContainer {
                 localStore = LyricLocalStore(
                     directory = context.filesDir.resolve("lyrics")
                 )
-            )
+            ),
+            localRecentPlaybackStore = localRecentPlaybackStore
         )
     }
 
@@ -213,6 +228,7 @@ internal object AppContainer {
         val songAudioQualityRepository: SongAudioQualityRepository,
         val songFavoriteRepository: SongFavoriteRepository,
         val songWikiRepository: SongWikiRepository,
-        val lyricRepository: LyricRepository
+        val lyricRepository: LyricRepository,
+        val localRecentPlaybackStore: LocalRecentPlaybackStore
     )
 }

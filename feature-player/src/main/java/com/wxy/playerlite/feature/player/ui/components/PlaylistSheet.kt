@@ -35,8 +35,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
@@ -134,7 +134,11 @@ fun PlaylistBottomSheet(
     onSelect: (Int) -> Unit,
     onClearAll: () -> Unit = {},
     onRemove: (Int) -> Unit,
+    onOpenSongDetail: (PlaylistItem) -> Unit = {},
+    onOpenArtist: (String) -> Unit = {},
+    onOpenAlbum: (String) -> Unit = {},
     onMove: (Int, Int) -> Unit,
+    expandedMenuItemIdOverride: String? = null,
     modifier: Modifier = Modifier
 ) {
     val visualTokens = PlayerLiteVisualTheme.colors
@@ -144,6 +148,7 @@ fun PlaylistBottomSheet(
     val navigationBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var draggingIndex by remember { mutableIntStateOf(-1) }
     var draggingOffsetY by remember { mutableFloatStateOf(0f) }
+    var expandedMenuItemId by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val activeScrollTarget = items.getOrNull(activeIndex)?.id?.let { itemId ->
         itemId to activeIndex
@@ -153,6 +158,7 @@ fun PlaylistBottomSheet(
     LaunchedEffect(visible) {
         if (!visible) {
             lastAutoScrolledTarget = null
+            expandedMenuItemId = null
         }
     }
 
@@ -356,6 +362,8 @@ fun PlaylistBottomSheet(
                             itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
                                 val isActive = index == activeIndex
                                 val isDragging = index == draggingIndex
+                                val menuExpanded = expandedMenuItemIdOverride == item.id ||
+                                    (expandedMenuItemIdOverride == null && expandedMenuItemId == item.id)
                                 val itemVisuals = resolvePlaylistSheetItemVisuals(
                                     isActive = isActive,
                                     isDragging = isDragging,
@@ -426,81 +434,156 @@ fun PlaylistBottomSheet(
                                     shadowElevation = if (itemVisuals.raised) 10.dp else 0.dp,
                                     border = itemVisuals.border
                                 ) {
-                                    Row(
+                                    Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .defaultMinSize(minHeight = 78.dp)
                                             .padding(horizontal = 14.dp, vertical = 12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        Surface(
+                                        Row(
                                             modifier = Modifier
-                                                .size(if (isActive) 56.dp else 52.dp)
-                                                .testTag("playlist_sheet_artwork_${item.id}"),
-                                            shape = RoundedCornerShape(16.dp),
-                                            color = itemVisuals.artworkFallbackContainerColor
+                                                .fillMaxWidth()
+                                                .defaultMinSize(minHeight = 78.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            if (!item.coverUrl.isNullOrBlank()) {
-                                                AsyncImage(
-                                                    model = item.coverUrl,
-                                                    contentDescription = null,
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-                                            } else {
-                                                Box(
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.LibraryMusic,
+                                            Surface(
+                                                modifier = Modifier
+                                                    .size(if (isActive) 56.dp else 52.dp)
+                                                    .testTag("playlist_sheet_artwork_${item.id}"),
+                                                shape = RoundedCornerShape(16.dp),
+                                                color = itemVisuals.artworkFallbackContainerColor
+                                            ) {
+                                                if (!item.coverUrl.isNullOrBlank()) {
+                                                    AsyncImage(
+                                                        model = item.coverUrl,
                                                         contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.primary
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                } else {
+                                                    Box(
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Rounded.LibraryMusic,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = item.effectiveTitle,
+                                                    style = if (isActive) {
+                                                        MaterialTheme.typography.titleMedium
+                                                    } else {
+                                                        MaterialTheme.typography.bodyLarge
+                                                    },
+                                                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
+                                                    color = itemVisuals.titleColor,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = resolvePlaylistSheetItemSubtitle(item),
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = itemVisuals.subtitleColor,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(CircleShape)
+                                                    .background(visualTokens.surfaceMuted.copy(alpha = 0.72f))
+                                                    .clickable {
+                                                        if (expandedMenuItemIdOverride != null) {
+                                                            return@clickable
+                                                        }
+                                                        expandedMenuItemId = if (menuExpanded) {
+                                                            null
+                                                        } else {
+                                                            item.id
+                                                        }
+                                                    }
+                                                    .testTag("playlist_sheet_more_${item.id}"),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.MoreVert,
+                                                    contentDescription = "更多操作"
+                                                )
+                                            }
+
+                                            PlaylistSheetDragHandle(
+                                                tint = itemVisuals.dragHandleTint,
+                                                containerColor = itemVisuals.dragHandleContainerColor,
+                                                enabled = canReorder,
+                                                modifier = Modifier
+                                                    .testTag("playlist_sheet_drag_handle_${item.id}")
+                                            )
+                                        }
+
+                                        if (menuExpanded) {
+                                            Surface(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .testTag("playlist_sheet_more_panel_${item.id}"),
+                                                shape = RoundedCornerShape(18.dp),
+                                                color = visualTokens.surfaceMuted,
+                                                border = BorderStroke(
+                                                    width = 1.dp,
+                                                    color = visualTokens.dividerSubtle.copy(alpha = 0.6f)
+                                                )
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    if (item.songId?.isNotBlank() == true || item.uri.isNotBlank()) {
+                                                        PlaylistSheetActionRow(
+                                                            label = "查看歌曲详情",
+                                                            tag = "playlist_sheet_action_detail_${item.id}",
+                                                            onClick = {
+                                                                expandedMenuItemId = null
+                                                                onOpenSongDetail(item)
+                                                            }
+                                                        )
+                                                    }
+                                                    item.primaryArtistId?.takeIf { it.isNotBlank() }?.let { artistId ->
+                                                        PlaylistSheetActionRow(
+                                                            label = "查看歌手",
+                                                            tag = "playlist_sheet_action_artist_${item.id}",
+                                                            onClick = {
+                                                                expandedMenuItemId = null
+                                                                onOpenArtist(artistId)
+                                                            }
+                                                        )
+                                                    }
+                                                    item.albumId?.takeIf { it.isNotBlank() }?.let { albumId ->
+                                                        PlaylistSheetActionRow(
+                                                            label = "查看专辑",
+                                                            tag = "playlist_sheet_action_album_${item.id}",
+                                                            onClick = {
+                                                                expandedMenuItemId = null
+                                                                onOpenAlbum(albumId)
+                                                            }
+                                                        )
+                                                    }
+                                                    PlaylistSheetActionRow(
+                                                        label = "移出播放队列",
+                                                        tag = "playlist_sheet_action_remove_${item.id}",
+                                                        onClick = {
+                                                            expandedMenuItemId = null
+                                                            onRemove(index)
+                                                        }
                                                     )
                                                 }
                                             }
                                         }
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = item.effectiveTitle,
-                                                style = if (isActive) {
-                                                    MaterialTheme.typography.titleMedium
-                                                } else {
-                                                    MaterialTheme.typography.bodyLarge
-                                                },
-                                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
-                                                color = itemVisuals.titleColor,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = resolvePlaylistSheetItemSubtitle(item),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = itemVisuals.subtitleColor,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = { onRemove(index) },
-                                            colors = IconButtonDefaults.iconButtonColors(
-                                                contentColor = visualTokens.textSecondary
-                                            )
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.DeleteOutline,
-                                                contentDescription = "移除播放项"
-                                            )
-                                        }
-
-                                        PlaylistSheetDragHandle(
-                                            tint = itemVisuals.dragHandleTint,
-                                            containerColor = itemVisuals.dragHandleContainerColor,
-                                            enabled = canReorder,
-                                            modifier = Modifier
-                                                .testTag("playlist_sheet_drag_handle_${item.id}")
-                                        )
                                     }
                                 }
                             }
@@ -517,6 +600,29 @@ private fun PlaybackMode.label(): String {
         PlaybackMode.LIST_LOOP -> "列表循环"
         PlaybackMode.SINGLE_LOOP -> "单曲循环"
         PlaybackMode.SHUFFLE -> "随机播放"
+    }
+}
+
+@Composable
+private fun PlaylistSheetActionRow(
+    label: String,
+    tag: String,
+    onClick: () -> Unit
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(tag)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Start
+        )
     }
 }
 

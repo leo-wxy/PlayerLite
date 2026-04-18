@@ -14,10 +14,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.widget.Toast
+import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.feature.player.PlayerViewModel
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.PlayerUiState
+import com.wxy.playerlite.feature.song.createAlbumDetailIntent
+import com.wxy.playerlite.feature.song.createArtistDetailIntent
+import com.wxy.playerlite.feature.song.createSongDetailIntent
 import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
@@ -56,6 +61,9 @@ abstract class BasePlaybackDetailActivity : ComponentActivity() {
                         onSelectPlaylistItem = playerViewModel::selectPlaylistItem,
                         onClearPlaylist = playerViewModel::clearPlaylist,
                         onRemovePlaylistItem = playerViewModel::removePlaylistItem,
+                        onOpenQueueSongDetail = ::openQueueSongDetail,
+                        onOpenQueueArtist = ::openQueueArtist,
+                        onOpenQueueAlbum = ::openQueueAlbum,
                         onMovePlaylistItem = playerViewModel::movePlaylistItem,
                         onSkipPrevious = playerViewModel::skipToPreviousTrack,
                         onSkipNext = playerViewModel::skipToNextTrack
@@ -81,6 +89,31 @@ abstract class BasePlaybackDetailActivity : ComponentActivity() {
         playerViewModel.playSelectedAudio()
         startActivity(createOpenPlayerIntent(this))
     }
+
+    private fun openQueueSongDetail(item: PlaylistItem) {
+        val intent = item.createSongDetailIntent(this)
+        if (intent == null) {
+            Toast.makeText(this, "当前歌曲详情暂时无法打开", Toast.LENGTH_SHORT).show()
+            return
+        }
+        startActivity(intent)
+    }
+
+    private fun openQueueArtist(artistId: String) {
+        PlaylistItem(
+            id = "artist:$artistId",
+            displayName = "",
+            primaryArtistId = artistId
+        ).createArtistDetailIntent(this)?.let(::startActivity)
+    }
+
+    private fun openQueueAlbum(albumId: String) {
+        PlaylistItem(
+            id = "album:$albumId",
+            displayName = "",
+            albumId = albumId
+        ).createAlbumDetailIntent(this)?.let(::startActivity)
+    }
 }
 
 @Composable
@@ -96,6 +129,9 @@ internal fun PlaybackDetailChrome(
     onSelectPlaylistItem: (Int) -> Unit,
     onClearPlaylist: () -> Unit,
     onRemovePlaylistItem: (Int) -> Unit,
+    onOpenQueueSongDetail: (PlaylistItem) -> Unit = {},
+    onOpenQueueArtist: (String) -> Unit = {},
+    onOpenQueueAlbum: (String) -> Unit = {},
     onMovePlaylistItem: (Int, Int) -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -128,6 +164,9 @@ internal fun PlaybackDetailChrome(
             onSelect = onSelectPlaylistItem,
             onClearAll = onClearPlaylist,
             onRemove = onRemovePlaylistItem,
+            onOpenSongDetail = onOpenQueueSongDetail,
+            onOpenArtist = onOpenQueueArtist,
+            onOpenAlbum = onOpenQueueAlbum,
             onMove = onMovePlaylistItem
         )
     }

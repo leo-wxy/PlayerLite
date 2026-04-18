@@ -55,6 +55,7 @@ internal fun SearchResultUiModel.Song.toSearchPlaylistItem(queueIndex: Int): Pla
         title = title,
         artistText = artistText,
         primaryArtistId = primaryArtistId,
+        albumId = albumId,
         albumTitle = albumTitle,
         coverUrl = coverUrl,
         durationMs = durationMs,

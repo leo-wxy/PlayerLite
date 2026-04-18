@@ -37,6 +37,7 @@ data class PlaylistTrackRow(
     val title: String,
     val artistText: String,
     val primaryArtistId: String? = null,
+    val albumId: String? = null,
     val albumTitle: String,
     val coverUrl: String?,
     val durationMs: Long
@@ -171,6 +172,7 @@ object PlaylistDetailJsonMapper {
                         (artist as? JsonObject)?.stringValue("id")
                     }
                     .firstOrNull(),
+                albumId = track.objectValue("al").stringValue("id"),
                 albumTitle = track.objectValue("al").stringValue("name").orEmpty(),
                 coverUrl = track.objectValue("al").stringValue("picUrl"),
                 durationMs = track.longValue("dt")

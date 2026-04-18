@@ -33,17 +33,37 @@ private const val EXTRA_LOCAL_ARTIST = "song_detail_local_artist"
 private const val EXTRA_LOCAL_ALBUM = "song_detail_local_album"
 private const val EXTRA_LOCAL_DURATION = "song_detail_local_duration"
 private const val EXTRA_LOCAL_COVER = "song_detail_local_cover"
+private const val EXTRA_FALLBACK_TITLE = "song_detail_fallback_title"
+private const val EXTRA_FALLBACK_ARTIST = "song_detail_fallback_artist"
+private const val EXTRA_FALLBACK_ALBUM = "song_detail_fallback_album"
+private const val EXTRA_FALLBACK_DURATION = "song_detail_fallback_duration"
+private const val EXTRA_FALLBACK_COVER = "song_detail_fallback_cover"
+private const val EXTRA_FALLBACK_PRIMARY_ARTIST_ID = "song_detail_fallback_primary_artist_id"
+private const val EXTRA_FALLBACK_ALBUM_ID = "song_detail_fallback_album_id"
+private const val EXTRA_RECENT_RECORD_KEY = "song_detail_recent_record_key"
+private const val EXTRA_REMOVED_FROM_RECENT = "song_detail_removed_from_recent"
 private const val SOURCE_ONLINE = "online"
 private const val SOURCE_LOCAL = "local"
 
 class SongDetailActivity : ComponentActivity() {
+    private val recentRecordKey: String? by lazy(LazyThreadSafetyMode.NONE) {
+        intent.getStringExtra(EXTRA_RECENT_RECORD_KEY)?.takeIf { it.isNotBlank() }
+    }
+    private val localRecentPlaybackStore by lazy(LazyThreadSafetyMode.NONE) {
+        AppContainer.localRecentPlaybackStore(this)
+    }
+    private val onlineFallbackSnapshot: OnlineSongFallbackSnapshot? by lazy(LazyThreadSafetyMode.NONE) {
+        onlineFallbackSnapshotFrom(intent)
+    }
     private val viewModel: SongDetailViewModel by viewModels {
         SongDetailViewModel.factory(
             ref = songRefFrom(intent),
             repository = AppSongDetailFeatureRepository(
                 songDetailRepository = AppContainer.songDetailRepository(this),
                 songWikiRepository = AppContainer.songWikiRepository(this),
-                favoriteRepository = AppContainer.songFavoriteRepository(this)
+                favoriteRepository = AppContainer.songFavoriteRepository(this),
+                recentRecordKey = recentRecordKey,
+                onlineFallbackSnapshot = onlineFallbackSnapshot
             ),
             actionGateway = AppSongDetailActionGateway(this)
         )
@@ -145,6 +165,7 @@ class SongDetailActivity : ComponentActivity() {
                     onOpenLandscapeClick = viewModel::openLandscapePlayer,
                     onOpenArtistClick = viewModel::openArtist,
                     onOpenAlbumClick = viewModel::openAlbum,
+                    onRemoveFromRecentClick = ::removeFromRecentPlayback,
                     onOpenSongClick = viewModel::openSong,
                     onOpenPlaylistClick = viewModel::openPlaylist,
                     bottomOverlayPadding = 0.dp,
@@ -162,6 +183,23 @@ class SongDetailActivity : ComponentActivity() {
         )
     }
 
+    private fun removeFromRecentPlayback() {
+        val targetRecordKey = recentRecordKey ?: return
+        val removed = localRecentPlaybackStore.remove(targetRecordKey)
+        Toast.makeText(
+            this,
+            if (removed) "已从最近播放移除" else "最近播放里已不存在这首歌",
+            Toast.LENGTH_SHORT
+        ).show()
+        if (removed) {
+            setResult(
+                RESULT_OK,
+                Intent().putExtra(EXTRA_REMOVED_FROM_RECENT, true)
+            )
+        }
+        finish()
+    }
+
     override fun finish() {
         super.finish()
         overridePendingTransition(
@@ -171,9 +209,13 @@ class SongDetailActivity : ComponentActivity() {
     }
 
     companion object {
-        fun createIntent(context: Context, ref: SongRef): Intent {
+        fun createIntent(
+            context: Context,
+            ref: SongRef,
+            recentRecordKey: String? = null
+        ): Intent {
             return when (ref) {
-                is SongRef.Online -> createOnlineIntent(context, ref.songId)
+                is SongRef.Online -> createOnlineIntent(context, ref.songId, recentRecordKey)
                 is SongRef.Local -> createLocalIntent(
                     context = context,
                     playbackUri = ref.playbackUri,
@@ -181,15 +223,35 @@ class SongDetailActivity : ComponentActivity() {
                     artistText = ref.artistText,
                     albumTitle = ref.albumTitle,
                     durationMs = ref.durationMs,
-                    coverUrl = ref.coverUrl
+                    coverUrl = ref.coverUrl,
+                    recentRecordKey = recentRecordKey
                 )
             }
         }
 
-        fun createOnlineIntent(context: Context, songId: String): Intent {
+        fun createOnlineIntent(
+            context: Context,
+            songId: String,
+            recentRecordKey: String? = null,
+            fallbackTitle: String? = null,
+            fallbackArtistText: String? = null,
+            fallbackAlbumTitle: String? = null,
+            fallbackDurationMs: Long = 0L,
+            fallbackCoverUrl: String? = null,
+            fallbackPrimaryArtistId: String? = null,
+            fallbackAlbumId: String? = null
+        ): Intent {
             return Intent(context, SongDetailActivity::class.java)
                 .putExtra(EXTRA_SOURCE, SOURCE_ONLINE)
                 .putExtra(EXTRA_ONLINE_SONG_ID, songId)
+                .putExtra(EXTRA_RECENT_RECORD_KEY, recentRecordKey)
+                .putExtra(EXTRA_FALLBACK_TITLE, fallbackTitle)
+                .putExtra(EXTRA_FALLBACK_ARTIST, fallbackArtistText)
+                .putExtra(EXTRA_FALLBACK_ALBUM, fallbackAlbumTitle)
+                .putExtra(EXTRA_FALLBACK_DURATION, fallbackDurationMs)
+                .putExtra(EXTRA_FALLBACK_COVER, fallbackCoverUrl)
+                .putExtra(EXTRA_FALLBACK_PRIMARY_ARTIST_ID, fallbackPrimaryArtistId)
+                .putExtra(EXTRA_FALLBACK_ALBUM_ID, fallbackAlbumId)
         }
 
         fun createLocalIntent(
@@ -199,7 +261,8 @@ class SongDetailActivity : ComponentActivity() {
             artistText: String,
             albumTitle: String?,
             durationMs: Long,
-            coverUrl: String? = null
+            coverUrl: String? = null,
+            recentRecordKey: String? = null
         ): Intent {
             return Intent(context, SongDetailActivity::class.java)
                 .putExtra(EXTRA_SOURCE, SOURCE_LOCAL)
@@ -209,6 +272,7 @@ class SongDetailActivity : ComponentActivity() {
                 .putExtra(EXTRA_LOCAL_ALBUM, albumTitle)
                 .putExtra(EXTRA_LOCAL_DURATION, durationMs)
                 .putExtra(EXTRA_LOCAL_COVER, coverUrl)
+                .putExtra(EXTRA_RECENT_RECORD_KEY, recentRecordKey)
         }
 
         fun songRefFrom(intent: Intent): SongRef {
@@ -233,8 +297,40 @@ class SongDetailActivity : ComponentActivity() {
                 else -> error("Song detail requires valid source")
             }
         }
+
+        fun wasRemovedFromRecent(data: Intent?): Boolean {
+            return data?.getBooleanExtra(EXTRA_REMOVED_FROM_RECENT, false) == true
+        }
+
+        private fun onlineFallbackSnapshotFrom(intent: Intent): OnlineSongFallbackSnapshot? {
+            val title = intent.getStringExtra(EXTRA_FALLBACK_TITLE)?.trim().orEmpty()
+            if (title.isBlank()) {
+                return null
+            }
+            return OnlineSongFallbackSnapshot(
+                title = title,
+                artistText = intent.getStringExtra(EXTRA_FALLBACK_ARTIST).orEmpty(),
+                albumTitle = intent.getStringExtra(EXTRA_FALLBACK_ALBUM),
+                durationMs = intent.getLongExtra(EXTRA_FALLBACK_DURATION, 0L).coerceAtLeast(0L),
+                coverUrl = intent.getStringExtra(EXTRA_FALLBACK_COVER),
+                primaryArtistId = intent.getStringExtra(EXTRA_FALLBACK_PRIMARY_ARTIST_ID)
+                    ?.takeIf { it.isNotBlank() },
+                albumId = intent.getStringExtra(EXTRA_FALLBACK_ALBUM_ID)
+                    ?.takeIf { it.isNotBlank() }
+            )
+        }
     }
 }
+
+internal data class OnlineSongFallbackSnapshot(
+    val title: String,
+    val artistText: String,
+    val albumTitle: String?,
+    val durationMs: Long,
+    val coverUrl: String?,
+    val primaryArtistId: String?,
+    val albumId: String?
+)
 
 private class AppSongDetailActionGateway(
     context: Context
@@ -256,10 +352,12 @@ private class AppSongDetailActionGateway(
     }
 }
 
-private class AppSongDetailFeatureRepository(
+internal class AppSongDetailFeatureRepository(
     private val songDetailRepository: com.wxy.playerlite.core.playback.SongDetailRepository,
     private val songWikiRepository: SongWikiRepository,
-    private val favoriteRepository: SongFavoriteRepository
+    private val favoriteRepository: SongFavoriteRepository,
+    private val recentRecordKey: String?,
+    private val onlineFallbackSnapshot: OnlineSongFallbackSnapshot?
 ) : SongDetailFeatureRepository {
     override suspend fun loadSongDetail(ref: SongRef): SongDetailContent {
         return when (ref) {
@@ -267,6 +365,7 @@ private class AppSongDetailFeatureRepository(
                 SongDetailContent(
                     ref = ref,
                     source = SongDetailSource.LOCAL,
+                    recentRecordKey = recentRecordKey,
                     title = ref.title,
                     artistText = ref.artistText,
                     albumTitle = ref.albumTitle,
@@ -290,66 +389,102 @@ private class AppSongDetailFeatureRepository(
             }
 
             is SongRef.Online -> {
-                val song = songDetailRepository.fetchSongs(listOf(ref.songId)).firstOrNull()
-                    ?: error("歌曲详情不存在")
-                val wiki = runCatching {
-                    songWikiRepository.fetchSongWiki(ref.songId)
+                val song = runCatching {
+                    songDetailRepository.fetchSongs(listOf(ref.songId)).firstOrNull()
                 }.getOrNull()
-                SongDetailContent(
-                    ref = ref,
-                    source = SongDetailSource.ONLINE,
-                    title = song.title,
-                    artistText = song.artistText.orEmpty(),
-                    primaryArtistId = song.artistIds.firstOrNull(),
-                    albumTitle = song.albumTitle,
-                    albumId = song.albumId,
-                    coverUrl = song.coverUrl,
-                    durationMs = song.durationMs,
-                    playlistItem = com.wxy.playerlite.core.playlist.PlaylistItem(
-                        id = "song-detail:${song.songId ?: song.id}",
-                        displayName = song.title,
-                        songId = song.songId,
+                if (song != null) {
+                    val wiki = runCatching {
+                        songWikiRepository.fetchSongWiki(ref.songId)
+                    }.getOrNull()
+                    SongDetailContent(
+                        ref = ref,
+                        source = SongDetailSource.ONLINE,
+                        recentRecordKey = recentRecordKey,
                         title = song.title,
-                        artistText = song.artistText,
+                        artistText = song.artistText.orEmpty(),
                         primaryArtistId = song.artistIds.firstOrNull(),
                         albumTitle = song.albumTitle,
+                        albumId = song.albumId,
                         coverUrl = song.coverUrl,
                         durationMs = song.durationMs,
-                        itemType = com.wxy.playerlite.core.playlist.PlaylistItemType.ONLINE,
-                        contextType = "song",
-                        contextId = song.songId ?: song.id,
-                        contextTitle = song.title
-                    ),
-                    wiki = wiki?.let {
-                        SongDetailWikiUi(
-                            title = it.title,
-                            contributionText = it.contributionText,
-                            sections = it.sections.map { section ->
-                                SongDetailWikiSectionUi(
-                                    title = section.title,
-                                    values = section.values
-                                )
-                            },
-                            similarSongs = it.similarSongs.map { song ->
-                                SongDetailRelatedSongUi(
-                                    songId = song.songId,
-                                    title = song.title,
-                                    subtitle = song.subtitle,
-                                    coverUrl = song.coverUrl
-                                )
-                            },
-                            relatedPlaylists = it.relatedPlaylists.map { playlist ->
-                                SongDetailRelatedPlaylistUi(
-                                    playlistId = playlist.playlistId,
-                                    title = playlist.title,
-                                    subtitle = playlist.subtitle,
-                                    coverUrl = playlist.coverUrl
-                                )
-                            }
-                        )
-                    },
-                    canFavorite = true
-                )
+                        playlistItem = com.wxy.playerlite.core.playlist.PlaylistItem(
+                            id = "song-detail:${song.songId ?: song.id}",
+                            displayName = song.title,
+                            songId = song.songId,
+                            title = song.title,
+                            artistText = song.artistText,
+                            primaryArtistId = song.artistIds.firstOrNull(),
+                            albumId = song.albumId,
+                            albumTitle = song.albumTitle,
+                            coverUrl = song.coverUrl,
+                            durationMs = song.durationMs,
+                            itemType = com.wxy.playerlite.core.playlist.PlaylistItemType.ONLINE,
+                            contextType = "song",
+                            contextId = song.songId ?: song.id,
+                            contextTitle = song.title
+                        ),
+                        wiki = wiki?.let {
+                            SongDetailWikiUi(
+                                title = it.title,
+                                contributionText = it.contributionText,
+                                sections = it.sections.map { section ->
+                                    SongDetailWikiSectionUi(
+                                        title = section.title,
+                                        values = section.values
+                                    )
+                                },
+                                similarSongs = it.similarSongs.map { relatedSong ->
+                                    SongDetailRelatedSongUi(
+                                        songId = relatedSong.songId,
+                                        title = relatedSong.title,
+                                        subtitle = relatedSong.subtitle,
+                                        coverUrl = relatedSong.coverUrl
+                                    )
+                                },
+                                relatedPlaylists = it.relatedPlaylists.map { playlist ->
+                                    SongDetailRelatedPlaylistUi(
+                                        playlistId = playlist.playlistId,
+                                        title = playlist.title,
+                                        subtitle = playlist.subtitle,
+                                        coverUrl = playlist.coverUrl
+                                    )
+                                }
+                            )
+                        },
+                        canFavorite = true
+                    )
+                } else {
+                    val fallback = onlineFallbackSnapshot ?: error("歌曲详情不存在")
+                    SongDetailContent(
+                        ref = ref,
+                        source = SongDetailSource.ONLINE,
+                        recentRecordKey = recentRecordKey,
+                        title = fallback.title,
+                        artistText = fallback.artistText,
+                        primaryArtistId = fallback.primaryArtistId,
+                        albumTitle = fallback.albumTitle,
+                        albumId = fallback.albumId,
+                        coverUrl = fallback.coverUrl,
+                        durationMs = fallback.durationMs,
+                        playlistItem = com.wxy.playerlite.core.playlist.PlaylistItem(
+                            id = "song-detail-fallback:${ref.songId}",
+                            displayName = fallback.title,
+                            songId = ref.songId,
+                            title = fallback.title,
+                            artistText = fallback.artistText,
+                            primaryArtistId = fallback.primaryArtistId,
+                            albumId = fallback.albumId,
+                            albumTitle = fallback.albumTitle,
+                            coverUrl = fallback.coverUrl,
+                            durationMs = fallback.durationMs,
+                            itemType = com.wxy.playerlite.core.playlist.PlaylistItemType.ONLINE,
+                            contextType = "song",
+                            contextId = ref.songId,
+                            contextTitle = fallback.title
+                        ),
+                        canFavorite = true
+                    )
+                }
             }
         }
     }

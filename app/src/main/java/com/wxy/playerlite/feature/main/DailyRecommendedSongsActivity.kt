@@ -907,6 +907,7 @@ private fun DailyRecommendedSongUiModel.toPlaylistItem(queueIndex: Int): Playlis
         title = title,
         artistText = artistText,
         primaryArtistId = primaryArtistId,
+        albumId = albumId,
         albumTitle = albumTitle,
         coverUrl = coverUrl,
         durationMs = durationMs,

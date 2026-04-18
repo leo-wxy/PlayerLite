@@ -18,6 +18,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wxy.playerlite.resolveCurrentPlayerArtistId
+import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.feature.artist.ArtistDetailActivity
 import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
 import com.wxy.playerlite.feature.player.model.PlayerUiState
@@ -25,6 +26,9 @@ import com.wxy.playerlite.feature.player.ui.PlayerScreenCallbacks
 import com.wxy.playerlite.feature.player.ui.PlayerScreen
 import com.wxy.playerlite.feature.song.SongDetailActivity
 import com.wxy.playerlite.feature.song.SongRef
+import com.wxy.playerlite.feature.song.createAlbumDetailIntent
+import com.wxy.playerlite.feature.song.createArtistDetailIntent
+import com.wxy.playerlite.feature.song.createSongDetailIntent
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
 
 class PlayerActivity : ComponentActivity() {
@@ -109,6 +113,9 @@ class PlayerActivity : ComponentActivity() {
                     onSelectPlaylistItem = viewModel::selectPlaylistItem,
                     onClearPlaylist = viewModel::clearPlaylist,
                     onRemovePlaylistItem = viewModel::removePlaylistItem,
+                    onOpenQueueSongDetail = ::openQueueSongDetail,
+                    onOpenQueueArtist = ::openQueueArtist,
+                    onOpenQueueAlbum = ::openQueueAlbum,
                     onMovePlaylistItem = viewModel::movePlaylistItem,
                     onPlay = viewModel::playSelectedAudio,
                     onPrevious = viewModel::skipToPreviousTrack,
@@ -234,6 +241,33 @@ class PlayerActivity : ComponentActivity() {
         fun shouldStartPlaybackFromIntent(intent: Intent?): Boolean {
             return PlayerEntry.shouldStartPlaybackFromIntent(intent)
         }
+    }
+
+    private fun openQueueSongDetail(item: PlaylistItem) {
+        val intent = item.createSongDetailIntent(this)
+        if (intent == null) {
+            Toast.makeText(this, "当前歌曲详情暂时无法打开", Toast.LENGTH_SHORT).show()
+            return
+        }
+        startActivity(intent)
+    }
+
+    private fun openQueueArtist(artistId: String) {
+        PlaylistItem(
+            id = "artist:$artistId",
+            displayName = "",
+            primaryArtistId = artistId
+        ).createArtistDetailIntent(this)?.let(::startActivity)
+            ?: Toast.makeText(this, "当前歌手暂时无法打开", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun openQueueAlbum(albumId: String) {
+        PlaylistItem(
+            id = "album:$albumId",
+            displayName = "",
+            albumId = albumId
+        ).createAlbumDetailIntent(this)?.let(::startActivity)
+            ?: Toast.makeText(this, "当前专辑暂时无法打开", Toast.LENGTH_SHORT).show()
     }
 }
 

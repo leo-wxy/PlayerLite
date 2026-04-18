@@ -3,6 +3,8 @@ package com.wxy.playerlite.feature.player
 import android.app.Application
 import android.content.Context
 import androidx.media3.common.C
+import com.wxy.playerlite.core.recentplayback.LocalRecentPlaybackRecord
+import com.wxy.playerlite.core.recentplayback.LocalRecentPlaybackStore
 import com.wxy.playerlite.core.playback.SongAudioQualityRepository
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
@@ -95,6 +97,56 @@ class PlayerViewModelTest {
                 ),
                 bridge.actions
             )
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun localRecentPlayback_shouldNotRecordSameSongTwiceWhenMetadataRefreshes() = runTest {
+        val runtime = PlayerRuntime(application)
+        runtime.applyExternalQueueSelection(
+            items = listOf(onlineItem(index = 0, songId = "track-1", title = "第一首")),
+            activeIndex = 0
+        )
+        val uiStateField = PlayerRuntime::class.java.getDeclaredField("_uiState")
+        uiStateField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val uiStateFlow =
+            uiStateField.get(runtime) as MutableStateFlow<com.wxy.playerlite.feature.player.model.PlayerUiState>
+        val recentPlaybackStore = FakeLocalRecentPlaybackStore()
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            localRecentPlaybackStore = recentPlaybackStore,
+            serviceBridge = FakePlayerControlBridge(currentSnapshot = null),
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 60_000L,
+            uiProgressIntervalMs = 60_000L
+        )
+        try {
+            runCurrent()
+
+            uiStateFlow.value = uiStateFlow.value.copy(
+                currentSongIdOverride = "track-1",
+                isPreparing = true
+            )
+            runCurrent()
+
+            runtime.applyExternalQueueSelection(
+                items = listOf(onlineItem(index = 0, songId = "track-1", title = "第一首（封面回填）")),
+                activeIndex = 0
+            )
+            uiStateFlow.value = uiStateFlow.value.copy(
+                currentSongIdOverride = "track-1",
+                isPreparing = true
+            )
+            runCurrent()
+
+            assertEquals(1, recentPlaybackStore.records.size)
+            assertEquals("online:track-1", recentPlaybackStore.records.single().recordKey)
         } finally {
             clearViewModel(viewModel)
             runCurrent()
@@ -1053,6 +1105,22 @@ private class FakePlayerControlBridge(
     override fun currentSnapshot(): RemotePlaybackSnapshot? = currentSnapshot
 
     override fun release() = Unit
+}
+
+private class FakeLocalRecentPlaybackStore : LocalRecentPlaybackStore {
+    val records = mutableListOf<LocalRecentPlaybackRecord>()
+
+    override fun read(limit: Int): List<LocalRecentPlaybackRecord> = records.take(limit)
+
+    override fun record(record: LocalRecentPlaybackRecord) {
+        if (records.none { it.recordKey == record.recordKey }) {
+            records += record
+        }
+    }
+
+    override fun remove(recordKey: String): Boolean {
+        return records.removeAll { it.recordKey == recordKey }
+    }
 }
 
 private class FakeUserRepository : UserRepository {

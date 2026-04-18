@@ -1,8 +1,16 @@
 package com.wxy.playerlite.feature.main
 
 import com.wxy.playerlite.network.core.JsonHttpClient
+import com.wxy.playerlite.core.recentplayback.LocalRecentPlaybackStore
+import com.wxy.playerlite.core.recentplayback.LocalRecentPlaybackRecord
+import com.wxy.playerlite.core.playlist.PlaylistItem
+import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.feature.search.SearchRouteTarget
+import com.wxy.playerlite.feature.song.SongRef
 import com.wxy.playerlite.user.UserSessionInvalidException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -27,7 +35,22 @@ internal interface UserCenterRepository {
 
     suspend fun fetchLikedPlaylist(userId: Long): UserCenterCollectionItemUiModel?
 
-    suspend fun fetchRecentSongs(limit: Int): List<UserCenterCollectionItemUiModel>
+    suspend fun fetchRecentSongs(limit: Int): List<UserCenterCollectionItemUiModel> = emptyList()
+
+    suspend fun fetchRecentSongItems(limit: Int): List<RecentSongItemUiModel> = emptyList()
+
+    suspend fun fetchLocalRecentPlaybackItems(limit: Int): List<RecentLocalPlaybackItemUiModel> =
+        emptyList()
+
+    suspend fun fetchRecentVideos(limit: Int): List<RecentPlaybackListItemUiModel> = emptyList()
+
+    suspend fun fetchRecentVoices(limit: Int): List<RecentPlaybackListItemUiModel> = emptyList()
+
+    suspend fun fetchRecentPlaylists(limit: Int): List<RecentPlaybackListItemUiModel> = emptyList()
+
+    suspend fun fetchRecentAlbums(limit: Int): List<RecentPlaybackListItemUiModel> = emptyList()
+
+    suspend fun fetchRecentDjRadios(limit: Int): List<RecentPlaybackListItemUiModel> = emptyList()
 }
 
 internal data class UserCenterCollectionItemUiModel(
@@ -40,8 +63,113 @@ internal data class UserCenterCollectionItemUiModel(
     val action: ContentEntryAction = ContentEntryAction.Unsupported()
 )
 
+internal data class RecentSongItemUiModel(
+    val id: String,
+    val title: String,
+    val artistText: String,
+    val imageUrl: String?,
+    val albumTitle: String? = null,
+    val primaryArtistId: String? = null,
+    val albumId: String? = null,
+    val durationMs: Long = 0L,
+    val detailAction: ContentEntryAction = ContentEntryAction.Unsupported()
+) {
+    fun toPlaylistItem(queueIndex: Int): PlaylistItem {
+        return PlaylistItem(
+            id = "recent-song:$queueIndex:$id",
+            displayName = title,
+            songId = id,
+            title = title,
+            artistText = artistText,
+            primaryArtistId = primaryArtistId,
+            albumId = albumId,
+            albumTitle = albumTitle,
+            coverUrl = imageUrl,
+            durationMs = durationMs,
+            itemType = PlaylistItemType.ONLINE,
+            contextType = "recent_songs",
+            contextId = "recent_songs",
+            contextTitle = "最近播放"
+        )
+    }
+
+    fun toCollectionItem(): UserCenterCollectionItemUiModel {
+        return UserCenterCollectionItemUiModel(
+            id = id,
+            title = title,
+            subtitle = artistText,
+            imageUrl = imageUrl,
+            meta = albumTitle,
+            action = detailAction
+        )
+    }
+}
+
+internal data class RecentLocalPlaybackItemUiModel(
+    val recordKey: String,
+    val sourceType: PlaylistItemType,
+    val songId: String?,
+    val playbackUri: String,
+    val title: String,
+    val artistText: String,
+    val imageUrl: String?,
+    val albumTitle: String? = null,
+    val primaryArtistId: String? = null,
+    val albumId: String? = null,
+    val durationMs: Long = 0L,
+    val playedAtMs: Long = 0L
+) {
+    val id: String
+        get() = "recent-cached-${recordKey.hashCode()}"
+
+    fun toPlaylistItem(queueIndex: Int): PlaylistItem {
+        return PlaylistItem(
+            id = "recent-cached:$queueIndex:${recordKey.hashCode()}",
+            uri = playbackUri,
+            displayName = title,
+            songId = songId,
+            title = title,
+            artistText = artistText,
+            primaryArtistId = primaryArtistId,
+            albumId = albumId,
+            albumTitle = albumTitle,
+            coverUrl = imageUrl,
+            durationMs = durationMs,
+            itemType = sourceType,
+            contextType = "recent_local_cache",
+            contextId = recordKey,
+            contextTitle = "本机最近听歌"
+        )
+    }
+
+    fun toSongRef(): SongRef {
+        return if (!songId.isNullOrBlank()) {
+            SongRef.Online(songId = songId)
+        } else {
+            SongRef.Local(
+                playbackUri = playbackUri,
+                title = title,
+                artistText = artistText,
+                albumTitle = albumTitle.orEmpty(),
+                durationMs = durationMs,
+                coverUrl = imageUrl
+            )
+        }
+    }
+}
+
+internal data class RecentPlaybackListItemUiModel(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val imageUrl: String?,
+    val meta: String? = null,
+    val badge: String? = null
+)
+
 internal class DefaultUserCenterRepository(
-    private val remoteDataSource: UserCenterRemoteDataSource
+    private val remoteDataSource: UserCenterRemoteDataSource,
+    private val localRecentPlaybackStore: LocalRecentPlaybackStore
 ) : UserCenterRepository {
     override suspend fun fetchFavoriteArtists(): List<UserCenterCollectionItemUiModel> {
         return UserCenterJsonMapper.parseFavoriteArtists(
@@ -88,10 +216,65 @@ internal class DefaultUserCenterRepository(
     }
 
     override suspend fun fetchRecentSongs(limit: Int): List<UserCenterCollectionItemUiModel> {
+        return fetchRecentSongItems(limit).map { it.toCollectionItem() }
+    }
+
+    override suspend fun fetchRecentSongItems(limit: Int): List<RecentSongItemUiModel> {
         return UserCenterJsonMapper.parseRecentSongs(
             payload = remoteDataSource.fetchRecentSongs(limit)
         )
     }
+
+    override suspend fun fetchLocalRecentPlaybackItems(limit: Int): List<RecentLocalPlaybackItemUiModel> {
+        return localRecentPlaybackStore.read(limit).map(LocalRecentPlaybackRecord::toUiModel)
+    }
+
+    override suspend fun fetchRecentVideos(limit: Int): List<RecentPlaybackListItemUiModel> {
+        return UserCenterJsonMapper.parseRecentVideos(
+            payload = remoteDataSource.fetchRecentVideos(limit)
+        )
+    }
+
+    override suspend fun fetchRecentVoices(limit: Int): List<RecentPlaybackListItemUiModel> {
+        return UserCenterJsonMapper.parseRecentVoices(
+            payload = remoteDataSource.fetchRecentVoices(limit)
+        )
+    }
+
+    override suspend fun fetchRecentPlaylists(limit: Int): List<RecentPlaybackListItemUiModel> {
+        return UserCenterJsonMapper.parseRecentPlaylists(
+            payload = remoteDataSource.fetchRecentPlaylists(limit)
+        )
+    }
+
+    override suspend fun fetchRecentAlbums(limit: Int): List<RecentPlaybackListItemUiModel> {
+        return UserCenterJsonMapper.parseRecentAlbums(
+            payload = remoteDataSource.fetchRecentAlbums(limit)
+        )
+    }
+
+    override suspend fun fetchRecentDjRadios(limit: Int): List<RecentPlaybackListItemUiModel> {
+        return UserCenterJsonMapper.parseRecentDjRadios(
+            payload = remoteDataSource.fetchRecentDjRadios(limit)
+        )
+    }
+}
+
+private fun LocalRecentPlaybackRecord.toUiModel(): RecentLocalPlaybackItemUiModel {
+    return RecentLocalPlaybackItemUiModel(
+        recordKey = recordKey,
+        sourceType = sourceType,
+        songId = songId,
+        playbackUri = playbackUri.orEmpty(),
+        title = title,
+        artistText = artistText,
+        imageUrl = coverUrl,
+        albumTitle = albumTitle,
+        primaryArtistId = primaryArtistId,
+        albumId = albumId,
+        durationMs = durationMs,
+        playedAtMs = playedAtMs
+    )
 }
 
 internal interface UserCenterRemoteDataSource {
@@ -108,6 +291,16 @@ internal interface UserCenterRemoteDataSource {
     suspend fun fetchUserPlaylists(userId: Long): JsonObject
 
     suspend fun fetchRecentSongs(limit: Int): JsonObject
+
+    suspend fun fetchRecentVideos(limit: Int): JsonObject
+
+    suspend fun fetchRecentVoices(limit: Int): JsonObject
+
+    suspend fun fetchRecentPlaylists(limit: Int): JsonObject
+
+    suspend fun fetchRecentAlbums(limit: Int): JsonObject
+
+    suspend fun fetchRecentDjRadios(limit: Int): JsonObject
 }
 
 internal class NeteaseUserCenterRemoteDataSource(
@@ -161,6 +354,46 @@ internal class NeteaseUserCenterRemoteDataSource(
     override suspend fun fetchRecentSongs(limit: Int): JsonObject {
         return httpClient.get(
             path = "/record/recent/song",
+            queryParams = mapOf("limit" to limit.toString()),
+            requiresAuth = true
+        ).also(::ensureSuccess)
+    }
+
+    override suspend fun fetchRecentVideos(limit: Int): JsonObject {
+        return httpClient.get(
+            path = "/record/recent/video",
+            queryParams = mapOf("limit" to limit.toString()),
+            requiresAuth = true
+        ).also(::ensureSuccess)
+    }
+
+    override suspend fun fetchRecentVoices(limit: Int): JsonObject {
+        return httpClient.get(
+            path = "/record/recent/voice",
+            queryParams = mapOf("limit" to limit.toString()),
+            requiresAuth = true
+        ).also(::ensureSuccess)
+    }
+
+    override suspend fun fetchRecentPlaylists(limit: Int): JsonObject {
+        return httpClient.get(
+            path = "/record/recent/playlist",
+            queryParams = mapOf("limit" to limit.toString()),
+            requiresAuth = true
+        ).also(::ensureSuccess)
+    }
+
+    override suspend fun fetchRecentAlbums(limit: Int): JsonObject {
+        return httpClient.get(
+            path = "/record/recent/album",
+            queryParams = mapOf("limit" to limit.toString()),
+            requiresAuth = true
+        ).also(::ensureSuccess)
+    }
+
+    override suspend fun fetchRecentDjRadios(limit: Int): JsonObject {
+        return httpClient.get(
+            path = "/record/recent/dj",
             queryParams = mapOf("limit" to limit.toString()),
             requiresAuth = true
         ).also(::ensureSuccess)
@@ -305,7 +538,7 @@ internal object UserCenterJsonMapper {
         }
     }
 
-    fun parseRecentSongs(payload: JsonObject): List<UserCenterCollectionItemUiModel> {
+    fun parseRecentSongs(payload: JsonObject): List<RecentSongItemUiModel> {
         val list = payload.objectValue("data").arrayValue("list")
         return list.mapNotNull { element ->
             val item = element as? JsonObject ?: return@mapNotNull null
@@ -319,24 +552,162 @@ internal object UserCenterJsonMapper {
                     (artistElement as? JsonObject)?.stringValue("name")
                 }
             }
+            val primaryArtistId = song.arrayValue("ar").firstObject().stringValue("id")
+                ?: song.arrayValue("artists").firstObject().stringValue("id")
             val albumName = song.objectValue("al").stringValue("name")
                 ?: song.objectValue("album").stringValue("name")
+            val albumId = song.objectValue("al").stringValue("id")
+                ?: song.objectValue("album").stringValue("id")
             val coverUrl = song.objectValue("al").stringValue("picUrl")
                 ?: song.objectValue("album").stringValue("picUrl")
                 ?: song.stringValue("picUrl")
                 ?: song.stringValue("coverUrl")
-            UserCenterCollectionItemUiModel(
+            RecentSongItemUiModel(
                 id = id,
                 title = title,
-                subtitle = if (artists.isEmpty()) "歌曲" else artists.joinToString(" / "),
+                artistText = if (artists.isEmpty()) "歌曲" else artists.joinToString(" / "),
                 imageUrl = coverUrl,
-                meta = albumName,
-                action = ContentEntryAction.OpenDetail(
+                albumTitle = albumName,
+                primaryArtistId = primaryArtistId,
+                albumId = albumId,
+                durationMs = song.longValue("dt"),
+                detailAction = ContentEntryAction.OpenDetail(
                     SearchRouteTarget.Song(songId = id)
                 )
             )
         }
     }
+
+    fun parseRecentVideos(payload: JsonObject): List<RecentPlaybackListItemUiModel> {
+        return parseRecentGenericItems(payload) { item ->
+            val video = item.recentDataObject()
+            RecentPlaybackListItemUiModel(
+                id = video.stringValue("id") ?: return@parseRecentGenericItems null,
+                title = video.stringValue("title")
+                    ?: video.stringValue("name")
+                    ?: return@parseRecentGenericItems null,
+                subtitle = video.stringValue("creatorName")
+                    ?: video.objectValue("creator").stringValue("nickname")
+                    ?: video.stringValue("artistName")
+                    ?: "视频",
+                imageUrl = video.stringValue("coverUrl")
+                    ?: video.stringValue("cover")
+                    ?: video.stringValue("picUrl"),
+                meta = video.longValue("playTime").takeIf { it > 0 }?.let { "$it 播放" }
+                    ?: video.stringValue("durationms")
+                    ?: video.stringValue("type"),
+                badge = video.stringValue("type") ?: "视频"
+            )
+        }
+    }
+
+    fun parseRecentVoices(payload: JsonObject): List<RecentPlaybackListItemUiModel> {
+        return parseRecentGenericItems(payload) { item ->
+            val voice = item.recentDataObject()
+            RecentPlaybackListItemUiModel(
+                id = voice.stringValue("id") ?: return@parseRecentGenericItems null,
+                title = voice.stringValue("title")
+                    ?: voice.stringValue("name")
+                    ?: return@parseRecentGenericItems null,
+                subtitle = voice.objectValue("dj").stringValue("nickname")
+                    ?: voice.stringValue("author")
+                    ?: voice.stringValue("creatorName")
+                    ?: "声音",
+                imageUrl = voice.stringValue("coverUrl")
+                    ?: voice.stringValue("picUrl")
+                    ?: voice.stringValue("cover"),
+                meta = voice.stringValue("category")
+                    ?: voice.intValue("programCount").takeIf { it > 0 }?.let { "$it 期" },
+                badge = "声音"
+            )
+        }
+    }
+
+    fun parseRecentPlaylists(payload: JsonObject): List<RecentPlaybackListItemUiModel> {
+        return parseRecentGenericItems(payload) { item ->
+            val playlist = item.recentDataObject()
+            RecentPlaybackListItemUiModel(
+                id = playlist.stringValue("id") ?: return@parseRecentGenericItems null,
+                title = playlist.stringValue("name")
+                    ?: playlist.stringValue("title")
+                    ?: return@parseRecentGenericItems null,
+                subtitle = playlist.objectValue("creator").stringValue("nickname")
+                    ?: playlist.stringValue("creatorName")
+                    ?: "歌单",
+                imageUrl = playlist.stringValue("coverImgUrl")
+                    ?: playlist.stringValue("coverUrl")
+                    ?: playlist.stringValue("picUrl"),
+                meta = playlist.intValue("trackCount").takeIf { it > 0 }?.let { "$it 首歌曲" },
+                badge = "歌单"
+            )
+        }
+    }
+
+    fun parseRecentAlbums(payload: JsonObject): List<RecentPlaybackListItemUiModel> {
+        return parseRecentGenericItems(payload) { item ->
+            val album = item.recentDataObject()
+            val artistText = album.arrayValue("artists").mapNotNull { artist ->
+                (artist as? JsonObject)?.stringValue("name")
+            }.ifEmpty {
+                album.arrayValue("ar").mapNotNull { artist ->
+                    (artist as? JsonObject)?.stringValue("name")
+                }
+            }.joinToString(" / ")
+            RecentPlaybackListItemUiModel(
+                id = album.stringValue("id") ?: return@parseRecentGenericItems null,
+                title = album.stringValue("name")
+                    ?: album.stringValue("title")
+                    ?: return@parseRecentGenericItems null,
+                subtitle = artistText.ifBlank { album.stringValue("artistName") ?: "专辑" },
+                imageUrl = album.stringValue("picUrl")
+                    ?: album.stringValue("coverUrl")
+                    ?: album.stringValue("blurPicUrl"),
+                meta = buildList {
+                    album.longValue("publishTime")
+                        .takeIf { it > 0 }
+                        ?.let(::formatRecentAlbumPublishDate)
+                        ?.let(::add)
+                    album.intValue("size").takeIf { it > 0 }?.let { add("$it 首") }
+                }.takeIf { it.isNotEmpty() }?.joinToString(" · "),
+                badge = "专辑"
+            )
+        }
+    }
+
+    fun parseRecentDjRadios(payload: JsonObject): List<RecentPlaybackListItemUiModel> {
+        return parseRecentGenericItems(payload) { item ->
+            val dj = item.recentDataObject()
+            RecentPlaybackListItemUiModel(
+                id = dj.stringValue("id") ?: return@parseRecentGenericItems null,
+                title = dj.stringValue("name")
+                    ?: dj.stringValue("title")
+                    ?: return@parseRecentGenericItems null,
+                subtitle = dj.objectValue("dj").stringValue("nickname")
+                    ?: dj.stringValue("djNickname")
+                    ?: "播客",
+                imageUrl = dj.stringValue("picUrl")
+                    ?: dj.stringValue("coverUrl")
+                    ?: dj.stringValue("cover"),
+                meta = dj.intValue("programCount").takeIf { it > 0 }?.let { "$it 期节目" }
+                    ?: dj.stringValue("category"),
+                badge = "播客"
+            )
+        }
+    }
+
+    private inline fun parseRecentGenericItems(
+        payload: JsonObject,
+        mapper: (JsonObject) -> RecentPlaybackListItemUiModel?
+    ): List<RecentPlaybackListItemUiModel> {
+        val list = payload.objectValue("data").arrayValue("list")
+        return list.mapNotNull { element ->
+            mapper(element as? JsonObject ?: return@mapNotNull null)
+        }
+    }
+}
+
+private fun formatRecentAlbumPublishDate(timestampMs: Long): String {
+    return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(timestampMs))
 }
 
 private fun JsonObject.toPlaylistItem(
@@ -368,8 +739,21 @@ private fun JsonObject.objectValue(key: String): JsonObject {
     return (this[key] as? JsonObject) ?: emptyJsonObject
 }
 
+private fun JsonObject.recentDataObject(): JsonObject {
+    val data = this["data"] as? JsonObject
+    if (data != null) {
+        return data
+    }
+    val resource = this["resource"] as? JsonObject
+    return resource ?: this
+}
+
 private fun JsonObject.arrayValue(key: String): JsonArray {
     return this[key]?.jsonArray ?: emptyJsonArray
+}
+
+private fun JsonArray.firstObject(): JsonObject {
+    return firstOrNull() as? JsonObject ?: emptyJsonObject
 }
 
 private fun JsonObject.stringValue(key: String): String? {

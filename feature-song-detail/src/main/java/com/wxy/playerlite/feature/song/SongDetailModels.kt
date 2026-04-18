@@ -52,6 +52,7 @@ data class SongDetailWikiUi(
 data class SongDetailContent(
     val ref: SongRef,
     val source: SongDetailSource,
+    val recentRecordKey: String? = null,
     val title: String,
     val artistText: String,
     val primaryArtistId: String? = null,
@@ -62,7 +63,10 @@ data class SongDetailContent(
     val playlistItem: PlaylistItem,
     val wiki: SongDetailWikiUi? = null,
     val canFavorite: Boolean = false
-)
+) {
+    val canRemoveFromRecent: Boolean
+        get() = !recentRecordKey.isNullOrBlank()
+}
 
 sealed interface SongDetailContentState {
     data object Loading : SongDetailContentState
