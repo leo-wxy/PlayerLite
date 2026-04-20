@@ -7,6 +7,7 @@ import androidx.media3.common.MediaItem
 import android.util.Log
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.PlaybackSourceContext
 import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.config.CacheCoreConfig
 import com.wxy.playerlite.player.AudioMetaDisplay
@@ -16,7 +17,10 @@ import com.wxy.playerlite.player.NativePlayer
 import com.wxy.playerlite.player.PlaybackSpeed
 import com.wxy.playerlite.player.PlaybackOutputInfo
 import com.wxy.playerlite.player.source.IPlaysource
+import com.wxy.playerlite.playback.session.PlaybackSessionState
+import com.wxy.playerlite.playback.session.SharedPreferencesPlaybackSessionStateStorage
 import java.io.File
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
 import org.json.JSONObject
 
 internal data class PlaybackProcessState(
@@ -60,8 +65,11 @@ internal class PlaybackProcessRuntime(
     trackPreparer: TrackPreparer? = null,
     sourceAdapterFactory: SourceAdapterFactory? = null
 ) {
-    private val cacheRootDirPath = File(appContext.cacheDir, "cache_core").absolutePath
-    private val audioEffectPreferences: SharedPreferences? = appContext.getSharedPreferences(
+    private val appContextRef = appContext.applicationContext
+    private val cacheRootDirPath = File(appContextRef.cacheDir, "cache_core").absolutePath
+    private val playbackSessionStateStorage: SharedPreferencesPlaybackSessionStateStorage? =
+        SharedPreferencesPlaybackSessionStateStorage.fromContext(appContextRef)
+    private val audioEffectPreferences: SharedPreferences? = appContextRef.getSharedPreferences(
         AUDIO_EFFECT_PREFERENCES_NAME,
         Context.MODE_PRIVATE
     )
@@ -86,11 +94,24 @@ internal class PlaybackProcessRuntime(
     )
     private val sourceSession = PreparedSourceSession()
     @Volatile
+    private var playbackGeneration: AtomicLong? = AtomicLong(0L)
+    @Volatile
+    private var retryingTrackId: String? = null
+    @Volatile
+    private var retryAttemptCount: Int = 0
+    @Volatile
     private var pendingSeekPositionMs: Long? = null
     @Volatile
     private var activePlaybackTrackId: String? = null
     @Volatile
     private var pendingAudioQualitySwitchTarget: PlaybackAudioQuality? = null
+    @Volatile
+    private var currentTrackSourceOverrideTrackId: String? = null
+    @Volatile
+    private var currentTrackSourceOverrideRuntime: ActivePlaybackSourceRuntime? = null
+    @Volatile
+    private var lastPersistedPlaybackSessionState: PlaybackSessionState? =
+        playbackSessionStateStorage?.read()
 
     private val _state = MutableStateFlow(
         PlaybackProcessState(
@@ -135,6 +156,8 @@ internal class PlaybackProcessRuntime(
                     isPreparing = false,
                     statusText = audioQualityStatus ?: if (base.playWhenReady) "Playing" else "Paused"
                 )
+                persistPlaybackSessionState()
+                resetPlaybackRetryState(base.currentTrack?.id)
                 return@setProgressListener
             }
             if (base.isPreparing) {
@@ -149,7 +172,9 @@ internal class PlaybackProcessRuntime(
             ) {
                 return@setProgressListener
             }
+            resetPlaybackRetryState(base.currentTrack?.id)
             _state.value = base.copy(positionMs = bounded)
+            persistPlaybackSessionState()
         }
 
         playbackCoordinator.startPlaybackStateObserver(intervalMs = 200L) { playState ->
@@ -165,6 +190,7 @@ internal class PlaybackProcessRuntime(
                         isPreparing = false,
                         statusText = audioQualityStatus ?: "Paused"
                     )
+                    persistPlaybackSessionState()
                 }
                 return@startPlaybackStateObserver
             }
@@ -172,6 +198,7 @@ internal class PlaybackProcessRuntime(
                 return@startPlaybackStateObserver
             }
             _state.value = base.copy(playbackState = playState)
+            persistPlaybackSessionState()
         }
     }
 
@@ -274,6 +301,7 @@ internal class PlaybackProcessRuntime(
 
     fun setPlayWhenReady(playWhenReady: Boolean) {
         _state.value = _state.value.copy(playWhenReady = playWhenReady)
+        persistPlaybackSessionState(force = true)
     }
 
     fun setPlaybackSpeed(speed: Float): Boolean {
@@ -366,6 +394,7 @@ internal class PlaybackProcessRuntime(
         if (!sourceChanged) {
             return true
         }
+        clearCurrentTrackSourceOverride()
         activeAudioSourceRuntime = nextRuntime
         persistActiveAudioSourceRuntime(nextRuntime)
         invalidateOnlinePreparationCaches(previousRuntime.adapter)
@@ -417,6 +446,8 @@ internal class PlaybackProcessRuntime(
             resumePositionMs > 0L
 
         activePlaybackTrackId = null
+        invalidatePlaybackGeneration()
+        resetPlaybackRetryState(currentTrack.id)
         pendingSeekPositionMs = null
         pendingAudioQualitySwitchTarget = requestedAudioQuality
         playbackCoordinator.stopPlayback()
@@ -458,6 +489,8 @@ internal class PlaybackProcessRuntime(
             resumePositionMs > 0L
 
         activePlaybackTrackId = null
+        invalidatePlaybackGeneration()
+        resetPlaybackRetryState(currentTrack.id)
         pendingSeekPositionMs = null
         pendingAudioQualitySwitchTarget = null
         playbackCoordinator.stopPlayback()
@@ -490,7 +523,7 @@ internal class PlaybackProcessRuntime(
         }
     }
 
-    private fun restorePreparedPositionWithoutPlayback(positionMs: Long) {
+    fun restorePreparedPositionWithoutPlayback(positionMs: Long) {
         val source = sourceSession.currentSource() ?: return
         if (!source.supportFastSeek()) {
             _state.value = _state.value.copy(
@@ -510,11 +543,17 @@ internal class PlaybackProcessRuntime(
             isPreparing = false,
             statusText = audioQualityStatus ?: "Paused"
         )
+        persistPlaybackSessionState(force = true)
     }
 
     suspend fun prepareCurrent() {
         val item = _state.value.currentTrack ?: return
         ensurePrepared(item)
+    }
+
+    fun canResumeCurrentPlayback(): Boolean {
+        val currentTrackId = _state.value.currentTrack?.id ?: return false
+        return activePlaybackTrackId == currentTrackId
     }
 
     suspend fun playCurrent(initialPositionMs: Long = 0L) {
@@ -527,11 +566,11 @@ internal class PlaybackProcessRuntime(
             currentState.playbackState == PLAYBACK_STATE_PLAYING &&
             activePlaybackTrackId == item.id
         ) {
-            safeLogI("playCurrent skip: already active id=${item.id}, state=${currentState.playbackState}")
             return
         }
-        safeLogI("playCurrent begin: id=${item.id}, uri=${item.uri}")
+        val requestedPlaybackGeneration = invalidatePlaybackGeneration()
         if (!ensurePrepared(item)) {
+            resetPlaybackRetryState(requestedTrackId)
             safeLogE("playCurrent aborted: ensurePrepared failed for id=${item.id}")
             return
         }
@@ -540,6 +579,7 @@ internal class PlaybackProcessRuntime(
         val sourceOpenCode = source.open()
         if (sourceOpenCode != IPlaysource.AudioSourceCode.ASC_SUCCESS) {
             pendingAudioQualitySwitchTarget = null
+            resetPlaybackRetryState(requestedTrackId)
             safeLogE("playCurrent source open failed: id=${item.id}, code=${sourceOpenCode.code}")
             _state.value = _state.value.copy(statusText = "Source open failed(${sourceOpenCode.code})")
             return
@@ -548,14 +588,15 @@ internal class PlaybackProcessRuntime(
         val effectiveStartPositionMs = if (supportsFastSeek) startPositionMs else 0L
         if (supportsFastSeek && source.seek(0L, IPlaysource.SEEK_SET) < 0L) {
             pendingAudioQualitySwitchTarget = null
+            resetPlaybackRetryState(requestedTrackId)
             safeLogE("playCurrent source rewind failed: id=${item.id}")
             _state.value = _state.value.copy(statusText = "Source rewind failed")
             return
         }
-        safeLogI("playCurrent launchPlay: id=${item.id}")
 
         val speedCode = playbackCoordinator.setPlaybackSpeed(_state.value.playbackSpeed)
         if (speedCode != 0) {
+            resetPlaybackRetryState(requestedTrackId)
             _state.value = _state.value.copy(
                 playWhenReady = false,
                 playbackState = PLAYBACK_STATE_STOPPED,
@@ -565,6 +606,7 @@ internal class PlaybackProcessRuntime(
         }
         val audioEffectCode = playbackCoordinator.setAudioEffectPreset(_state.value.audioEffectPreset)
         if (audioEffectCode != 0) {
+            resetPlaybackRetryState(requestedTrackId)
             _state.value = _state.value.copy(
                 playWhenReady = false,
                 playbackState = PLAYBACK_STATE_STOPPED,
@@ -574,24 +616,39 @@ internal class PlaybackProcessRuntime(
         }
 
         var completionAction = PlaybackCompletionAction.STOP_WITH_ERROR
+        var retryPositionMs = 0L
         playbackCoordinator.launchPlay(
             source = source,
             onStarted = {
-                safeLogI("playCurrent onStarted: id=${item.id}")
                 activePlaybackTrackId = requestedTrackId
-                if (effectiveStartPositionMs > 0L) {
-                    pendingSeekPositionMs = effectiveStartPositionMs
+                val retryAttempt = currentPlaybackRetryAttempt(requestedTrackId)
+                val shouldWaitForPlaybackProgress = effectiveStartPositionMs > 0L || retryAttempt > 0
+                if (shouldWaitForPlaybackProgress) {
+                    pendingSeekPositionMs = if (effectiveStartPositionMs > 0L) {
+                        effectiveStartPositionMs
+                    } else {
+                        0L
+                    }
                     _state.value = _state.value.copy(
                         playWhenReady = true,
                         playbackState = PLAYBACK_STATE_STOPPED,
-                        positionMs = effectiveStartPositionMs,
+                        positionMs = if (effectiveStartPositionMs > 0L) {
+                            effectiveStartPositionMs
+                        } else {
+                            _state.value.positionMs
+                        },
                         isPreparing = true,
-                        statusText = pendingAudioQualitySwitchTarget
-                            ?.let(::formatAudioQualitySwitchingStatus)
-                            ?: "Buffering"
+                        statusText = when {
+                            retryAttempt > 0 -> formatPlaybackRetryStatus(retryAttempt)
+                            else -> pendingAudioQualitySwitchTarget
+                                ?.let(::formatAudioQualitySwitchingStatus)
+                                ?: "Buffering"
+                        }
                     )
+                    persistPlaybackSessionState(force = true)
                     launchDeferredPlaybackSeek(
                         requestedTrackId = requestedTrackId,
+                        requestedGeneration = requestedPlaybackGeneration,
                         displayName = item.displayName,
                         targetPositionMs = effectiveStartPositionMs
                     )
@@ -607,14 +664,19 @@ internal class PlaybackProcessRuntime(
                         isPreparing = false,
                         statusText = audioQualityStatus ?: "Playing: ${item.displayName}"
                     )
+                    persistPlaybackSessionState(force = true)
                 }
             },
             onCompleted = { playCode ->
-                if (shouldIgnorePlaybackCallback(requestedTrackId, _state.value.currentTrack?.id)) {
-                    safeLogI("playCurrent ignore stale completion: callback=$requestedTrackId, current=${_state.value.currentTrack?.id}, code=$playCode")
+                if (shouldIgnorePlaybackCallback(
+                        callbackTrackId = requestedTrackId,
+                        currentTrackId = _state.value.currentTrack?.id,
+                        callbackGeneration = requestedPlaybackGeneration,
+                        currentGeneration = currentPlaybackGeneration()
+                    )
+                ) {
                     return@launchPlay
                 }
-                safeLogI("playCurrent onCompleted: id=${item.id}, code=$playCode, error=${playbackCoordinator.lastError()}")
                 activePlaybackTrackId = null
                 pendingSeekPositionMs = null
                 pendingAudioQualitySwitchTarget = null
@@ -624,6 +686,33 @@ internal class PlaybackProcessRuntime(
                     trackCount = _state.value.tracks.size,
                     playbackMode = _state.value.playbackMode
                 )
+                val currentState = _state.value
+                if (
+                    completionAction == PlaybackCompletionAction.STOP_WITH_ERROR &&
+                    shouldRetryPlayback(
+                        track = item,
+                        playCode = playCode,
+                        playWhenReady = currentState.playWhenReady
+                    )
+                ) {
+                    val attempt = nextPlaybackRetryAttempt(requestedTrackId)
+                    if (attempt <= MAX_PLAYBACK_RETRY_ATTEMPTS) {
+                        retryPositionMs = currentState.positionMs.coerceAtLeast(0L)
+                        completionAction = PlaybackCompletionAction.RETRY_CURRENT
+                        _state.value = currentState.copy(
+                            playWhenReady = true,
+                            playbackState = PLAYBACK_STATE_STOPPED,
+                            positionMs = retryPositionMs,
+                            isPreparing = true,
+                            statusText = formatPlaybackRetryStatus(attempt)
+                        )
+                        persistPlaybackSessionState(force = true)
+                    } else {
+                        resetPlaybackRetryState(requestedTrackId)
+                    }
+                } else if (completionAction != PlaybackCompletionAction.STOP_WITH_ERROR) {
+                    resetPlaybackRetryState(requestedTrackId)
+                }
                 when (completionAction) {
                     PlaybackCompletionAction.AUTO_NEXT,
                     PlaybackCompletionAction.LOOP_TO_FIRST,
@@ -636,30 +725,39 @@ internal class PlaybackProcessRuntime(
                             positionMs = if (durationMs > 0L) durationMs else _state.value.positionMs,
                             statusText = "Playback finished"
                         )
+                        persistPlaybackSessionState(force = true)
                     }
 
+                    PlaybackCompletionAction.RETRY_CURRENT -> Unit
                     PlaybackCompletionAction.STOP_WITH_ERROR -> {
+                        resetPlaybackRetryState(requestedTrackId)
                         _state.value = _state.value.copy(
                             playWhenReady = false,
                             playbackState = PLAYBACK_STATE_STOPPED,
+                            isPreparing = false,
                             statusText = PlaybackFormatter.formatPlaybackResult(
                                 playCode = playCode,
                                 lastError = playbackCoordinator.lastError()
                             )
                         )
+                        persistPlaybackSessionState(force = true)
                     }
                 }
             },
             onFinally = {
-                if (shouldIgnorePlaybackCallback(requestedTrackId, _state.value.currentTrack?.id)) {
-                    safeLogI("playCurrent ignore stale finally: callback=$requestedTrackId, current=${_state.value.currentTrack?.id}")
+                if (shouldIgnorePlaybackCallback(
+                        callbackTrackId = requestedTrackId,
+                        currentTrackId = _state.value.currentTrack?.id,
+                        callbackGeneration = requestedPlaybackGeneration,
+                        currentGeneration = currentPlaybackGeneration()
+                    )
+                ) {
                     return@launchPlay
                 }
                 when (completionAction) {
                     PlaybackCompletionAction.AUTO_NEXT -> {
                         val moved = moveToNext()
                         if (!moved) {
-                            safeLogI("playCurrent auto-next skipped: already at tail")
                             return@launchPlay
                         }
                     }
@@ -667,16 +765,20 @@ internal class PlaybackProcessRuntime(
                     PlaybackCompletionAction.LOOP_TO_FIRST -> {
                         val moved = setActiveIndex(0)
                         if (!moved && _state.value.activeIndex != 0) {
-                            safeLogI("playCurrent loop-to-first skipped: queue unavailable")
                             return@launchPlay
                         }
                     }
 
                     PlaybackCompletionAction.REPEAT_CURRENT -> Unit
+                    PlaybackCompletionAction.RETRY_CURRENT -> {
+                        serviceScope.launch {
+                            playCurrent(initialPositionMs = retryPositionMs)
+                        }
+                        return@launchPlay
+                    }
                     PlaybackCompletionAction.STOP_AT_END,
                     PlaybackCompletionAction.STOP_WITH_ERROR -> return@launchPlay
                 }
-                safeLogI("playCurrent auto-next: nextIndex=${_state.value.activeIndex}, speed=${_state.value.playbackSpeed}")
                 serviceScope.launch {
                     _state.value = _state.value.copy(playWhenReady = true)
                     playCurrent()
@@ -693,6 +795,7 @@ internal class PlaybackProcessRuntime(
                 playbackState = PLAYBACK_STATE_PAUSED,
                 statusText = "Paused"
             )
+            persistPlaybackSessionState(force = true)
         } else {
             _state.value = _state.value.copy(statusText = "Pause failed($code): ${playbackCoordinator.lastError()}")
         }
@@ -720,17 +823,19 @@ internal class PlaybackProcessRuntime(
                 playbackState = PLAYBACK_STATE_PLAYING,
                 statusText = "Playing"
             )
+            persistPlaybackSessionState(force = true)
         } else {
             _state.value = _state.value.copy(statusText = "Resume failed($code): ${playbackCoordinator.lastError()}")
         }
     }
 
     fun seekTo(positionMs: Long) {
-        if (!_state.value.isSeekSupported) {
+        val requestState = _state.value
+        if (!requestState.isSeekSupported) {
             _state.value = _state.value.copy(statusText = "Current source does not support seek")
             return
         }
-        val durationMs = _state.value.durationMs
+        val durationMs = requestState.durationMs
         val bounded = if (durationMs > 0L) positionMs.coerceIn(0L, durationMs) else positionMs.coerceAtLeast(0L)
         val code = playbackCoordinator.seek(bounded)
         if (code == 0) {
@@ -751,15 +856,20 @@ internal class PlaybackProcessRuntime(
                     current.statusText
                 }
             )
+            persistPlaybackSessionState(force = true)
         } else {
+            safeLogE("seekTo failed: targetPositionMs=$bounded, code=$code, error=${playbackCoordinator.lastError()}")
             _state.value = _state.value.copy(statusText = "Seek failed($code): ${playbackCoordinator.lastError()}")
         }
     }
 
     fun stop() {
         activePlaybackTrackId = null
+        invalidatePlaybackGeneration()
+        resetPlaybackRetryState()
         pendingSeekPositionMs = null
         pendingAudioQualitySwitchTarget = null
+        clearCurrentTrackSourceOverride()
         sourceSession.stopCurrent()
         playbackCoordinator.stopPlayback()
         _state.value = _state.value.copy(
@@ -768,6 +878,7 @@ internal class PlaybackProcessRuntime(
             positionMs = 0L,
             statusText = "Stopped"
         )
+        persistPlaybackSessionState(force = true)
     }
 
     fun clearCurrentMediaItem() {
@@ -810,7 +921,7 @@ internal class PlaybackProcessRuntime(
         _state.value = _state.value.copy(isPreparing = true, statusText = "Preparing")
         return try {
             when (
-                val preparation = trackPreparationCoordinator.prepare(
+                val preparation = prepareTrackWithRecovery(
                     item = item,
                     preferredAudioQuality = _state.value.preferredAudioQuality
                 )
@@ -882,6 +993,7 @@ internal class PlaybackProcessRuntime(
             playbackCacheLimitBytes = currentPlaybackCacheLimitBytes,
             statusText = statusText
         )
+        persistPlaybackSessionState(force = true)
     }
 
     private fun readPersistedAudioEffectPreset(): AudioEffectPreset {
@@ -996,13 +1108,207 @@ internal class PlaybackProcessRuntime(
     }
 
     private fun currentSourceAdapter(): SourceAdapter {
-        return activeAudioSourceRuntime.adapter
+        return currentSourceRuntimeForTrack(_state.value.currentTrack?.id).adapter
     }
 
     private fun invalidateOnlinePreparationCaches(
         adapter: SourceAdapter = currentSourceAdapter()
     ) {
         adapter.clearCaches()
+    }
+
+    private fun currentSourceRuntimeForTrack(trackId: String?): ActivePlaybackSourceRuntime {
+        val overrideRuntime = currentTrackSourceOverrideRuntime
+        val overrideTrackId = currentTrackSourceOverrideTrackId
+        if (
+            trackId != null &&
+            overrideRuntime != null &&
+            overrideTrackId == trackId
+        ) {
+            return overrideRuntime
+        }
+        val trackSourceContext = trackId
+            ?.let(::sourceContextForTrack)
+            ?: return activeAudioSourceRuntime
+        return sourceRuntimeForContext(trackSourceContext)
+            ?: activeAudioSourceRuntime
+    }
+
+    private fun sourceContextForTrack(trackId: String): PlaybackSourceContext? {
+        return _state.value.tracks
+            .firstOrNull { it.id == trackId }
+            ?.playable
+            ?.sourceContext
+    }
+
+    private fun sourceRuntimeForContext(
+        sourceContext: PlaybackSourceContext
+    ): ActivePlaybackSourceRuntime? {
+        if (sourceContext.useDefaultSource) {
+            return if (activeAudioSourceRuntime.configJson == null) {
+                activeAudioSourceRuntime
+            } else {
+                createInitializedSourceRuntime(configJson = null).getOrNull()
+            }
+        }
+        val configJson = sourceContext.sourceConfigJson
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+        if (activeAudioSourceRuntime.configJson?.trim() == configJson) {
+            return activeAudioSourceRuntime
+        }
+        return createInitializedSourceRuntime(configJson).getOrNull()
+    }
+
+    private fun clearCurrentTrackSourceOverride(trackId: String? = null) {
+        val activeTrackId = trackId ?: currentTrackSourceOverrideTrackId
+        if (trackId == null || currentTrackSourceOverrideTrackId == activeTrackId) {
+            currentTrackSourceOverrideTrackId = null
+            currentTrackSourceOverrideRuntime = null
+        }
+    }
+
+    private fun setCurrentTrackSourceOverride(
+        trackId: String,
+        runtime: ActivePlaybackSourceRuntime?
+    ) {
+        currentTrackSourceOverrideTrackId = if (runtime == null) null else trackId
+        currentTrackSourceOverrideRuntime = runtime
+        runtime?.let {
+            updateTrackSourceContext(
+                trackId = trackId,
+                sourceContext = it.toPlaybackSourceContext()
+            )
+        }
+    }
+
+    private fun updateTrackSourceContext(
+        trackId: String,
+        sourceContext: PlaybackSourceContext
+    ) {
+        val previous = _state.value
+        var changed = false
+        val tracks = previous.tracks.map { track ->
+            if (track.id != trackId || track.playable.sourceContext == sourceContext) {
+                track
+            } else {
+                changed = true
+                track.copy(
+                    playable = track.playable
+                        .toPlayableItem()
+                        .copy(sourceContext = sourceContext)
+                )
+            }
+        }
+        if (changed) {
+            _state.value = previous.copy(tracks = tracks)
+        }
+    }
+
+    private fun sourceIdentityKey(runtime: ActivePlaybackSourceRuntime): String {
+        return runtime.configJson?.trim().takeIf { it.isNullOrBlank().not() }
+            ?: "builtin:${API_BASE_URL.trim().trimEnd('/')}"
+    }
+
+    private fun loadFallbackSourceRuntimes(
+        excludedSourceIdentityKey: String
+    ): List<ActivePlaybackSourceRuntime> {
+        val persistedSourceConfigs = readPersistedAudioSourceConfigJsons()
+        val candidates = buildList {
+            addAll(persistedSourceConfigs)
+            if (activeAudioSourceRuntime.configJson != null) {
+                add(buildNeteaseCompatibleConfigJson(API_BASE_URL))
+            }
+        }
+        val seen = linkedSetOf<String>()
+        return candidates.mapNotNull { configJson ->
+            createInitializedSourceRuntime(configJson).getOrNull()
+        }.filter { runtime ->
+            val identityKey = sourceIdentityKey(runtime)
+            identityKey != excludedSourceIdentityKey && seen.add(identityKey)
+        }
+    }
+
+    private fun readPersistedAudioSourceConfigJsons(): List<String> {
+        val preferences = appContextRef.getSharedPreferences(
+            "settings_audio_sources",
+            Context.MODE_PRIVATE
+        )
+        val raw = preferences.getString("audio_sources", null).orEmpty().trim()
+        if (raw.isEmpty()) {
+            return emptyList()
+        }
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    item.optString("source_config_json")
+                        .trim()
+                        .takeIf { it.isNotEmpty() }
+                        ?.let(::add)
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private suspend fun prepareTrackWithRecovery(
+        item: PlaybackTrack,
+        preferredAudioQuality: PlaybackAudioQuality
+    ): PreparationResult {
+        val currentRuntime = currentSourceRuntimeForTrack(item.id)
+        var preparation = trackPreparationCoordinator.prepare(
+            item = item,
+            preferredAudioQuality = preferredAudioQuality
+        )
+        var invalidPreparation = preparation as? PreparationResult.Invalid
+        if (invalidPreparation?.failure?.kind == OnlinePlaybackFailureKind.URL_EXPIRED) {
+            _state.value = _state.value.copy(statusText = "刷新播放地址中")
+            invalidateOnlinePreparationCaches(currentRuntime.adapter)
+            preparation = trackPreparationCoordinator.prepare(
+                item = item,
+                preferredAudioQuality = preferredAudioQuality
+            )
+            invalidPreparation = preparation as? PreparationResult.Invalid
+        }
+        if (invalidPreparation == null) {
+            return preparation
+        }
+        if (invalidPreparation.failure?.kind !in fallbackEligibleFailureKinds) {
+            clearCurrentTrackSourceOverride(item.id)
+            return invalidPreparation
+        }
+
+        val fallbackRuntimes = loadFallbackSourceRuntimes(
+            excludedSourceIdentityKey = sourceIdentityKey(currentRuntime)
+        )
+        if (fallbackRuntimes.isEmpty()) {
+            clearCurrentTrackSourceOverride(item.id)
+            return invalidPreparation
+        }
+
+        var lastFailure: PreparationResult.Invalid = invalidPreparation
+        for (fallbackRuntime in fallbackRuntimes) {
+            setCurrentTrackSourceOverride(item.id, fallbackRuntime)
+            _state.value = _state.value.copy(statusText = "尝试备用音源中")
+            preparation = trackPreparationCoordinator.prepare(
+                item = item,
+                preferredAudioQuality = preferredAudioQuality
+            )
+            when (preparation) {
+                is PreparationResult.Ready -> return preparation
+                is PreparationResult.Invalid -> {
+                    lastFailure = preparation
+                    if (preparation.failure?.kind !in fallbackEligibleFailureKinds) {
+                        break
+                    }
+                }
+            }
+        }
+
+        clearCurrentTrackSourceOverride(item.id)
+        return lastFailure
     }
 
     private fun applyTrackSelection(
@@ -1017,8 +1323,11 @@ internal class PlaybackProcessRuntime(
 
         if (changedTrack) {
             activePlaybackTrackId = null
+            invalidatePlaybackGeneration()
+            resetPlaybackRetryState()
             pendingSeekPositionMs = null
             pendingAudioQualitySwitchTarget = null
+            clearCurrentTrackSourceOverride()
             playbackCoordinator.stopPlayback()
             sourceSession.release()
         }
@@ -1039,6 +1348,46 @@ internal class PlaybackProcessRuntime(
             displayTitleOverride = if (changedTrack) null else previous.displayTitleOverride,
             displaySubtitleOverride = if (changedTrack) null else previous.displaySubtitleOverride
         )
+        persistPlaybackSessionState(force = true)
+    }
+
+    private fun persistPlaybackSessionState(force: Boolean = false) {
+        val storage = playbackSessionStateStorage ?: return
+        val sessionState = buildPlaybackSessionState(_state.value)
+        if (sessionState == null) {
+            if (force || lastPersistedPlaybackSessionState != null) {
+                storage.clear()
+                lastPersistedPlaybackSessionState = null
+            }
+            return
+        }
+        if (!force && !shouldPersistPlaybackSession(lastPersistedPlaybackSessionState, sessionState)) {
+            return
+        }
+        storage.write(sessionState)
+        lastPersistedPlaybackSessionState = sessionState
+    }
+
+    private fun buildPlaybackSessionState(state: PlaybackProcessState): PlaybackSessionState? {
+        val currentTrackId = state.currentTrack?.id?.takeIf { it.isNotBlank() } ?: return null
+        return PlaybackSessionState(
+            activeItemId = currentTrackId,
+            positionMs = state.positionMs.coerceAtLeast(0L),
+            playWhenReady = state.playWhenReady,
+            savedAtMs = System.currentTimeMillis()
+        )
+    }
+
+    private fun shouldPersistPlaybackSession(
+        previous: PlaybackSessionState?,
+        current: PlaybackSessionState
+    ): Boolean {
+        if (previous == null) {
+            return true
+        }
+        return previous.activeItemId != current.activeItemId ||
+            previous.playWhenReady != current.playWhenReady ||
+            abs(previous.positionMs - current.positionMs) >= PLAYBACK_SESSION_POSITION_PERSISTENCE_THRESHOLD_MS
     }
 
     private fun ensureCacheCoreReady(forceReinitialize: Boolean = false): Boolean {
@@ -1064,20 +1413,22 @@ internal class PlaybackProcessRuntime(
         private const val TAG = "PlaybackProcessRuntime"
         private const val API_BASE_URL = "http://139.9.223.233:3000"
         private const val STALE_PROGRESS_REGRESSION_TOLERANCE_MS = 300L
+        private const val MAX_PLAYBACK_RETRY_ATTEMPTS = 2
         private const val INITIAL_PLAYBACK_SEEK_MAX_ATTEMPTS = 12
         private const val INITIAL_PLAYBACK_SEEK_RETRY_DELAY_MS = 25L
         private const val DEFAULT_PLAYBACK_CACHE_LIMIT_BYTES = 500L * 1024L * 1024L
         private const val MIN_PLAYBACK_CACHE_LIMIT_BYTES = 64L * 1024L * 1024L
+        private const val PLAYBACK_SESSION_POSITION_PERSISTENCE_THRESHOLD_MS = 5_000L
         private const val AUDIO_EFFECT_PREFERENCES_NAME = "player_playback_preferences"
         private const val KEY_AUDIO_EFFECT_PRESET = "audio_effect_preset"
         private const val KEY_PREFERRED_AUDIO_QUALITY = "preferred_audio_quality"
         private const val KEY_ACTIVE_AUDIO_SOURCE_CONFIG_JSON = "active_audio_source_config_json"
         private const val KEY_PREFERRED_AUDIO_SOURCE_BASE_URL = "preferred_audio_source_base_url"
         private const val KEY_PLAYBACK_CACHE_LIMIT_BYTES = "playback_cache_limit_bytes"
-    }
-
-    private fun safeLogI(message: String) {
-        runCatching { Log.i(TAG, message) }
+        private val fallbackEligibleFailureKinds = setOf(
+            OnlinePlaybackFailureKind.RESOURCE_UNAVAILABLE,
+            OnlinePlaybackFailureKind.URL_EXPIRED
+        )
     }
 
     private fun safeLogE(message: String) {
@@ -1098,6 +1449,7 @@ internal class PlaybackProcessRuntime(
 
     private fun launchDeferredPlaybackSeek(
         requestedTrackId: String,
+        requestedGeneration: Long,
         displayName: String,
         targetPositionMs: Long
     ) {
@@ -1108,7 +1460,12 @@ internal class PlaybackProcessRuntime(
             repeat(INITIAL_PLAYBACK_SEEK_MAX_ATTEMPTS) {
                 val current = _state.value
                 if (
-                    shouldIgnorePlaybackCallback(requestedTrackId, current.currentTrack?.id) ||
+                    shouldIgnorePlaybackCallback(
+                        callbackTrackId = requestedTrackId,
+                        currentTrackId = current.currentTrack?.id,
+                        callbackGeneration = requestedGeneration,
+                        currentGeneration = currentPlaybackGeneration()
+                    ) ||
                     activePlaybackTrackId != requestedTrackId ||
                     !current.playWhenReady
                 ) {
@@ -1122,7 +1479,12 @@ internal class PlaybackProcessRuntime(
             }
             val current = _state.value
             if (
-                shouldIgnorePlaybackCallback(requestedTrackId, current.currentTrack?.id) ||
+                shouldIgnorePlaybackCallback(
+                    callbackTrackId = requestedTrackId,
+                    currentTrackId = current.currentTrack?.id,
+                    callbackGeneration = requestedGeneration,
+                    currentGeneration = currentPlaybackGeneration()
+                ) ||
                 activePlaybackTrackId != requestedTrackId ||
                 !current.playWhenReady
             ) {
@@ -1176,9 +1538,67 @@ internal class PlaybackProcessRuntime(
             "当前实际使用：${appliedAudioQuality.displayName}（已选择 ${requestedAudioQuality.displayName}）"
         }
     }
+
+    private fun currentPlaybackGeneration(): Long = playbackGenerationRef().get()
+
+    private fun invalidatePlaybackGeneration(): Long = playbackGenerationRef().incrementAndGet()
+
+    private fun shouldRetryPlayback(
+        track: PlaybackTrack,
+        playCode: Int,
+        playWhenReady: Boolean
+    ): Boolean {
+        if (!playWhenReady || playCode == 0 || playCode == -2001) {
+            return false
+        }
+        return !track.songId.isNullOrBlank() ||
+            track.uri.startsWith("http://") ||
+            track.uri.startsWith("https://")
+    }
+
+    private fun nextPlaybackRetryAttempt(trackId: String): Int {
+        if (retryingTrackId != trackId) {
+            retryingTrackId = trackId
+            retryAttemptCount = 0
+        }
+        retryAttemptCount += 1
+        return retryAttemptCount
+    }
+
+    private fun currentPlaybackRetryAttempt(trackId: String): Int {
+        return if (retryingTrackId == trackId) retryAttemptCount else 0
+    }
+
+    private fun resetPlaybackRetryState(trackId: String? = null) {
+        if (trackId == null || retryingTrackId == trackId) {
+            retryingTrackId = null
+            retryAttemptCount = 0
+        }
+    }
+
+    private fun formatPlaybackRetryStatus(attempt: Int): String {
+        return "重试中（$attempt/$MAX_PLAYBACK_RETRY_ATTEMPTS）"
+    }
+
+    private fun playbackGenerationRef(): AtomicLong {
+        val current = playbackGeneration
+        if (current != null) {
+            return current
+        }
+        return AtomicLong(0L).also { playbackGeneration = it }
+    }
 }
 
 private data class ActivePlaybackSourceRuntime(
     val configJson: String?,
     val adapter: SourceAdapter
-)
+) {
+    fun toPlaybackSourceContext(): PlaybackSourceContext {
+        val normalizedConfigJson = configJson?.trim()?.takeIf { it.isNotBlank() }
+        return if (normalizedConfigJson == null) {
+            PlaybackSourceContext(useDefaultSource = true)
+        } else {
+            PlaybackSourceContext(sourceConfigJson = normalizedConfigJson)
+        }
+    }
+}

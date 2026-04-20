@@ -2,15 +2,19 @@ package com.wxy.playerlite.feature.player.runtime
 
 import android.content.Context
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
+import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.session.PlaybackSessionState
+import com.wxy.playerlite.playback.session.SharedPreferencesPlaybackSessionStateStorage
 import com.wxy.playerlite.player.AudioEffectPreset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -288,6 +292,44 @@ class PlayerRuntimeInteractionTest {
     }
 
     @Test
+    fun insertPlaylistItemNext_shouldUseQueueCopyWithoutMutatingSourcePlaylistItem() {
+        val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
+        runtime.applyExternalQueueSelection(
+            items = listOf(
+                onlineItem(contextId = "queue-1", index = 0, songId = "track-current", title = "当前播放")
+            ),
+            activeIndex = 0
+        )
+        val sourcePlaylistItem = onlineItem(
+            contextId = "liked-playlist-1",
+            index = 1,
+            songId = "track-next",
+            title = "来源歌单里的下一首"
+        ).copy(
+            contextType = "liked_playlist",
+            contextTitle = "我喜欢的音乐"
+        )
+        val originalSourceSnapshot = sourcePlaylistItem.copy()
+
+        val inserted = runtime.insertPlaylistItemNext(sourcePlaylistItem)
+
+        val state = runtime.uiStateFlow.value
+        val insertedQueueItem = state.playlistItems[1]
+        assertTrue(inserted)
+        assertEquals(0, state.activePlaylistIndex)
+        assertEquals(
+            listOf("当前播放", "来源歌单里的下一首"),
+            state.playlistItems.map { it.displayName }
+        )
+        assertEquals(originalSourceSnapshot, sourcePlaylistItem)
+        assertNotEquals(sourcePlaylistItem.id, insertedQueueItem.id)
+        assertEquals(sourcePlaylistItem.songId, insertedQueueItem.songId)
+        assertEquals(sourcePlaylistItem.contextType, insertedQueueItem.contextType)
+        assertEquals(sourcePlaylistItem.contextId, insertedQueueItem.contextId)
+        assertEquals(sourcePlaylistItem.contextTitle, insertedQueueItem.contextTitle)
+    }
+
+    @Test
     fun updatePlaylistItemsMetadata_shouldRefreshActiveArtworkWithoutChangingQueueOrder() {
         val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
         val queue = listOf(
@@ -464,6 +506,45 @@ class PlayerRuntimeInteractionTest {
         assertEquals("七里香", remaining.single().displayName)
         assertEquals("import:qq_music:4204621746", remaining.single().contextId)
         assertEquals("七里香", restoredRuntime.uiStateFlow.value.currentTrackTitle)
+    }
+
+    @Test
+    fun restoredPlaybackSession_shouldRecoverActiveItemAndSeekPositionWithoutRemoteSnapshot() {
+        val appContext = RuntimeEnvironment.getApplication()
+        appContext.getSharedPreferences("playlist_state", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        val sessionStorage = SharedPreferencesPlaybackSessionStateStorage.fromContext(appContext)
+        sessionStorage.clear()
+        val initialRuntime = PlayerRuntime(appContext = appContext)
+        val queue = listOf(
+            importedItem(index = 0, songId = "song-1", title = "晴天"),
+            importedItem(index = 1, songId = "song-2", title = "七里香")
+        )
+
+        initialRuntime.applyExternalQueueSelection(
+            items = queue,
+            activeIndex = 1
+        )
+        initialRuntime.onHostStop()
+        sessionStorage.write(
+            PlaybackSessionState(
+                activeItemId = queue[1].id,
+                positionMs = 91_000L,
+                playWhenReady = true,
+                savedAtMs = 123L
+            )
+        )
+
+        val restoredRuntime = PlayerRuntime(appContext = appContext)
+        val state = restoredRuntime.uiStateFlow.value
+
+        assertEquals(2, restoredRuntime.playbackQueueItemsInOriginalOrder().size)
+        assertEquals(1, state.activePlaylistIndex)
+        assertEquals("七里香", state.currentTrackTitle)
+        assertEquals(91_000L, state.displayedSeekMs)
+        assertEquals(AUDIO_TRACK_PLAYSTATE_PAUSED, state.playbackState)
     }
 
     private fun onlineItem(

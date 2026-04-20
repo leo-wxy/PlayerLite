@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.SystemClock
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
+import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PAUSED
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
@@ -22,6 +23,7 @@ import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.orchestrator.AudioEffectPresetSyncResolver
 import com.wxy.playerlite.playback.orchestrator.PlaybackRuntimePort
 import com.wxy.playerlite.playback.orchestrator.PlaybackSpeedSyncResolver
+import com.wxy.playerlite.playback.session.SharedPreferencesPlaybackSessionStateStorage
 import com.wxy.playerlite.playlist.core.PlaylistController
 import com.wxy.playerlite.playlist.core.PlaylistSessionCoordinator
 import com.wxy.playerlite.player.AudioMetaDisplay
@@ -38,6 +40,8 @@ internal class PlayerRuntime(
     private val elapsedRealtimeProvider: () -> Long = { SystemClock.elapsedRealtime() }
 ) : PlaybackRuntimePort {
     private val mediaSourceRepository = MediaSourceRepository(appContext)
+    private val playbackSessionStateStorage =
+        SharedPreferencesPlaybackSessionStateStorage.fromContext(appContext)
     private val playlistSession = PlaylistSessionCoordinator(
         controller = PlaylistController(
             storage = SharedPreferencesPlaylistStorage(
@@ -66,6 +70,7 @@ internal class PlayerRuntime(
     init {
         restoreAudioEffectPreset()
         restorePlaylistState()
+        restorePlaybackSessionState()
     }
 
     fun onAudioPicked(uri: Uri?) {
@@ -437,6 +442,15 @@ internal class PlayerRuntime(
             currentProjectedPosition - remoteBoundedPosition <= MINOR_REMOTE_PROGRESS_REGRESSION_TOLERANCE_MS
         ) {
             currentProjectedPosition
+        } else if (
+            shouldApplyRemoteProgress &&
+            sameActiveQueueItem &&
+            isPreparing &&
+            !isProgressAdvancing &&
+            currentProjectedPosition > 0L &&
+            remoteBoundedPosition == 0L
+        ) {
+            currentProjectedPosition
         } else {
             remoteBoundedPosition
         }
@@ -786,6 +800,29 @@ internal class PlayerRuntime(
     private fun restorePlaylistState() {
         playlistSession.restore(mediaSourceRepository::isPlaylistItemReadable)
         syncSelectionFromPlaylist()
+    }
+
+    private fun restorePlaybackSessionState() {
+        val session = playbackSessionStateStorage.read() ?: return
+        val restoredItem = playlistSession.originalItems.firstOrNull { it.id == session.activeItemId } ?: return
+        if (playlistSession.activeItem?.id != restoredItem.id) {
+            playlistSession.setActiveItemId(restoredItem.id)
+            syncSelectionFromPlaylist()
+        }
+        val restoredPositionMs = restoredItem.durationMs
+            .takeIf { it > 0L }
+            ?.let { session.positionMs.coerceIn(0L, it) }
+            ?: session.positionMs.coerceAtLeast(0L)
+        remoteProgressShouldAdvance = false
+        updateRemoteProgressAnchor(restoredPositionMs)
+        uiState = uiState.copy(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PAUSED,
+            isPreparing = false,
+            durationMs = restoredItem.durationMs.coerceAtLeast(0L),
+            seekPositionMs = restoredPositionMs,
+            seekDragPositionMs = restoredPositionMs,
+            isSeekDragging = false
+        )
     }
 
     private fun restoreAudioEffectPreset() {

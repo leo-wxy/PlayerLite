@@ -32,10 +32,27 @@ class PlaybackServiceSynchronizer(
             appliedAudioQuality = snapshot.appliedAudioQuality
         )
         runtime.syncActiveItemById(snapshot.currentMediaId)
+        syncCurrentPlayableSourceContext(snapshot)
         snapshot.statusText
             ?.takeIf { it.isNotBlank() }
             ?.let(runtime::setStatusText)
         return true
+    }
+
+    private fun syncCurrentPlayableSourceContext(snapshot: RemotePlaybackSnapshot) {
+        val currentPlayable = snapshot.currentPlayable ?: return
+        val sourceContext = currentPlayable.sourceContext ?: return
+        val matchedItem = runtime.playbackQueueItems().firstOrNull { item ->
+            item.id == snapshot.currentMediaId || item.id == currentPlayable.id
+        } ?: return
+        if (matchedItem.sourceContext == sourceContext) {
+            return
+        }
+        runtime.updatePlaylistItemsMetadata(
+            mapOf(
+                matchedItem.id to matchedItem.copy(sourceContext = sourceContext)
+            )
+        )
     }
 
     fun ensureRemoteQueueReadyForSkip(): Boolean {

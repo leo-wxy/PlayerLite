@@ -199,8 +199,10 @@ class PlayerServiceBridge(
             currentMediaIds = currentMediaIds(activeController),
             currentIndex = activeController.currentMediaItemIndex,
             currentMediaId = activeController.currentMediaItem?.mediaId?.takeIf { it.isNotBlank() },
+            currentPositionMs = activeController.currentPosition,
             requestedMediaIds = mediaItems.map { it.mediaId },
-            requestedIndex = normalizedIndex
+            requestedIndex = normalizedIndex,
+            requestedStartPositionMs = request.startPositionMs
         )
 
         if (shouldReplaceQueue) {

@@ -1,6 +1,7 @@
 package com.wxy.playerlite.playback.orchestrator
 
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
@@ -9,10 +10,12 @@ import com.wxy.playerlite.playback.model.MusicInfo
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.PlaybackSourceContext
 import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.PlaybackOutputInfo
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -179,6 +182,118 @@ class PlaybackServiceSynchronizerTest {
         assertEquals(PlaybackAudioQuality.LOSSLESS, remoteUpdate.appliedAudioQuality)
         assertEquals("playlist:test:0:track-1", runtime.lastSyncedActiveItemId)
         assertEquals("Playing", runtime.reportedStatusText)
+    }
+
+    @Test
+    fun syncRemotePlaybackState_whenSnapshotIsRetrying_shouldProjectPreparingStateAndRetryStatus() {
+        val runtime = FakePlaybackRuntime(
+            queueItems = emptyList(),
+            activeIndex = 0,
+            playbackMode = PlaybackMode.LIST_LOOP
+        )
+        val snapshot = RemotePlaybackSnapshot(
+            playbackState = Player.STATE_BUFFERING,
+            playWhenReady = true,
+            isPlaying = false,
+            isSeekSupported = true,
+            currentPositionMs = 45_000L,
+            durationMs = 200_000L,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            statusText = "重试中（1/2）",
+            currentPlayable = PlayableItemSnapshot(
+                id = "playlist:test:0:track-1",
+                songId = "track-1",
+                title = "第一首",
+                artistText = "测试歌手",
+                albumTitle = "测试专辑",
+                coverUrl = "https://example.com/track-1.jpg",
+                durationMs = 200_000L,
+                playbackUri = "https://example.com/track-1.mp3"
+            ),
+            currentMediaId = "playlist:test:0:track-1",
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+        val serviceController = FakePlayerServiceController(currentSnapshot = snapshot)
+        val synchronizer = PlaybackServiceSynchronizer(
+            runtime = runtime,
+            serviceController = serviceController,
+            playbackStateMapper = { 9 },
+            localShouldContinuePlayback = { false }
+        )
+
+        val applied = synchronizer.syncRemotePlaybackState()
+
+        assertTrue(applied)
+        val remoteUpdate = requireNotNull(runtime.lastRemoteUpdate)
+        assertEquals(9, remoteUpdate.playbackState)
+        assertEquals(45_000L, remoteUpdate.positionMs)
+        assertTrue(remoteUpdate.isPreparing)
+        assertFalse(remoteUpdate.isProgressAdvancing)
+        assertEquals("重试中（1/2）", runtime.reportedStatusText)
+    }
+
+    @Test
+    fun syncRemotePlaybackState_whenCurrentPlayableCarriesSourceContext_shouldUpdateMatchingQueueItemOnly() {
+        val runtime = FakePlaybackRuntime(
+            queueItems = listOf(
+                onlineItem(index = 0, songId = "track-1", title = "第一首"),
+                onlineItem(index = 1, songId = "track-2", title = "第二首")
+            ),
+            activeIndex = 0,
+            playbackMode = PlaybackMode.LIST_LOOP
+        )
+        val snapshot = RemotePlaybackSnapshot(
+            playbackState = Player.STATE_READY,
+            playWhenReady = true,
+            isPlaying = true,
+            isSeekSupported = true,
+            currentPositionMs = 12_000L,
+            durationMs = 200_000L,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            statusText = "Playing",
+            currentPlayable = PlayableItemSnapshot(
+                id = "playlist:test:0:track-1",
+                songId = "track-1",
+                title = "第一首",
+                artistText = "测试歌手",
+                albumTitle = "测试专辑",
+                coverUrl = "https://example.com/track-1.jpg",
+                durationMs = 200_000L,
+                playbackUri = "https://example.com/track-1.mp3",
+                sourceContext = PlaybackSourceContext(
+                    sourceConfigJson = """
+                    {"type":"netease-compatible","baseUrl":"https://mirror.example.com/api"}
+                    """.trimIndent()
+                )
+            ),
+            currentMediaId = "playlist:test:0:track-1",
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+        val serviceController = FakePlayerServiceController(currentSnapshot = snapshot)
+        val synchronizer = PlaybackServiceSynchronizer(
+            runtime = runtime,
+            serviceController = serviceController,
+            playbackStateMapper = { 0 },
+            localShouldContinuePlayback = { false }
+        )
+
+        val applied = synchronizer.syncRemotePlaybackState()
+
+        assertTrue(applied)
+        assertEquals(listOf("playlist:test:0:track-1"), runtime.metadataUpdates.keys.toList())
+        assertEquals(
+            """
+            {"type":"netease-compatible","baseUrl":"https://mirror.example.com/api"}
+            """.trimIndent(),
+            runtime.metadataUpdates
+                .getValue("playlist:test:0:track-1")
+                .sourceContext
+                ?.sourceConfigJson
+        )
     }
 
     private fun onlineItem(index: Int, songId: String, title: String): PlaylistItem {

@@ -276,6 +276,7 @@ class OnlinePlaybackPreparationPlannerTest {
         assertEquals("https://example.com/preview.mp3", plan.playbackUrl)
         assertEquals(90_000L, plan.durationHintMs)
         assertEquals(2_048L, plan.contentLengthHintBytes)
+        assertEquals(PlaybackPreviewClip(15_000L, 90_000L), plan.previewClip)
         assertEquals(1, resolver.calls)
     }
 

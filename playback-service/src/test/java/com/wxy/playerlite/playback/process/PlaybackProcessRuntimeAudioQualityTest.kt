@@ -3,6 +3,7 @@ package com.wxy.playerlite.playback.process
 import android.content.Context
 import com.wxy.playerlite.playback.model.MusicInfo
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackSourceContext
 import com.wxy.playerlite.player.AudioMeta
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.AudioEffectPreset
@@ -16,6 +17,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -341,6 +344,103 @@ class PlaybackProcessRuntimeAudioQualityTest {
     }
 
     @Test
+    fun setPreferredAudioQuality_whenUrlExpired_shouldRefreshUrlWithRequestedQualityAndKeepCurrentPosition() = runBlocking {
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        appContext.getSharedPreferences("player_playback_preferences", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        appContext.getSharedPreferences("settings_audio_sources", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        val testScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val firstConfig = neteaseCompatibleConfigJson("https://default.example.com/api")
+        val currentAdapter = FakeRuntimeSourceAdapter(
+            adapterId = "source-default",
+            normalizedConfigJson = firstConfig
+        )
+        val nativePlayer = FakeAudioQualityNativePlayer()
+        val firstSource = FakeAudioQualityPlaySource(sourceId = "source-exhigh")
+        val refreshedSource = FakeAudioQualityPlaySource(sourceId = "source-hires-refreshed")
+        val trackPreparer = FakeTrackPreparer(
+            results = ArrayDeque(
+                listOf(
+                    readyResult(
+                        source = firstSource,
+                        appliedAudioQuality = PlaybackAudioQuality.EXHIGH
+                    ),
+                    PreparationResult.Invalid(
+                        message = "URL expired",
+                        failure = OnlinePlaybackFailure(
+                            kind = OnlinePlaybackFailureKind.URL_EXPIRED,
+                            message = "URL expired"
+                        )
+                    ),
+                    readyResult(
+                        source = refreshedSource,
+                        appliedAudioQuality = PlaybackAudioQuality.HIRES
+                    )
+                )
+            )
+        )
+        val runtime = PlaybackProcessRuntime(
+            appContext = appContext,
+            serviceScope = testScope,
+            nativePlayerFactory = { nativePlayer },
+            trackPreparer = trackPreparer,
+            sourceAdapterFactory = FakeSourceAdapterFactory(
+                defaultAdapter = FakeRuntimeSourceAdapter(
+                    adapterId = "builtin-default",
+                    normalizedConfigJson = null
+                ),
+                adaptersByConfig = mapOf(firstConfig to currentAdapter)
+            )
+        )
+        assertTrue(runtime.setActiveAudioSourceConfigJson(firstConfig))
+        runtime.setQueue(
+            mediaItems = listOf(
+                MusicInfo(
+                    id = "queue-online-quality-expired",
+                    songId = "1969519579",
+                    title = "夜曲",
+                    durationMs = 219_893L,
+                    playbackUri = "https://expired.example.com/night.mp3"
+                ).toMediaItem()
+            ),
+            startIndex = 0
+        )
+        runtime.prepareCurrent()
+        mutableState(runtime).value = runtime.state.value.copy(
+            playWhenReady = true,
+            playbackState = PLAYBACK_STATE_PLAYING,
+            positionMs = 91_000L,
+            isSeekSupported = true,
+            appliedAudioQuality = PlaybackAudioQuality.EXHIGH
+        )
+
+        val success = runtime.setPreferredAudioQuality(PlaybackAudioQuality.HIRES)
+
+        assertTrue(success)
+        assertEquals(
+            listOf(
+                PlaybackAudioQuality.EXHIGH,
+                PlaybackAudioQuality.HIRES,
+                PlaybackAudioQuality.HIRES
+            ),
+            trackPreparer.requestedQualities
+        )
+        assertEquals(1, currentAdapter.clearCalls)
+        assertEquals(PlaybackAudioQuality.HIRES, runtime.state.value.preferredAudioQuality)
+        assertEquals(PlaybackAudioQuality.HIRES, runtime.state.value.appliedAudioQuality)
+        assertEquals(91_000L, runtime.state.value.positionMs)
+        assertEquals("切换音质中：Hi-Res", runtime.state.value.statusText)
+        assertEquals(listOf(0L), refreshedSource.seekOffsets)
+
+        testScope.cancel()
+    }
+
+    @Test
     fun setActiveAudioSourceConfigJson_whenPlayingOnlineTrack_shouldReprepareCurrentTrackFromCurrentPosition() = runBlocking {
         val appContext = RuntimeEnvironment.getApplication() as Context
         val testScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -469,6 +569,10 @@ class PlaybackProcessRuntimeAudioQualityTest {
     @Test
     fun setActiveAudioSourceConfigJson_whenConfigInvalid_shouldKeepPreviousSourceAndSkipReprepare() = runBlocking {
         val appContext = RuntimeEnvironment.getApplication() as Context
+        appContext.getSharedPreferences("player_playback_preferences", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
         val testScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val nativePlayer = FakeAudioQualityNativePlayer()
         val firstSource = FakeAudioQualityPlaySource(sourceId = "source-default")
@@ -643,6 +747,253 @@ class PlaybackProcessRuntimeAudioQualityTest {
         testScope.cancel()
     }
 
+    @Test
+    fun prepareCurrent_whenUrlExpired_shouldClearCurrentSourceCachesAndRetrySameTrack() = runBlocking {
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        appContext.getSharedPreferences("player_playback_preferences", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        appContext.getSharedPreferences("settings_audio_sources", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        val testScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val firstConfig = neteaseCompatibleConfigJson("https://default.example.com/api")
+        val currentAdapter = FakeRuntimeSourceAdapter(
+            adapterId = "source-default",
+            normalizedConfigJson = firstConfig
+        )
+        val trackPreparer = FakeTrackPreparer(
+            results = ArrayDeque(
+                listOf(
+                    PreparationResult.Invalid(
+                        message = "URL expired",
+                        failure = OnlinePlaybackFailure(
+                            kind = OnlinePlaybackFailureKind.URL_EXPIRED,
+                            message = "URL expired"
+                        )
+                    ),
+                    readyResult(
+                        source = FakeAudioQualityPlaySource(sourceId = "source-refreshed"),
+                        appliedAudioQuality = PlaybackAudioQuality.EXHIGH
+                    )
+                )
+            )
+        )
+        val runtime = PlaybackProcessRuntime(
+            appContext = appContext,
+            serviceScope = testScope,
+            nativePlayerFactory = { FakeAudioQualityNativePlayer() },
+            trackPreparer = trackPreparer,
+            sourceAdapterFactory = FakeSourceAdapterFactory(
+                defaultAdapter = FakeRuntimeSourceAdapter(
+                    adapterId = "builtin-default",
+                    normalizedConfigJson = null
+                ),
+                adaptersByConfig = mapOf(firstConfig to currentAdapter)
+            )
+        )
+        assertTrue(runtime.setActiveAudioSourceConfigJson(firstConfig))
+        runtime.setQueue(
+            mediaItems = listOf(
+                MusicInfo(
+                    id = "queue-online-expired",
+                    songId = "1969519579",
+                    title = "夜曲",
+                    durationMs = 219_893L,
+                    playbackUri = "https://expired.example.com/night.mp3"
+                ).toMediaItem()
+            ),
+            startIndex = 0
+        )
+
+        runtime.prepareCurrent()
+
+        assertEquals(2, trackPreparer.requestedQualities.size)
+        assertEquals(1, currentAdapter.clearCalls)
+        assertEquals(firstConfig, runtime.state.value.activeAudioSourceConfigJson)
+        assertEquals(null, currentTrackOverrideConfig(runtime))
+
+        testScope.cancel()
+    }
+
+    @Test
+    fun prepareCurrent_whenCurrentSourceUnavailable_shouldUseFallbackWithoutChangingGlobalSource() = runBlocking {
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        appContext.getSharedPreferences("player_playback_preferences", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        val settingsPreferences = appContext.getSharedPreferences(
+            "settings_audio_sources",
+            Context.MODE_PRIVATE
+        )
+        settingsPreferences.edit().clear().commit()
+        val firstConfig = neteaseCompatibleConfigJson("https://default.example.com/api")
+        val secondConfig = neteaseCompatibleConfigJson("https://mirror.example.com/api")
+        persistFallbackSources(
+            preferences = settingsPreferences,
+            configs = listOf(secondConfig)
+        )
+        val testScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val firstAdapter = FakeRuntimeSourceAdapter(
+            adapterId = "source-default",
+            normalizedConfigJson = firstConfig
+        )
+        val secondAdapter = FakeRuntimeSourceAdapter(
+            adapterId = "source-mirror",
+            normalizedConfigJson = secondConfig
+        )
+        val trackPreparer = FakeTrackPreparer(
+            results = ArrayDeque(
+                listOf(
+                    PreparationResult.Invalid(
+                        message = "当前音源暂无版权",
+                        failure = OnlinePlaybackFailure(
+                            kind = OnlinePlaybackFailureKind.RESOURCE_UNAVAILABLE,
+                            message = "当前音源暂无版权"
+                        )
+                    ),
+                    readyResult(
+                        source = FakeAudioQualityPlaySource(sourceId = "source-fallback"),
+                        appliedAudioQuality = PlaybackAudioQuality.EXHIGH
+                    )
+                )
+            )
+        )
+        val runtime = PlaybackProcessRuntime(
+            appContext = appContext,
+            serviceScope = testScope,
+            nativePlayerFactory = { FakeAudioQualityNativePlayer() },
+            trackPreparer = trackPreparer,
+            sourceAdapterFactory = FakeSourceAdapterFactory(
+                defaultAdapter = FakeRuntimeSourceAdapter(
+                    adapterId = "builtin-default",
+                    normalizedConfigJson = null
+                ),
+                adaptersByConfig = mapOf(
+                    firstConfig to firstAdapter,
+                    secondConfig to secondAdapter
+                )
+            )
+        )
+        assertTrue(runtime.setActiveAudioSourceConfigJson(firstConfig))
+        runtime.setQueue(
+            mediaItems = listOf(
+                MusicInfo(
+                    id = "queue-online-fallback",
+                    songId = "1969519579",
+                    title = "夜曲",
+                    durationMs = 219_893L,
+                    playbackUri = "https://default.example.com/night.mp3"
+                ).toMediaItem()
+            ),
+            startIndex = 0
+        )
+
+        runtime.prepareCurrent()
+
+        assertEquals(2, trackPreparer.requestedQualities.size)
+        assertEquals(firstConfig, runtime.state.value.activeAudioSourceConfigJson)
+        assertEquals(secondConfig, currentTrackOverrideConfig(runtime))
+        assertEquals(0, firstAdapter.clearCalls)
+        assertEquals(0, secondAdapter.clearCalls)
+        assertEquals(
+            secondConfig,
+            runtime.state.value.currentTrack?.playable?.sourceContext?.sourceConfigJson
+        )
+
+        testScope.cancel()
+    }
+
+    @Test
+    fun prepareCurrent_whenTrackHasPersistedSourceContext_shouldPreferTrackSourceOverGlobalSource() = runBlocking {
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        appContext.getSharedPreferences("player_playback_preferences", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        appContext.getSharedPreferences("settings_audio_sources", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        val testScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val firstConfig = neteaseCompatibleConfigJson("https://default.example.com/api")
+        val secondConfig = neteaseCompatibleConfigJson("https://mirror.example.com/api")
+        val firstAdapter = FakeRuntimeSourceAdapter(
+            adapterId = "source-default",
+            normalizedConfigJson = firstConfig
+        )
+        val secondAdapter = FakeRuntimeSourceAdapter(
+            adapterId = "source-mirror",
+            normalizedConfigJson = secondConfig
+        )
+        val trackPreparer = FakeTrackPreparer(
+            results = ArrayDeque(
+                listOf(
+                    PreparationResult.Invalid(
+                        message = "URL expired",
+                        failure = OnlinePlaybackFailure(
+                            kind = OnlinePlaybackFailureKind.URL_EXPIRED,
+                            message = "URL expired"
+                        )
+                    ),
+                    readyResult(
+                        source = FakeAudioQualityPlaySource(sourceId = "source-restored"),
+                        appliedAudioQuality = PlaybackAudioQuality.EXHIGH
+                    )
+                )
+            )
+        )
+        val runtime = PlaybackProcessRuntime(
+            appContext = appContext,
+            serviceScope = testScope,
+            nativePlayerFactory = { FakeAudioQualityNativePlayer() },
+            trackPreparer = trackPreparer,
+            sourceAdapterFactory = FakeSourceAdapterFactory(
+                defaultAdapter = FakeRuntimeSourceAdapter(
+                    adapterId = "builtin-default",
+                    normalizedConfigJson = null
+                ),
+                adaptersByConfig = mapOf(
+                    firstConfig to firstAdapter,
+                    secondConfig to secondAdapter
+                )
+            )
+        )
+        assertTrue(runtime.setActiveAudioSourceConfigJson(firstConfig))
+        runtime.setQueue(
+            mediaItems = listOf(
+                MusicInfo(
+                    id = "queue-online-restored-override",
+                    songId = "1969519579",
+                    title = "夜曲",
+                    durationMs = 219_893L,
+                    playbackUri = "",
+                    sourceContext = PlaybackSourceContext(
+                        sourceConfigJson = secondConfig
+                    )
+                ).toMediaItem()
+            ),
+            startIndex = 0
+        )
+
+        runtime.prepareCurrent()
+
+        assertEquals(2, trackPreparer.requestedQualities.size)
+        assertEquals(0, firstAdapter.clearCalls)
+        assertEquals(1, secondAdapter.clearCalls)
+        assertEquals(firstConfig, runtime.state.value.activeAudioSourceConfigJson)
+        assertEquals(
+            secondConfig,
+            runtime.state.value.currentTrack?.playable?.sourceContext?.sourceConfigJson
+        )
+        assertEquals(null, currentTrackOverrideConfig(runtime))
+
+        testScope.cancel()
+    }
+
     private fun neteaseCompatibleConfigJson(baseUrl: String): String {
         return org.json.JSONObject()
             .put("type", "netease-compatible")
@@ -650,11 +1001,43 @@ class PlaybackProcessRuntimeAudioQualityTest {
             .toString()
     }
 
+    private fun persistFallbackSources(
+        preferences: android.content.SharedPreferences,
+        configs: List<String>
+    ) {
+        val array = JSONArray()
+        configs.forEachIndexed { index, config ->
+            array.put(
+                JSONObject()
+                    .put("id", "fallback-$index")
+                    .put("display_name", "fallback-$index")
+                    .put("base_url", "https://fallback-$index.example.com/api")
+                    .put("kind", "CUSTOM")
+                    .put("resolver_type", "netease-compatible")
+                    .put("source_config_json", config)
+                    .put("enabled", true)
+                    .put("added_at_ms", index.toLong())
+            )
+        }
+        preferences.edit()
+            .putString("audio_sources", array.toString())
+            .apply()
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun mutableState(runtime: PlaybackProcessRuntime): MutableStateFlow<PlaybackProcessState> {
         val field = runtime.javaClass.getDeclaredField("_state")
         field.isAccessible = true
         return field.get(runtime) as MutableStateFlow<PlaybackProcessState>
+    }
+
+    private fun currentTrackOverrideConfig(runtime: PlaybackProcessRuntime): String? {
+        val field = runtime.javaClass.getDeclaredField("currentTrackSourceOverrideRuntime")
+        field.isAccessible = true
+        val overrideRuntime = field.get(runtime) ?: return null
+        val configField = overrideRuntime.javaClass.getDeclaredField("configJson")
+        configField.isAccessible = true
+        return configField.get(overrideRuntime) as? String
     }
 
     private fun readyResult(

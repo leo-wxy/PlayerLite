@@ -8,6 +8,7 @@ import com.wxy.playerlite.playback.model.PlaybackPreviewClip
 import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
 import com.wxy.playerlite.playback.model.SongAudioQualityCatalogJsonMapper
 import com.wxy.playerlite.playback.model.SongAudioQualityOption
+import java.io.IOException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -37,6 +38,25 @@ internal data class ResolvedOnlineStream(
     val previewClip: PlaybackPreviewClip? = null,
     val cacheIdentity: String = playbackUrl
 )
+
+internal enum class OnlinePlaybackFailureKind {
+    URL_EXPIRED,
+    RESOURCE_UNAVAILABLE,
+    UNAUTHORIZED,
+    RETRYABLE_NETWORK,
+    UNSUPPORTED,
+    UNKNOWN
+}
+
+internal data class OnlinePlaybackFailure(
+    val kind: OnlinePlaybackFailureKind,
+    val message: String,
+    val cause: Throwable? = null
+)
+
+internal class OnlinePlaybackResolutionException(
+    val failure: OnlinePlaybackFailure
+) : IllegalStateException(failure.message, failure.cause)
 
 internal class ResolvedOnlineUrlMemoryCache(
     private val maxEntries: Int = DEFAULT_MAX_ENTRIES
@@ -329,9 +349,26 @@ internal class OnlinePlaybackUrlResolver(
                 requestHeaders = preparedHeaders,
                 unblock = false
             )
-        }.mapCatching { payload ->
-            parseSongUrlAttempt(payload = payload, requestHeaders = preparedHeaders, nowMs = nowMs())
-        }.getOrNull()
+        }.fold(
+            onSuccess = { payload ->
+                runCatching {
+                    parseSongUrlAttempt(payload = payload, requestHeaders = preparedHeaders, nowMs = nowMs())
+                }.getOrElse { error ->
+                    SongUrlAttempt(
+                        resolved = null,
+                        message = error.message,
+                        cause = error
+                    )
+                }
+            },
+            onFailure = { error ->
+                SongUrlAttempt(
+                    resolved = null,
+                    message = error.message,
+                    cause = error
+                )
+            }
+        )
 
         v1Attempt?.resolved?.let { resolved ->
             val normalized = resolved.normalizeForExpectedDuration(expectedDurationMs)
@@ -345,9 +382,26 @@ internal class OnlinePlaybackUrlResolver(
                 bitrate = legacyFallbackBitrate,
                 requestHeaders = preparedHeaders
             )
-        }.mapCatching { payload ->
-            parseSongUrlAttempt(payload = payload, requestHeaders = preparedHeaders, nowMs = nowMs())
-        }.getOrNull()
+        }.fold(
+            onSuccess = { payload ->
+                runCatching {
+                    parseSongUrlAttempt(payload = payload, requestHeaders = preparedHeaders, nowMs = nowMs())
+                }.getOrElse { error ->
+                    SongUrlAttempt(
+                        resolved = null,
+                        message = error.message,
+                        cause = error
+                    )
+                }
+            },
+            onFailure = { error ->
+                SongUrlAttempt(
+                    resolved = null,
+                    message = error.message,
+                    cause = error
+                )
+            }
+        )
 
         legacyAttempt?.resolved?.let { resolved ->
             val normalized = resolved.normalizeForExpectedDuration(expectedDurationMs)
@@ -355,19 +409,30 @@ internal class OnlinePlaybackUrlResolver(
             return Result.success(normalized)
         }
 
-        val checkMusicMessage = runCatching {
+        val checkMusicAttempt = runCatching {
             remoteDataSource.checkMusic(
                 songId = songId,
                 bitrate = legacyFallbackBitrate,
                 requestHeaders = preparedHeaders
             )
-        }.getOrNull()?.stringValue("message")
+        }.fold(
+            onSuccess = { payload ->
+                ResolverFailureContext(message = payload.stringValue("message"))
+            },
+            onFailure = { error ->
+                ResolverFailureContext(
+                    message = error.message,
+                    cause = error
+                )
+            }
+        )
 
-        val failureMessage = checkMusicMessage
-            ?: legacyAttempt?.message
-            ?: v1Attempt?.message
-            ?: "Failed to resolve online stream"
-        return Result.failure(IllegalStateException(failureMessage))
+        val failure = classifyOnlinePlaybackFailure(
+            v1Attempt = v1Attempt,
+            legacyAttempt = legacyAttempt,
+            checkMusicAttempt = checkMusicAttempt
+        )
+        return Result.failure(OnlinePlaybackResolutionException(failure))
     }
 
     private fun cacheResolved(
@@ -621,8 +686,74 @@ internal fun buildOnlineResourceKey(
 
 private data class SongUrlAttempt(
     val resolved: ResolvedOnlineStream?,
-    val message: String?
+    val message: String?,
+    val cause: Throwable? = null
 )
+
+private data class ResolverFailureContext(
+    val message: String?,
+    val cause: Throwable? = null
+)
+
+private fun classifyOnlinePlaybackFailure(
+    v1Attempt: SongUrlAttempt,
+    legacyAttempt: SongUrlAttempt,
+    checkMusicAttempt: ResolverFailureContext
+): OnlinePlaybackFailure {
+    val messages = listOfNotNull(
+        v1Attempt.message?.takeIfMeaningfulFailure(),
+        legacyAttempt.message?.takeIfMeaningfulFailure(),
+        checkMusicAttempt.message?.takeIfMeaningfulFailure()
+    )
+
+    messages.firstOrNull(::looksLikeExpiredPlaybackMessage)?.let { message ->
+        return OnlinePlaybackFailure(
+            kind = OnlinePlaybackFailureKind.URL_EXPIRED,
+            message = message
+        )
+    }
+
+    messages.firstOrNull(::looksLikeUnauthorizedPlaybackMessage)?.let { message ->
+        return OnlinePlaybackFailure(
+            kind = OnlinePlaybackFailureKind.UNAUTHORIZED,
+            message = message
+        )
+    }
+
+    messages.firstOrNull(::looksLikeResourceUnavailableMessage)?.let { message ->
+        return OnlinePlaybackFailure(
+            kind = OnlinePlaybackFailureKind.RESOURCE_UNAVAILABLE,
+            message = message
+        )
+    }
+
+    val networkCause = listOfNotNull(
+        v1Attempt.cause,
+        legacyAttempt.cause,
+        checkMusicAttempt.cause
+    ).firstOrNull(::isRetryableNetworkFailure)
+    if (networkCause != null) {
+        return OnlinePlaybackFailure(
+            kind = OnlinePlaybackFailureKind.RETRYABLE_NETWORK,
+            message = messages.firstOrNull(::looksLikeRetryableNetworkMessage)
+                ?: networkCause.message
+                ?: "Temporary network failure",
+            cause = networkCause
+        )
+    }
+
+    messages.firstOrNull(::looksLikeRetryableNetworkMessage)?.let { message ->
+        return OnlinePlaybackFailure(
+            kind = OnlinePlaybackFailureKind.RETRYABLE_NETWORK,
+            message = message
+        )
+    }
+
+    return OnlinePlaybackFailure(
+        kind = OnlinePlaybackFailureKind.UNKNOWN,
+        message = messages.firstOrNull() ?: "Failed to resolve online stream"
+    )
+}
 
 private fun parseSongUrlAttempt(
     payload: JsonObject,
@@ -663,6 +794,72 @@ private fun parseSongUrlAttempt(
         ),
         message = message
     )
+}
+
+private fun String.takeIfMeaningfulFailure(): String? {
+    val normalized = trim()
+    if (normalized.isEmpty()) {
+        return null
+    }
+    return if (
+        normalized.equals("ok", ignoreCase = true) ||
+        normalized.equals("success", ignoreCase = true)
+    ) {
+        null
+    } else {
+        normalized
+    }
+}
+
+private fun looksLikeExpiredPlaybackMessage(message: String): Boolean {
+    val normalized = message.lowercase()
+    return "expired" in normalized ||
+        "expire" in normalized ||
+        "过期" in message ||
+        "失效" in message
+}
+
+private fun looksLikeResourceUnavailableMessage(message: String): Boolean {
+    val normalized = message.lowercase()
+    return "暂无版权" in message ||
+        "无版权" in message ||
+        "下架" in message ||
+        "不可用" in message ||
+        "无可播" in message ||
+        "resource unavailable" in normalized ||
+        "not available" in normalized
+}
+
+private fun looksLikeUnauthorizedPlaybackMessage(message: String): Boolean {
+    val normalized = message.lowercase()
+    return "未登录" in message ||
+        "登录" in message ||
+        "unauthorized" in normalized ||
+        "login" in normalized ||
+        "401" in normalized ||
+        "403" in normalized
+}
+
+private fun looksLikeRetryableNetworkMessage(message: String): Boolean {
+    val normalized = message.lowercase()
+    return "network" in normalized ||
+        "timeout" in normalized ||
+        "timed out" in normalized ||
+        "connection" in normalized ||
+        "reset" in normalized ||
+        "temporarily" in normalized ||
+        "unreachable" in normalized
+}
+
+private fun isRetryableNetworkFailure(error: Throwable): Boolean {
+    return generateSequence(error) { it.cause }.any { cause ->
+        cause is IOException ||
+            cause.message?.let(::looksLikeRetryableNetworkMessage) == true
+    }
+}
+
+internal fun Throwable.asOnlinePlaybackFailure(): OnlinePlaybackFailure? {
+    return (this as? OnlinePlaybackResolutionException)?.failure
 }
 
 private fun CacheLookupSnapshot?.isCompleteCachedContent(): Boolean {

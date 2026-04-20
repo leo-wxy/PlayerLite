@@ -30,6 +30,8 @@ class TrackPreparationCoordinatorProtectedOnlineTest {
         )
 
         assertTrue(result is PreparationResult.Invalid)
-        assertTrue((result as PreparationResult.Invalid).message.contains("authorization"))
+        val invalid = result as PreparationResult.Invalid
+        assertTrue(invalid.message.contains("authorization"))
+        assertTrue(invalid.failure?.kind == OnlinePlaybackFailureKind.UNAUTHORIZED)
     }
 }

@@ -12,6 +12,7 @@ interface PlayableItem {
     val durationMs: Long
     val playbackUri: String
     val playbackContext: PlaybackContext?
+    val sourceContext: PlaybackSourceContext?
     val previewClip: PlaybackPreviewClip?
     val requestHeaders: Map<String, String>
     val requiresAuthorization: Boolean

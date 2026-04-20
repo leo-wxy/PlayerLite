@@ -14,6 +14,7 @@ data class MusicInfo(
     override val durationMs: Long = 0L,
     override val playbackUri: String,
     override val playbackContext: PlaybackContext? = null,
+    override val sourceContext: PlaybackSourceContext? = null,
     override val previewClip: PlaybackPreviewClip? = null,
     override val requestHeaders: Map<String, String> = emptyMap(),
     override val requiresAuthorization: Boolean = false
@@ -36,6 +37,7 @@ data class MusicInfo(
             durationMs = durationMs,
             playbackUri = playbackUri,
             playbackContext = playbackContext,
+            sourceContext = sourceContext,
             previewClip = previewClip,
             requestHeaders = requestHeaders,
             requiresAuthorization = requiresAuthorization
@@ -64,6 +66,7 @@ data class MusicInfo(
                 durationMs = playable.durationMs,
                 playbackUri = playable.playbackUri,
                 playbackContext = playable.playbackContext,
+                sourceContext = playable.sourceContext,
                 previewClip = playable.previewClip,
                 requestHeaders = playable.requestHeaders,
                 requiresAuthorization = playable.requiresAuthorization

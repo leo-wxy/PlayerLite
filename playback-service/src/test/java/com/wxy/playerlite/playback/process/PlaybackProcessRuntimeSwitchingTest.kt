@@ -12,10 +12,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -163,6 +165,58 @@ class PlaybackProcessRuntimeSwitchingTest {
     }
 
     @Test
+    fun launchDeferredPlaybackSeek_whenSameTrackHasNewGeneration_shouldIgnoreStaleFallback() = runBlocking {
+        val runtime = PlaybackProcessRuntime(
+            appContext = org.robolectric.RuntimeEnvironment.getApplication(),
+            serviceScope = serviceScope,
+            nativePlayerFactory = { SeekFailingNativePlayer() }
+        )
+        val state = MutableStateFlow(
+            PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-1",
+                            title = "第一首",
+                            playbackUri = "https://example.com/1.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 0,
+                playWhenReady = true,
+                playbackState = PLAYBACK_STATE_STOPPED,
+                isPreparing = true,
+                positionMs = 1_000L
+            )
+        )
+
+        setField(runtime, "_state", state)
+        setField(runtime, "activePlaybackTrackId", "track-1")
+        setField(runtime, "pendingSeekPositionMs", 1_000L)
+
+        invokeDeferredSeek(
+            runtime = runtime,
+            requestedTrackId = "track-1",
+            displayName = "第一首",
+            targetPositionMs = 1_000L
+        )
+
+        setField(runtime, "pendingSeekPositionMs", 5_000L)
+        state.value = state.value.copy(
+            isPreparing = true,
+            positionMs = 5_000L,
+            statusText = "Buffering"
+        )
+        setOptionalGeneration(runtime, generation = 2L)
+
+        delay(450L)
+
+        assertEquals(5_000L, state.value.positionMs)
+        assertTrue(state.value.isPreparing)
+        assertFalse(state.value.statusText.startsWith("Playing:"))
+    }
+
+    @Test
     fun moveToPrevious_shouldWrapFromFirstTrackWhenQueueHasMultipleItems() {
         val runtime = unsafe.allocateInstance(PlaybackProcessRuntime::class.java) as PlaybackProcessRuntime
         val player = FakeNativePlayer()
@@ -242,6 +296,34 @@ class PlaybackProcessRuntimeSwitchingTest {
         val field = target.javaClass.getDeclaredField(name)
         field.isAccessible = true
         field.set(target, value)
+    }
+
+    private fun invokeDeferredSeek(
+        runtime: PlaybackProcessRuntime,
+        requestedTrackId: String,
+        displayName: String,
+        targetPositionMs: Long
+    ) {
+        val method = PlaybackProcessRuntime::class.java.getDeclaredMethod(
+            "launchDeferredPlaybackSeek",
+            String::class.java,
+            Long::class.javaPrimitiveType,
+            String::class.java,
+            Long::class.javaPrimitiveType
+        )
+        method.isAccessible = true
+        method.invoke(runtime, requestedTrackId, 1L, displayName, targetPositionMs)
+    }
+
+    private fun setOptionalGeneration(target: Any, generation: Long) {
+        val field = runCatching {
+            target.javaClass.getDeclaredField("playbackGeneration")
+        }.getOrNull() ?: return
+        field.isAccessible = true
+        when (val current = field.get(target)) {
+            is java.util.concurrent.atomic.AtomicLong -> current.set(generation)
+            is Long -> field.setLong(target, generation)
+        }
     }
 
     private class FakeNativePlayer : INativePlayer {
@@ -337,6 +419,54 @@ class PlaybackProcessRuntimeSwitchingTest {
             seekCalls += 1
             return 0L
         }
+    }
+
+    private class SeekFailingNativePlayer : INativePlayer {
+        override fun setProgressListener(listener: ((Long) -> Unit)?) = Unit
+
+        override fun setPlaybackOutputInfoListener(listener: ((PlaybackOutputInfo) -> Unit)?) = Unit
+
+        override fun setPlaybackSpeed(speed: Float): Int = 0
+
+        override fun setAudioEffectPreset(audioEffectPreset: AudioEffectPreset): Int = 0
+
+        override fun playFromSource(source: IPlaysource): Int = 0
+
+        override fun pause(): Int = 0
+
+        override fun resume(): Int = 0
+
+        override fun seek(positionMs: Long): Int = -1
+
+        override fun getDurationFromSource(source: IPlaysource): Long = 0L
+
+        override fun loadAudioMetaFromSource(source: IPlaysource): AudioMeta {
+            return AudioMeta(
+                codec = "aac",
+                sampleRateHz = 44_100,
+                channels = 2,
+                bitRate = 128_000L,
+                durationMs = 10_000L
+            )
+        }
+
+        override fun loadAudioMetaDisplayFromSource(source: IPlaysource): AudioMetaDisplay {
+            return AudioMetaDisplay(
+                codec = "aac",
+                sampleRate = "44100 Hz",
+                channels = "2",
+                bitRate = "128 kbps",
+                durationMs = 10_000L
+            )
+        }
+
+        override fun playbackState(): Int = PLAYBACK_STATE_PLAYING
+
+        override fun stop() = Unit
+
+        override fun close() = Unit
+
+        override fun lastError(): String = "seek failed"
     }
 
     private companion object {

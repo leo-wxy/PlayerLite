@@ -39,6 +39,12 @@ internal object PlaylistStateCodec {
             item.contextType?.takeIf { it.isNotBlank() }?.let { itemJson.put("contextType", it) }
             item.contextId?.takeIf { it.isNotBlank() }?.let { itemJson.put("contextId", it) }
             item.contextTitle?.takeIf { it.isNotBlank() }?.let { itemJson.put("contextTitle", it) }
+            item.sourceContext?.sourceConfigJson?.takeIf { it.isNotBlank() }?.let {
+                itemJson.put("sourceContextConfigJson", it)
+            }
+            if (item.sourceContext?.useDefaultSource == true) {
+                itemJson.put("sourceContextUseDefaultSource", true)
+            }
             originalItems.put(itemJson)
         }
         root.put("originalItems", originalItems)
@@ -135,6 +141,7 @@ internal object PlaylistStateCodec {
                         coverUrl = itemJson.optString("coverUrl", "").trim().ifEmpty { null },
                         durationMs = itemJson.optLong("durationMs", 0L).coerceAtLeast(0L),
                         itemType = itemType,
+                        sourceContext = readSourceContext(itemJson),
                         contextType = itemJson.optString("contextType", "").trim().ifEmpty { null },
                         contextId = itemJson.optString("contextId", "").trim().ifEmpty { null },
                         contextTitle = itemJson.optString("contextTitle", "").trim().ifEmpty { null }
@@ -160,5 +167,18 @@ internal object PlaylistStateCodec {
     private fun isLikelyRemoteUri(uri: String): Boolean {
         val normalized = uri.trim().lowercase()
         return normalized.startsWith("http://") || normalized.startsWith("https://")
+    }
+
+    private fun readSourceContext(itemJson: JSONObject): com.wxy.playerlite.playback.model.PlaybackSourceContext? {
+        val sourceConfigJson = itemJson.optString("sourceContextConfigJson", "").trim().ifEmpty { null }
+        val useDefaultSource = itemJson.optBoolean("sourceContextUseDefaultSource", false)
+        return if (sourceConfigJson != null || useDefaultSource) {
+            com.wxy.playerlite.playback.model.PlaybackSourceContext(
+                sourceConfigJson = sourceConfigJson,
+                useDefaultSource = useDefaultSource
+            )
+        } else {
+            null
+        }
     }
 }

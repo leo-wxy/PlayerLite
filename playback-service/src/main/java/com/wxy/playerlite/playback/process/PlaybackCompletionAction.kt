@@ -7,6 +7,7 @@ internal enum class PlaybackCompletionAction {
     LOOP_TO_FIRST,
     REPEAT_CURRENT,
     STOP_AT_END,
+    RETRY_CURRENT,
     STOP_WITH_ERROR;
 
     companion object {

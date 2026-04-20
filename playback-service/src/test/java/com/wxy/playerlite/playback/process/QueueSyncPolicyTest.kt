@@ -12,7 +12,8 @@ class QueueSyncPolicyTest {
             QueueSyncPolicy.shouldRestorePosition(
                 previousMediaId = "a",
                 nextMediaId = "b",
-                requestedStartPositionMs = 12_345L
+                requestedStartPositionMs = 12_345L,
+                currentPositionMs = 0L
             )
         )
     }
@@ -23,7 +24,8 @@ class QueueSyncPolicyTest {
             QueueSyncPolicy.shouldRestorePosition(
                 previousMediaId = "a",
                 nextMediaId = "a",
-                requestedStartPositionMs = 12_345L
+                requestedStartPositionMs = 12_345L,
+                currentPositionMs = 12_345L
             )
         )
     }
@@ -34,7 +36,20 @@ class QueueSyncPolicyTest {
             QueueSyncPolicy.shouldRestorePosition(
                 previousMediaId = "a",
                 nextMediaId = "b",
-                requestedStartPositionMs = C.TIME_UNSET
+                requestedStartPositionMs = C.TIME_UNSET,
+                currentPositionMs = 0L
+            )
+        )
+    }
+
+    @Test
+    fun shouldRestorePosition_whenCurrentItemUnchangedButPositionMismatched() {
+        assertTrue(
+            QueueSyncPolicy.shouldRestorePosition(
+                previousMediaId = "a",
+                nextMediaId = "a",
+                requestedStartPositionMs = 12_345L,
+                currentPositionMs = 0L
             )
         )
     }

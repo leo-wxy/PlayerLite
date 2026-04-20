@@ -135,24 +135,27 @@ internal class PlayerSessionPlayer(
                 return@runSerializedCommand
             }
 
+            val currentPositionMs = runtime.state.value.positionMs
             val shouldRestorePosition = QueueSyncPolicy.shouldRestorePosition(
                 previousMediaId = previousMediaId,
                 nextMediaId = nextMediaId,
-                requestedStartPositionMs = startPositionMs
+                requestedStartPositionMs = startPositionMs,
+                currentPositionMs = currentPositionMs
             )
 
             if (shouldContinuePlayback) {
                 runtime.setPlayWhenReady(true)
-                runtime.playCurrent()
                 if (shouldRestorePosition) {
-                    runtime.seekTo(startPositionMs)
+                    runtime.playCurrent(initialPositionMs = startPositionMs)
+                } else {
+                    runtime.playCurrent()
                 }
                 return@runSerializedCommand
             }
 
             if (shouldRestorePosition) {
                 runtime.prepareCurrent()
-                runtime.seekTo(startPositionMs)
+                runtime.restorePreparedPositionWithoutPlayback(startPositionMs)
             }
         }
     }
@@ -161,6 +164,9 @@ internal class PlayerSessionPlayer(
         return runSerializedCommand {
             if (playWhenReady) {
                 val current = runtime.state.value
+                val resumePositionMs = current.positionMs.coerceAtLeast(0L)
+                val shouldStartFromRestoredPosition = resumePositionMs > 0L &&
+                    (current.durationMs <= 0L || resumePositionMs < current.durationMs)
                 if (current.playWhenReady &&
                     (current.playbackState == PLAYBACK_STATE_PLAYING ||
                         current.isPreparing)
@@ -168,8 +174,12 @@ internal class PlayerSessionPlayer(
                     return@runSerializedCommand
                 }
                 runtime.setPlayWhenReady(true)
-                if (current.playbackState == PLAYBACK_STATE_PAUSED) {
+                if (current.playbackState == PLAYBACK_STATE_PAUSED &&
+                    runtime.canResumeCurrentPlayback()
+                ) {
                     runtime.resume()
+                } else if (shouldStartFromRestoredPosition) {
+                    runtime.playCurrent(initialPositionMs = resumePositionMs)
                 } else {
                     runtime.playCurrent()
                 }

@@ -159,9 +159,9 @@ class SourceAdapterTest {
         )
 
         assertTrue(result.isFailure)
-        assertTrue(
-            result.exceptionOrNull()?.message?.contains("mapping payload missing playbackUrl") == true
-        )
+        val error = result.exceptionOrNull() as? OnlinePlaybackResolutionException
+        assertEquals(OnlinePlaybackFailureKind.RESOURCE_UNAVAILABLE, error?.failure?.kind)
+        assertTrue(error?.message?.contains("mapping payload missing playbackUrl") == true)
     }
 
     @Test
@@ -207,6 +207,82 @@ class SourceAdapterTest {
         assertEquals(PlaybackAudioQuality.LOSSLESS, result.appliedAudioQuality)
         assertEquals("lossless", resolver.lastRequestedLevel)
         assertEquals(999_000, resolver.lastFallbackBitrate)
+    }
+
+    @Test
+    fun neteaseCompatibleSourceAdapter_shouldPropagateTypedResolverFailure() = runBlocking {
+        val resolver = CapturingResolver(
+            Result.failure<ResolvedOnlineStream>(
+                OnlinePlaybackResolutionException(
+                    OnlinePlaybackFailure(
+                        kind = OnlinePlaybackFailureKind.URL_EXPIRED,
+                        message = "URL expired"
+                    )
+                )
+            )
+        )
+        val adapter = NeteaseCompatibleSourceAdapter(
+            metadata = SourceMetadata(
+                id = "source-netease",
+                name = "Netease Compatible"
+            ),
+            config = NeteaseCompatibleSourceConfig(
+                baseUrl = "https://mirror.example.com/api"
+            ),
+            normalizedConfigJson = null,
+            catalogProvider = CachedSongAudioQualityCatalogProvider(
+                remoteDataSource = object : SongAudioQualityCatalogRemoteDataSource {
+                    override suspend fun fetchSongAudioQualityCatalog(
+                        songId: String,
+                        requestHeaders: Map<String, String>
+                    ): JsonObject {
+                        return catalogPayload()
+                    }
+                }
+            ),
+            resolver = resolver
+        )
+
+        val result = adapter.handle(
+            action = SourceAction.ResolveMusicUrl,
+            context = sourceActionContext(preferredAudioQuality = PlaybackAudioQuality.HIRES)
+        )
+
+        assertTrue(result.isFailure)
+        val error = result.exceptionOrNull() as? OnlinePlaybackResolutionException
+        assertEquals(OnlinePlaybackFailureKind.URL_EXPIRED, error?.failure?.kind)
+    }
+
+    @Test
+    fun resolverBackedSourceAdapter_shouldClassifyMissingSongIdAsUnsupported() = runBlocking {
+        val adapter = ResolverBackedSourceAdapter(
+            resolver = CapturingResolver(
+                Result.success(
+                    ResolvedOnlineStream(
+                        playbackUrl = "https://cdn.example.com/night.flac",
+                        requestHeaders = emptyMap()
+                    )
+                )
+            )
+        )
+
+        val result = adapter.handle(
+            action = SourceAction.ResolveMusicUrl,
+            context = SourceActionContext(
+                songId = null,
+                title = "夜曲",
+                artistText = "周杰伦",
+                albumTitle = "十一月的萧邦",
+                durationMs = 219_893L,
+                preferredAudioQuality = PlaybackAudioQuality.EXHIGH,
+                requestHeaders = emptyMap(),
+                previewClip = null
+            )
+        )
+
+        assertTrue(result.isFailure)
+        val error = result.exceptionOrNull() as? OnlinePlaybackResolutionException
+        assertEquals(OnlinePlaybackFailureKind.UNSUPPORTED, error?.failure?.kind)
     }
 
     private fun sourceActionContext(

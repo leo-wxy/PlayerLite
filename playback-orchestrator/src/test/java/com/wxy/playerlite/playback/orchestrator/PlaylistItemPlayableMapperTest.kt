@@ -4,6 +4,7 @@ import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.playback.model.LocalMusicInfo
 import com.wxy.playerlite.playback.model.MusicInfo
+import com.wxy.playerlite.playback.model.PlaybackSourceContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,13 +39,19 @@ class PlaylistItemPlayableMapperTest {
             title = "夜曲",
             artistText = "周杰伦 / 杨瑞代",
             primaryArtistId = "artist-6452",
+            albumId = "album-11",
             albumTitle = "十一月的萧邦",
             coverUrl = "https://example.com/night.jpg",
             durationMs = 213_000L,
             itemType = PlaylistItemType.ONLINE,
             contextType = "playlist",
             contextId = "24381616",
-            contextTitle = "深夜单曲循环"
+            contextTitle = "深夜单曲循环",
+            sourceContext = PlaybackSourceContext(
+                sourceConfigJson = """
+                {"type":"netease-compatible","baseUrl":"https://mirror.example.com/api"}
+                """.trimIndent()
+            )
         )
 
         val playable = item.toQueuePlayableItem()
@@ -55,11 +62,19 @@ class PlaylistItemPlayableMapperTest {
         assertEquals("夜曲", music.title)
         assertEquals(listOf("周杰伦", "杨瑞代"), music.artistNames)
         assertEquals(listOf("artist-6452"), music.artistIds)
+        assertEquals("album-11", music.albumId)
         assertEquals("十一月的萧邦", music.albumTitle)
         assertEquals("https://example.com/night.jpg", music.coverUrl)
         assertEquals(213_000L, music.durationMs)
+        assertEquals("", music.playbackUri)
         assertEquals("playlist", music.playbackContext?.sourceType)
         assertEquals("24381616", music.playbackContext?.sourceId)
         assertEquals("深夜单曲循环", music.playbackContext?.sourceTitle)
+        assertEquals(
+            """
+            {"type":"netease-compatible","baseUrl":"https://mirror.example.com/api"}
+            """.trimIndent(),
+            music.sourceContext?.sourceConfigJson
+        )
     }
 }

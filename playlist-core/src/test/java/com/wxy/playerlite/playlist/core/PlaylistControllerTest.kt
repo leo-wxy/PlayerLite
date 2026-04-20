@@ -3,6 +3,7 @@ package com.wxy.playerlite.playlist.core
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.PlaybackSourceContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -174,6 +175,38 @@ class PlaylistControllerTest {
         assertEquals("playlist", item.contextType)
         assertEquals("24381616", item.contextId)
         assertEquals("深夜单曲循环", item.contextTitle)
+    }
+
+    @Test
+    fun flushAndRestore_shouldPreservePerTrackSourceContextOverride() {
+        val controller = createController()
+        controller.addItem(
+            PlaylistItem(
+                id = "queue-online-source-override",
+                uri = "",
+                displayName = "夜曲",
+                songId = "1973665667",
+                title = "夜曲",
+                itemType = PlaylistItemType.ONLINE,
+                sourceContext = PlaybackSourceContext(
+                    sourceConfigJson = """
+                    {"type":"netease-compatible","baseUrl":"https://mirror.example.com/api"}
+                    """.trimIndent()
+                )
+            ),
+            makeActive = true
+        )
+        controller.flush()
+
+        val restored = createController().restore { true }
+
+        assertEquals(
+            """
+            {"type":"netease-compatible","baseUrl":"https://mirror.example.com/api"}
+            """.trimIndent(),
+            restored.items.single().sourceContext?.sourceConfigJson
+        )
+        assertEquals(false, restored.items.single().sourceContext?.useDefaultSource)
     }
 
     @Test

@@ -22,6 +22,7 @@ fun PlaylistItem.toQueuePlayableItem(): PlayableItem? {
                 ?.takeIf { it.isNotBlank() }
                 ?.let(::listOf)
                 .orEmpty(),
+            albumId = albumId,
             albumTitle = albumTitle,
             coverUrl = coverUrl,
             durationMs = durationMs,
@@ -34,7 +35,8 @@ fun PlaylistItem.toQueuePlayableItem(): PlayableItem? {
                         sourceId = contextId,
                         sourceTitle = contextTitle
                     )
-                }
+                },
+            sourceContext = sourceContext
         )
     } else {
         uri.takeIf { it.isNotBlank() }?.let { playbackUri ->
@@ -46,7 +48,8 @@ fun PlaylistItem.toQueuePlayableItem(): PlayableItem? {
                 albumTitle = albumTitle,
                 coverUrl = coverUrl,
                 durationMs = durationMs,
-                playbackUri = playbackUri
+                playbackUri = playbackUri,
+                sourceContext = sourceContext
             )
         }
     }

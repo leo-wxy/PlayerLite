@@ -110,7 +110,10 @@ internal class TrackPreparationCoordinator(
                     track = item,
                     preferredAudioQuality = preferredAudioQuality
                 ).getOrElse { error ->
-                    return PreparationResult.Invalid(error.message ?: "Failed to resolve online stream")
+                    return PreparationResult.Invalid(
+                        message = error.message ?: "Failed to resolve online stream",
+                        failure = error.asOnlinePlaybackFailure()
+                    )
                 }
             } else {
                 OnlinePlaybackPlan(
@@ -223,7 +226,13 @@ internal suspend fun prepareNetworkSourceInternal(
     logError: (String) -> Unit = {}
 ): PreparationResult {
     if (item.requiresAuthorization && item.requestHeaders.isEmpty()) {
-        return PreparationResult.Invalid("Missing authorization context for protected online source")
+        return PreparationResult.Invalid(
+            message = "Missing authorization context for protected online source",
+            failure = OnlinePlaybackFailure(
+                kind = OnlinePlaybackFailureKind.UNAUTHORIZED,
+                message = "Missing authorization context for protected online source"
+            )
+        )
     }
     repeat(2) { attempt ->
         logInfo("prepareNetworkSource: key=${item.id}, uri=${item.uri}, attempt=${attempt + 1}")
@@ -341,5 +350,8 @@ internal sealed interface PreparationResult {
         val appliedAudioQuality: PlaybackAudioQuality?
     ) : PreparationResult
 
-    data class Invalid(val message: String) : PreparationResult
+    data class Invalid(
+        val message: String,
+        val failure: OnlinePlaybackFailure? = null
+    ) : PreparationResult
 }

@@ -69,6 +69,9 @@ class MusicInfoTest {
                 startMs = 30_000L,
                 endMs = 90_000L
             ),
+            sourceContext = PlaybackSourceContext(
+                useDefaultSource = true
+            ),
             requestHeaders = mapOf("X-Test" to "1"),
             requiresAuthorization = true
         )

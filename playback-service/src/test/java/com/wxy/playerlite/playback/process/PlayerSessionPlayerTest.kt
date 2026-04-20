@@ -407,6 +407,68 @@ class PlayerSessionPlayerTest {
     }
 
     @Test
+    fun handleSetMediaItems_whenContinuingPlaybackWithRestoredPosition_shouldStartFromRestoredPosition() {
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        val restoredTrack = MusicInfo(
+            id = "new-track",
+            title = "New Track",
+            playbackUri = "https://example.com/new-track.mp3"
+        )
+        val (runtime, fakePlayer, stateFlow) = createRuntimeWithSessionPlayerSupport(
+            appContext = appContext,
+            state = PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "old-track",
+                            title = "Old Track",
+                            playbackUri = "https://example.com/old-track.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 0,
+                playWhenReady = true,
+                playbackState = PLAYBACK_STATE_PLAYING,
+                isSeekSupported = true,
+                positionMs = 12_000L,
+                durationMs = 240_000L
+            ),
+            trackPreparer = object : TrackPreparer {
+                override suspend fun prepare(
+                    item: PlaybackTrack,
+                    preferredAudioQuality: PlaybackAudioQuality
+                ): PreparationResult {
+                    return PreparationResult.Ready(
+                        source = FakeSessionPreparedSource(),
+                        mediaMeta = AudioMetaDisplay(
+                            codec = "aac",
+                            sampleRate = "44100 Hz",
+                            channels = "2",
+                            bitRate = "128 kbps",
+                            durationMs = 240_000L
+                        ),
+                        isSeekSupported = true,
+                        appliedAudioQuality = null
+                    )
+                }
+            }
+        )
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+        fakePlayer.seekResult = -6
+
+        invokeHandleSetMediaItems(
+            player = player,
+            mediaItems = listOf(restoredTrack.toMediaItem()),
+            startPositionMs = 54_000L
+        )
+
+        assertEquals("new-track", stateFlow.value.currentTrack?.id)
+        assertTrue(fakePlayer.seekPositions.isEmpty())
+        assertTrue(fakePlayer.playStartPositions.isNotEmpty())
+        assertTrue(fakePlayer.playStartPositions.all { it == 54_000L })
+    }
+
+    @Test
     fun handleSetMediaItems_whenReplacingQueueWhilePaused_shouldNotAutoplayNewTrack() {
         val appContext = RuntimeEnvironment.getApplication() as Context
         val (runtime, fakePlayer, stateFlow) = createRuntimeWithSessionPlayerSupport(
@@ -447,9 +509,220 @@ class PlayerSessionPlayerTest {
         assertEquals(0, fakePlayer.playFromSourceCalls)
     }
 
+    @Test
+    fun handleSetMediaItems_whenRestorePrepareFails_shouldKeepQueueCurrentTrackAndPosition() {
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        val restoredTrack = MusicInfo(
+            id = "restored-track",
+            title = "Restored Track",
+            playbackUri = "https://example.com/restored-track.mp3"
+        )
+        val (runtime, _, stateFlow) = createRuntimeWithSessionPlayerSupport(
+            appContext = appContext,
+            state = PlaybackProcessState(
+                tracks = listOf(PlaybackTrack(playable = restoredTrack)),
+                activeIndex = 0,
+                playWhenReady = false,
+                playbackState = PLAYBACK_STATE_PAUSED,
+                isSeekSupported = true,
+                positionMs = 54_000L,
+                durationMs = 240_000L
+            ),
+            trackPreparer = object : TrackPreparer {
+                override suspend fun prepare(
+                    item: PlaybackTrack,
+                    preferredAudioQuality: PlaybackAudioQuality
+                ): PreparationResult {
+                    return PreparationResult.Invalid("Temporary prepare failure")
+                }
+            }
+        )
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+
+        invokeHandleSetMediaItems(
+            player = player,
+            mediaItems = listOf(restoredTrack.toMediaItem()),
+            startPositionMs = 54_000L
+        )
+
+        assertEquals(1, stateFlow.value.tracks.size)
+        assertEquals("restored-track", stateFlow.value.currentTrack?.id)
+        assertEquals(0, stateFlow.value.activeIndex)
+        assertEquals(54_000L, stateFlow.value.positionMs)
+    }
+
+    @Test
+    fun handleSetMediaItems_whenColdStartRestoreSeekFails_shouldStillStartFromRestoredPositionLater() {
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        val restoredTrack = MusicInfo(
+            id = "restored-track",
+            title = "Restored Track",
+            playbackUri = "https://example.com/restored-track.mp3"
+        )
+        val (runtime, fakePlayer, stateFlow) = createRuntimeWithSessionPlayerSupport(
+            appContext = appContext,
+            state = PlaybackProcessState(
+                tracks = emptyList(),
+                activeIndex = androidx.media3.common.C.INDEX_UNSET,
+                playWhenReady = false,
+                playbackState = PLAYBACK_STATE_STOPPED,
+                isSeekSupported = false,
+                positionMs = 0L,
+                durationMs = 0L
+            ),
+            trackPreparer = object : TrackPreparer {
+                override suspend fun prepare(
+                    item: PlaybackTrack,
+                    preferredAudioQuality: PlaybackAudioQuality
+                ): PreparationResult {
+                    return PreparationResult.Ready(
+                        source = FakeSessionPreparedSource(),
+                        mediaMeta = AudioMetaDisplay(
+                            codec = "aac",
+                            sampleRate = "44100 Hz",
+                            channels = "2",
+                            bitRate = "128 kbps",
+                            durationMs = 240_000L
+                        ),
+                        isSeekSupported = true,
+                        appliedAudioQuality = null
+                    )
+                }
+            }
+        )
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+        fakePlayer.seekResult = -6
+
+        invokeHandleSetMediaItems(
+            player = player,
+            mediaItems = listOf(restoredTrack.toMediaItem()),
+            startPositionMs = 54_000L
+        )
+        invokeHandleSetPlayWhenReady(player = player, playWhenReady = true)
+
+        assertTrue(fakePlayer.seekPositions.isEmpty())
+        assertTrue(fakePlayer.playStartPositions.isNotEmpty())
+        assertTrue(fakePlayer.playStartPositions.all { it == 54_000L })
+        assertEquals(54_000L, stateFlow.value.positionMs)
+    }
+
+    @Test
+    fun handleSetPlayWhenReady_afterRestoredPosition_shouldStartFromRestoredPosition() {
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        val restoredTrack = MusicInfo(
+            id = "restored-track",
+            title = "Restored Track",
+            playbackUri = "https://example.com/restored-track.mp3"
+        )
+        val (runtime, fakePlayer, stateFlow) = createRuntimeWithSessionPlayerSupport(
+            appContext = appContext,
+            state = PlaybackProcessState(
+                tracks = listOf(PlaybackTrack(playable = restoredTrack)),
+                activeIndex = 0,
+                playWhenReady = false,
+                playbackState = PLAYBACK_STATE_STOPPED,
+                isSeekSupported = true,
+                positionMs = 54_000L,
+                durationMs = 240_000L
+            ),
+            trackPreparer = object : TrackPreparer {
+                override suspend fun prepare(
+                    item: PlaybackTrack,
+                    preferredAudioQuality: PlaybackAudioQuality
+                ): PreparationResult {
+                    return PreparationResult.Ready(
+                        source = FakeSessionPreparedSource(),
+                        mediaMeta = AudioMetaDisplay(
+                            codec = "aac",
+                            sampleRate = "44100 Hz",
+                            channels = "2",
+                            bitRate = "128 kbps",
+                            durationMs = 240_000L
+                        ),
+                        isSeekSupported = true,
+                        appliedAudioQuality = null
+                    )
+                }
+            }
+        )
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+
+        invokeHandleSetMediaItems(
+            player = player,
+            mediaItems = listOf(restoredTrack.toMediaItem()),
+            startPositionMs = 54_000L
+        )
+        assertEquals(54_000L, stateFlow.value.positionMs)
+        assertTrue(fakePlayer.seekPositions.isEmpty())
+
+        invokeHandleSetPlayWhenReady(player = player, playWhenReady = true)
+
+        assertTrue(fakePlayer.playFromSourceCalls >= 1)
+        assertTrue(fakePlayer.playStartPositions.isNotEmpty())
+        assertTrue(fakePlayer.playStartPositions.all { it == 54_000L })
+        assertEquals(54_000L, stateFlow.value.positionMs)
+    }
+
+    @Test
+    fun handleSetMediaItems_whenSameTrackRequestsRestoredPosition_shouldRealignPosition() {
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        val restoredTrack = MusicInfo(
+            id = "restored-track",
+            title = "Restored Track",
+            playbackUri = "https://example.com/restored-track.mp3"
+        )
+        val (runtime, fakePlayer, stateFlow) = createRuntimeWithSessionPlayerSupport(
+            appContext = appContext,
+            state = PlaybackProcessState(
+                tracks = listOf(PlaybackTrack(playable = restoredTrack)),
+                activeIndex = 0,
+                playWhenReady = false,
+                playbackState = PLAYBACK_STATE_STOPPED,
+                isSeekSupported = true,
+                positionMs = 0L,
+                durationMs = 240_000L
+            ),
+            trackPreparer = object : TrackPreparer {
+                override suspend fun prepare(
+                    item: PlaybackTrack,
+                    preferredAudioQuality: PlaybackAudioQuality
+                ): PreparationResult {
+                    return PreparationResult.Ready(
+                        source = FakeSessionPreparedSource(),
+                        mediaMeta = AudioMetaDisplay(
+                            codec = "aac",
+                            sampleRate = "44100 Hz",
+                            channels = "2",
+                            bitRate = "128 kbps",
+                            durationMs = 240_000L
+                        ),
+                        isSeekSupported = true,
+                        appliedAudioQuality = null
+                    )
+                }
+            }
+        )
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+
+        invokeHandleSetMediaItems(
+            player = player,
+            mediaItems = listOf(restoredTrack.toMediaItem()),
+            startPositionMs = 54_000L
+        )
+
+        assertEquals(54_000L, stateFlow.value.positionMs)
+        assertTrue(fakePlayer.seekPositions.isEmpty())
+
+        invokeHandleSetPlayWhenReady(player = player, playWhenReady = true)
+
+        assertTrue(fakePlayer.playStartPositions.isNotEmpty())
+        assertTrue(fakePlayer.playStartPositions.all { it == 54_000L })
+    }
+
     private fun createRuntimeWithSessionPlayerSupport(
         appContext: Context,
-        state: PlaybackProcessState
+        state: PlaybackProcessState,
+        trackPreparer: TrackPreparer? = null
     ): Triple<PlaybackProcessRuntime, FakeSessionNativePlayer, MutableStateFlow<PlaybackProcessState>> {
         val runtime = unsafe.allocateInstance(PlaybackProcessRuntime::class.java) as PlaybackProcessRuntime
         val fakePlayer = FakeSessionNativePlayer()
@@ -458,13 +731,14 @@ class PlayerSessionPlayerTest {
             scope = serviceScope,
             queryDispatcher = Dispatchers.Main.immediate
         )
-        val trackPreparationCoordinator = TrackPreparationCoordinator(
+        val trackPreparationCoordinator = trackPreparer ?: TrackPreparationCoordinator(
             sourceRepository = MediaSourceRepository(appContext),
             playbackCoordinator = playbackCoordinator,
             ioDispatcher = Dispatchers.Main.immediate
         )
         val stateFlow = MutableStateFlow(state)
 
+        fakePlayer.statePositionProvider = { stateFlow.value.positionMs }
         setField(runtime, "_state", stateFlow)
         setField(runtime, "state", stateFlow.asStateFlow())
         setField(runtime, "serviceScope", serviceScope)
@@ -476,7 +750,8 @@ class PlayerSessionPlayerTest {
 
     private fun invokeHandleSetMediaItems(
         player: PlayerSessionPlayer,
-        mediaItems: List<androidx.media3.common.MediaItem>
+        mediaItems: List<androidx.media3.common.MediaItem>,
+        startPositionMs: Long = androidx.media3.common.C.TIME_UNSET
     ) {
         val method = PlayerSessionPlayer::class.java.getDeclaredMethod(
             "handleSetMediaItems",
@@ -488,7 +763,26 @@ class PlayerSessionPlayerTest {
         }
 
         @Suppress("UNCHECKED_CAST")
-        val future = method.invoke(player, mediaItems, 0, androidx.media3.common.C.TIME_UNSET)
+        val future = method.invoke(player, mediaItems, 0, startPositionMs)
+            as com.google.common.util.concurrent.ListenableFuture<*>
+        shadowOf(Looper.getMainLooper()).idle()
+        future.get()
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun invokeHandleSetPlayWhenReady(
+        player: PlayerSessionPlayer,
+        playWhenReady: Boolean
+    ) {
+        val method = PlayerSessionPlayer::class.java.getDeclaredMethod(
+            "handleSetPlayWhenReady",
+            Boolean::class.javaPrimitiveType
+        ).apply {
+            isAccessible = true
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        val future = method.invoke(player, playWhenReady)
             as com.google.common.util.concurrent.ListenableFuture<*>
         shadowOf(Looper.getMainLooper()).idle()
         future.get()
@@ -511,6 +805,10 @@ class PlayerSessionPlayerTest {
 
     private class FakeSessionNativePlayer : INativePlayer {
         var playFromSourceCalls = 0
+        val playStartPositions = mutableListOf<Long>()
+        val seekPositions = mutableListOf<Long>()
+        var seekResult: Int = 0
+        var statePositionProvider: (() -> Long)? = null
 
         override fun setProgressListener(listener: ((Long) -> Unit)?) = Unit
 
@@ -522,6 +820,7 @@ class PlayerSessionPlayerTest {
 
         override fun playFromSource(source: IPlaysource): Int {
             playFromSourceCalls += 1
+            statePositionProvider?.invoke()?.let(playStartPositions::add)
             return -5
         }
 
@@ -529,7 +828,10 @@ class PlayerSessionPlayerTest {
 
         override fun resume(): Int = 0
 
-        override fun seek(positionMs: Long): Int = 0
+        override fun seek(positionMs: Long): Int {
+            seekPositions += positionMs
+            return seekResult
+        }
 
         override fun getDurationFromSource(source: IPlaysource): Long = 0L
 
@@ -560,6 +862,30 @@ class PlayerSessionPlayerTest {
         override fun close() = Unit
 
         override fun lastError(): String = "ok"
+    }
+
+    private class FakeSessionPreparedSource : IPlaysource {
+        override val sourceId: String = "prepared-source"
+
+        override fun setSourceMode(mode: IPlaysource.SourceMode) = Unit
+
+        override fun open(): IPlaysource.AudioSourceCode = IPlaysource.AudioSourceCode.ASC_SUCCESS
+
+        override fun stop() = Unit
+
+        override fun abort() = Unit
+
+        override fun close() = Unit
+
+        override fun size(): Long = 240_000L
+
+        override fun cacheSize(): Long = 240_000L
+
+        override fun supportFastSeek(): Boolean = true
+
+        override fun read(buffer: ByteArray, size: Int): Int = -1
+
+        override fun seek(offset: Long, whence: Int): Long = offset
     }
 
     private companion object {

@@ -1,6 +1,7 @@
 package com.wxy.playerlite.core.playlist
 
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.PlaybackSourceContext
 
 enum class PlaylistItemType(
     val wireValue: String
@@ -31,6 +32,7 @@ data class PlaylistItem(
         uri = uri,
         songId = songId
     ),
+    val sourceContext: PlaybackSourceContext? = null,
     val contextType: String? = null,
     val contextId: String? = null,
     val contextTitle: String? = null

@@ -1,5 +1,8 @@
 package com.wxy.playerlite.playback.orchestrator
 
+import android.util.Log
+import androidx.media3.common.C
+
 class PlaybackTransportController(
     private val runtime: PlaybackRuntimePort,
     private val serviceController: PlayerServiceController,
@@ -36,8 +39,11 @@ class PlaybackTransportController(
         return accepted
     }
 
-    fun playSelectedAudio(): Boolean {
-        return playbackSynchronizer.syncQueueToPlaybackProcess(playWhenReady = true)
+    fun playSelectedAudio(startPositionMs: Long = C.TIME_UNSET): Boolean {
+        return playbackSynchronizer.syncQueueToPlaybackProcess(
+            playWhenReady = true,
+            startPositionMs = startPositionMs
+        )
     }
 
     fun pausePlayback(): Boolean {
@@ -49,7 +55,37 @@ class PlaybackTransportController(
         return accepted
     }
 
-    fun resumePlayback(): Boolean {
+    fun resumePlayback(startPositionMs: Long = C.TIME_UNSET): Boolean {
+        val queueSize = runtime.playbackQueueItems().size
+        if (startPositionMs != C.TIME_UNSET && queueSize > 0) {
+            safeLogI(
+                "resumePlayback: resync local queue startPositionMs=$startPositionMs, queueSize=$queueSize"
+            )
+            return playbackSynchronizer.syncQueueToPlaybackProcess(
+                playWhenReady = true,
+                startPositionMs = startPositionMs,
+                requirePlaybackServiceStart = true
+            )
+        }
+        val snapshot = serviceController.currentSnapshot()
+        val hasRemoteCurrentItem = !snapshot?.currentMediaId.isNullOrBlank() ||
+            !snapshot?.currentPlayable?.id.isNullOrBlank()
+        safeLogI(
+            "resumePlayback: fallback startPositionMs=$startPositionMs, queueSize=$queueSize, hasRemoteCurrentItem=$hasRemoteCurrentItem, remoteCurrentMediaId=${snapshot?.currentMediaId}, remotePositionMs=${snapshot?.currentPositionMs}"
+        )
+        if (!hasRemoteCurrentItem && queueSize > 0) {
+            safeLogI(
+                "resumePlayback: remote queue missing, syncing local queue startPositionMs=$startPositionMs"
+            )
+            return playbackSynchronizer.syncQueueToPlaybackProcess(
+                playWhenReady = true,
+                startPositionMs = startPositionMs,
+                requirePlaybackServiceStart = true
+            )
+        }
+        safeLogI(
+            "resumePlayback: using remote play() currentMediaId=${snapshot?.currentMediaId}, startPositionMs=$startPositionMs"
+        )
         serviceController.ensurePlaybackServiceStartedForPlayback()
         serviceController.connectIfNeeded()
         val accepted = serviceController.play()
@@ -74,5 +110,13 @@ class PlaybackTransportController(
             }
         )
         return accepted
+    }
+
+    private companion object {
+        private const val TAG = "PlaybackTransport"
+    }
+
+    private fun safeLogI(message: String) {
+        runCatching { Log.i(TAG, message) }
     }
 }

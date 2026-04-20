@@ -45,6 +45,13 @@ class SearchSongActionBridgeTest {
             listOf("search:song-1:0", "search:song-2:1"),
             request?.items?.map { it.id }
         )
+        val firstItem = requireNotNull(request?.items?.firstOrNull())
+        assertEquals("", firstItem.uri)
+        assertEquals("artist-1", firstItem.primaryArtistId)
+        assertEquals("album-1", firstItem.albumId)
+        assertEquals("search_song_result", firstItem.contextType)
+        assertEquals("song-1", firstItem.contextId)
+        assertEquals("无人知晓", firstItem.contextTitle)
     }
 
     @Test

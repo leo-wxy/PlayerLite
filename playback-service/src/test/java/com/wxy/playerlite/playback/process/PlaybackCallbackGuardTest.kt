@@ -10,7 +10,9 @@ class PlaybackCallbackGuardTest {
         assertTrue(
             shouldIgnorePlaybackCallback(
                 callbackTrackId = "track-old",
-                currentTrackId = "track-new"
+                currentTrackId = "track-new",
+                callbackGeneration = 1L,
+                currentGeneration = 1L
             )
         )
     }
@@ -20,7 +22,21 @@ class PlaybackCallbackGuardTest {
         assertFalse(
             shouldIgnorePlaybackCallback(
                 callbackTrackId = "track-1",
-                currentTrackId = "track-1"
+                currentTrackId = "track-1",
+                callbackGeneration = 3L,
+                currentGeneration = 3L
+            )
+        )
+    }
+
+    @Test
+    fun shouldIgnorePlaybackCallbackWhenGenerationHasAdvanced() {
+        assertTrue(
+            shouldIgnorePlaybackCallback(
+                callbackTrackId = "track-1",
+                currentTrackId = "track-1",
+                callbackGeneration = 2L,
+                currentGeneration = 3L
             )
         )
     }

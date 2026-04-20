@@ -119,6 +119,57 @@ class PlayerRuntimeProgressRegressionTest {
         assertEquals(6_800L, runtime.uiStateFlow.value.displayedSeekMs)
     }
 
+    @Test
+    fun updateRemotePlaybackState_shouldKeepProjectedPositionWhenSameTrackReentersPreparingAtZero() {
+        val runtime = PlayerRuntime(
+            appContext = RuntimeEnvironment.getApplication(),
+            elapsedRealtimeProvider = { 30_000L }
+        )
+        val queueItem = onlineItem(
+            contextId = "playlist-3",
+            index = 0,
+            songId = "track-3",
+            title = "第三首"
+        )
+        runtime.applyExternalQueueSelection(
+            items = listOf(queueItem),
+            activeIndex = 0
+        )
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+            positionMs = 12_345L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            isPreparing = false,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = queueItem.id,
+            isProgressAdvancing = true,
+            currentPlayable = queueItem.toPlayableSnapshot(),
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        runtime.updateRemotePlaybackState(
+            playbackState = com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 0L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            isPreparing = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = queueItem.id,
+            isProgressAdvancing = false,
+            currentPlayable = queueItem.toPlayableSnapshot(),
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        assertEquals(12_345L, runtime.uiStateFlow.value.displayedSeekMs)
+        assertEquals("第三首", runtime.uiStateFlow.value.currentTrackTitle)
+    }
+
     private fun onlineItem(
         contextId: String,
         index: Int,

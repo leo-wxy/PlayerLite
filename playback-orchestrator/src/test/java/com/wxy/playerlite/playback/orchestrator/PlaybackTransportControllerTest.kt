@@ -111,6 +111,105 @@ class PlaybackTransportControllerTest {
         assertEquals(listOf("connectIfNeeded", "clearCache"), serviceController.actions)
     }
 
+    @Test
+    fun resumePlayback_whenRemoteQueueMissing_shouldSyncQueueFromRestoredPosition() {
+        val runtime = FakeTransportRuntime(
+            queueItems = listOf(
+                onlineItem(index = 0, songId = "track-1", title = "第一首"),
+                onlineItem(index = 1, songId = "track-2", title = "第二首")
+            ),
+            activeIndex = 0,
+            playbackMode = PlaybackMode.LIST_LOOP
+        )
+        val serviceController = FakeTransportServiceController(currentSnapshot = null)
+        val synchronizer = PlaybackServiceSynchronizer(
+            runtime = runtime,
+            serviceController = serviceController,
+            playbackStateMapper = { 0 },
+            localShouldContinuePlayback = { false }
+        )
+        val controller = PlaybackTransportController(
+            runtime = runtime,
+            serviceController = serviceController,
+            playbackSynchronizer = synchronizer
+        )
+
+        val accepted = controller.resumePlayback(startPositionMs = 48_000L)
+
+        assertTrue(accepted)
+        assertEquals(
+            listOf(
+                "ensurePlaybackServiceStartedForPlayback",
+                "connectIfNeeded",
+                "syncQueue(size=2,active=0,play=true,start=48000)",
+                "setPlaybackMode(list_loop)"
+            ),
+            serviceController.actions
+        )
+    }
+
+    @Test
+    fun resumePlayback_whenRemoteCurrentItemExistsAndRestoredPositionProvided_shouldResyncQueue() {
+        val runtime = FakeTransportRuntime(
+            queueItems = listOf(
+                onlineItem(index = 0, songId = "track-1", title = "第一首"),
+                onlineItem(index = 1, songId = "track-2", title = "第二首")
+            ),
+            activeIndex = 0,
+            playbackMode = PlaybackMode.LIST_LOOP
+        )
+        val serviceController = FakeTransportServiceController(
+            currentSnapshot = RemotePlaybackSnapshot(
+                playbackState = 2,
+                playWhenReady = false,
+                isPlaying = false,
+                isSeekSupported = true,
+                currentPositionMs = 0L,
+                durationMs = 200_000L,
+                playbackSpeed = 1.0f,
+                playbackMode = PlaybackMode.LIST_LOOP,
+                statusText = null,
+                currentPlayable = PlayableItemSnapshot(
+                    id = "playlist:test:0:track-1",
+                    songId = "track-1",
+                    title = "第一首",
+                    artistText = "测试歌手",
+                    albumTitle = "测试专辑",
+                    coverUrl = "https://example.com/track-1.jpg",
+                    durationMs = 200_000L,
+                    playbackUri = "https://example.com/track-1.mp3"
+                ),
+                currentMediaId = "playlist:test:0:track-1",
+                playbackOutputInfo = null,
+                audioMeta = null
+            )
+        )
+        val synchronizer = PlaybackServiceSynchronizer(
+            runtime = runtime,
+            serviceController = serviceController,
+            playbackStateMapper = { 0 },
+            localShouldContinuePlayback = { false }
+        )
+        val controller = PlaybackTransportController(
+            runtime = runtime,
+            serviceController = serviceController,
+            playbackSynchronizer = synchronizer
+        )
+
+        val accepted = controller.resumePlayback(startPositionMs = 48_000L)
+
+        assertTrue(accepted)
+        assertEquals(
+            listOf(
+                "ensurePlaybackServiceStartedForPlayback",
+                "connectIfNeeded",
+                "syncQueue(size=2,active=0,play=true,start=48000)",
+                "setPlaybackMode(list_loop)"
+            ),
+            serviceController.actions
+        )
+    }
+
     private fun onlineItem(index: Int, songId: String, title: String): PlaylistItem {
         return PlaylistItem(
             id = "playlist:test:$index:$songId",

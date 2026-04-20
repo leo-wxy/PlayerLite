@@ -8,6 +8,7 @@ import com.wxy.playerlite.core.recentplayback.LocalRecentPlaybackStore
 import com.wxy.playerlite.core.playback.SongAudioQualityRepository
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
+import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_PLAYING
 import com.wxy.playerlite.feature.player.model.AUDIO_TRACK_PLAYSTATE_STOPPED
 import com.wxy.playerlite.feature.player.model.PlayerAudioQualityCatalogUiState
 import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
@@ -131,7 +132,15 @@ class PlayerViewModelTest {
 
             uiStateFlow.value = uiStateFlow.value.copy(
                 currentSongIdOverride = "track-1",
+                playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
                 isPreparing = true
+            )
+            runCurrent()
+
+            uiStateFlow.value = uiStateFlow.value.copy(
+                currentSongIdOverride = "track-1",
+                playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                isPreparing = false
             )
             runCurrent()
 
@@ -141,12 +150,122 @@ class PlayerViewModelTest {
             )
             uiStateFlow.value = uiStateFlow.value.copy(
                 currentSongIdOverride = "track-1",
-                isPreparing = true
+                playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                isPreparing = false
             )
             runCurrent()
 
             assertEquals(1, recentPlaybackStore.records.size)
             assertEquals("online:track-1", recentPlaybackStore.records.single().recordKey)
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun localRecentPlayback_shouldNotRecordAttemptThatNeverLeavesPreparing() = runTest {
+        val runtime = PlayerRuntime(application)
+        runtime.applyExternalQueueSelection(
+            items = listOf(onlineItem(index = 0, songId = "track-1", title = "第一首")),
+            activeIndex = 0
+        )
+        val uiStateField = PlayerRuntime::class.java.getDeclaredField("_uiState")
+        uiStateField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val uiStateFlow =
+            uiStateField.get(runtime) as MutableStateFlow<com.wxy.playerlite.feature.player.model.PlayerUiState>
+        val recentPlaybackStore = FakeLocalRecentPlaybackStore()
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            localRecentPlaybackStore = recentPlaybackStore,
+            serviceBridge = FakePlayerControlBridge(currentSnapshot = null),
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 60_000L,
+            uiProgressIntervalMs = 60_000L
+        )
+        try {
+            runCurrent()
+
+            uiStateFlow.value = uiStateFlow.value.copy(
+                currentSongIdOverride = "track-1",
+                playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+                isPreparing = true
+            )
+            runCurrent()
+
+            uiStateFlow.value = uiStateFlow.value.copy(
+                currentSongIdOverride = "track-1",
+                playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+                isPreparing = false
+            )
+            runCurrent()
+
+            assertTrue(recentPlaybackStore.records.isEmpty())
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun localRecentPlayback_shouldRecordOnceAfterRetryFinallyStartsPlaying() = runTest {
+        val runtime = PlayerRuntime(application)
+        runtime.applyExternalQueueSelection(
+            items = listOf(onlineItem(index = 0, songId = "track-1", title = "第一首")),
+            activeIndex = 0
+        )
+        val uiStateField = PlayerRuntime::class.java.getDeclaredField("_uiState")
+        uiStateField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val uiStateFlow =
+            uiStateField.get(runtime) as MutableStateFlow<com.wxy.playerlite.feature.player.model.PlayerUiState>
+        val recentPlaybackStore = FakeLocalRecentPlaybackStore()
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            localRecentPlaybackStore = recentPlaybackStore,
+            serviceBridge = FakePlayerControlBridge(currentSnapshot = null),
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 60_000L,
+            uiProgressIntervalMs = 60_000L
+        )
+        try {
+            runCurrent()
+
+            uiStateFlow.value = uiStateFlow.value.copy(
+                currentSongIdOverride = "track-1",
+                playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+                isPreparing = true
+            )
+            runCurrent()
+            assertTrue(recentPlaybackStore.records.isEmpty())
+
+            uiStateFlow.value = uiStateFlow.value.copy(
+                currentSongIdOverride = "track-1",
+                playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                isPreparing = false
+            )
+            runCurrent()
+
+            uiStateFlow.value = uiStateFlow.value.copy(
+                currentSongIdOverride = "track-1",
+                playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                isPreparing = true
+            )
+            runCurrent()
+
+            uiStateFlow.value = uiStateFlow.value.copy(
+                currentSongIdOverride = "track-1",
+                playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                isPreparing = false
+            )
+            runCurrent()
+
+            assertEquals(listOf("online:track-1"), recentPlaybackStore.records.map { it.recordKey })
         } finally {
             clearViewModel(viewModel)
             runCurrent()

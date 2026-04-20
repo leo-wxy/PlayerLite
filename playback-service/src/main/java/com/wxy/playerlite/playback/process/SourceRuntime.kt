@@ -259,7 +259,14 @@ internal class NeteaseCompatibleSourceAdapter(
         val preview = previewResolveMusicUrl(context)
             .getOrElse { return Result.failure(it) }
         val songId = context.songId?.takeIf { it.isNotBlank() }
-            ?: return Result.failure(IllegalArgumentException("Missing songId for netease source"))
+            ?: return Result.failure(
+                OnlinePlaybackResolutionException(
+                    OnlinePlaybackFailure(
+                        kind = OnlinePlaybackFailureKind.UNSUPPORTED,
+                        message = "Missing songId for netease source"
+                    )
+                )
+            )
         val resolved = resolver.resolve(
             songId = songId,
             requestHeaders = context.requestHeaders,
@@ -357,10 +364,13 @@ internal class HttpMappingSourceAdapter(
         )
         val playbackUrl = extractJsonString(response, config.response.playbackUrlPath)
             ?: return Result.failure(
-                IllegalStateException(
-                    config.response.errorMessagePath
-                        ?.let { extractJsonString(response, it) }
-                        ?: "Failed to resolve playbackUrl"
+                OnlinePlaybackResolutionException(
+                    OnlinePlaybackFailure(
+                        kind = OnlinePlaybackFailureKind.RESOURCE_UNAVAILABLE,
+                        message = config.response.errorMessagePath
+                            ?.let { extractJsonString(response, it) }
+                            ?: "Failed to resolve playbackUrl"
+                    )
                 )
             )
         val previewStartMs = config.response.previewStartMsPath
@@ -430,7 +440,14 @@ internal class ResolverBackedSourceAdapter(
         return when (action) {
             SourceAction.ResolveMusicUrl -> {
                 val songId = context.songId?.takeIf { it.isNotBlank() }
-                    ?: return Result.failure(IllegalArgumentException("Missing songId for online track"))
+                    ?: return Result.failure(
+                        OnlinePlaybackResolutionException(
+                            OnlinePlaybackFailure(
+                                kind = OnlinePlaybackFailureKind.UNSUPPORTED,
+                                message = "Missing songId for online track"
+                            )
+                        )
+                    )
                 val preview = previewResolveMusicUrl(context)
                     .getOrElse { return Result.failure(it) }
                 resolver.resolve(

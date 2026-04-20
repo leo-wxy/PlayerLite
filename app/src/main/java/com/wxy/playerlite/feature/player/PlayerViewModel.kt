@@ -6,6 +6,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.C
 import androidx.media3.common.Player
 import com.wxy.playerlite.core.AppContainer
 import com.wxy.playerlite.core.playback.AppPlaybackGraph
@@ -349,7 +350,7 @@ internal class PlayerViewModel(
     }
 
     fun playSelectedAudio() {
-        playbackTransportController.playSelectedAudio()
+        playbackTransportController.playSelectedAudio(startPositionMs = currentStartPositionMs())
     }
 
     fun runUiTestEntry() {
@@ -452,7 +453,8 @@ internal class PlayerViewModel(
     }
 
     fun resumePlayback() {
-        playbackTransportController.resumePlayback()
+        val startPositionMs = currentStartPositionMs()
+        playbackTransportController.resumePlayback(startPositionMs = startPositionMs)
     }
 
     fun stopAll(updateStatus: Boolean) {
@@ -496,6 +498,11 @@ internal class PlayerViewModel(
             runtime.updateLyricUiState(PlayerLyricUiState.Loading)
             loadLyricsInternal(songId = songId, showLoading = false)
         }
+    }
+
+    private fun currentStartPositionMs(): Long {
+        val positionMs = uiStateFlow.value.displayedSeekMs
+        return positionMs.takeIf { it > 0L } ?: C.TIME_UNSET
     }
 
     private fun scheduleAudioQualityCatalogForTarget(target: AudioQualityLoadTarget) {
@@ -644,7 +651,8 @@ internal class PlayerViewModel(
             albumId = activeItem.albumId,
             coverUrl = activeItem.coverUrl,
             durationMs = activeItem.durationMs,
-            shouldRecord = state.isPreparing || state.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING
+            shouldRecord = !state.isPreparing &&
+                state.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING
         )
     }
 

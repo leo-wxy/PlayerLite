@@ -21,6 +21,7 @@ data class PlayableItemSnapshot(
     override val durationMs: Long = 0L,
     override val playbackUri: String,
     override val playbackContext: PlaybackContext? = null,
+    override val sourceContext: PlaybackSourceContext? = null,
     override val previewClip: PlaybackPreviewClip? = null,
     override val requestHeaders: Map<String, String> = emptyMap(),
     override val requiresAuthorization: Boolean = false
@@ -75,6 +76,12 @@ data class PlayableItemSnapshot(
                     putString(EXTRA_CONTEXT_SOURCE_TITLE, it)
                 }
             }
+            sourceContext?.let { context ->
+                context.sourceConfigJson?.takeIf { it.isNotBlank() }?.let {
+                    putString(EXTRA_SOURCE_CONTEXT_CONFIG_JSON, it)
+                }
+                putBoolean(EXTRA_SOURCE_CONTEXT_USE_DEFAULT_SOURCE, context.useDefaultSource)
+            }
             previewClip?.let { clip ->
                 putLong(EXTRA_PREVIEW_CLIP_START_MS, clip.startMs)
                 putLong(EXTRA_PREVIEW_CLIP_END_MS, clip.endMs)
@@ -96,6 +103,8 @@ data class PlayableItemSnapshot(
         private const val EXTRA_CONTEXT_SOURCE_TYPE = "context_source_type"
         private const val EXTRA_CONTEXT_SOURCE_ID = "context_source_id"
         private const val EXTRA_CONTEXT_SOURCE_TITLE = "context_source_title"
+        private const val EXTRA_SOURCE_CONTEXT_CONFIG_JSON = "source_context_config_json"
+        private const val EXTRA_SOURCE_CONTEXT_USE_DEFAULT_SOURCE = "source_context_use_default_source"
         private const val EXTRA_PREVIEW_CLIP_START_MS = "preview_clip_start_ms"
         private const val EXTRA_PREVIEW_CLIP_END_MS = "preview_clip_end_ms"
 
@@ -126,6 +135,19 @@ data class PlayableItemSnapshot(
                         endMs = it.getLong(EXTRA_PREVIEW_CLIP_END_MS, 0L)
                     )
                 }
+            val sourceContext = extras?.let {
+                val sourceConfigJson = it.getString(EXTRA_SOURCE_CONTEXT_CONFIG_JSON)
+                    ?.takeIf { value -> value.isNotBlank() }
+                val useDefaultSource = it.getBoolean(EXTRA_SOURCE_CONTEXT_USE_DEFAULT_SOURCE, false)
+                if (sourceConfigJson != null || useDefaultSource) {
+                    PlaybackSourceContext(
+                        sourceConfigJson = sourceConfigJson,
+                        useDefaultSource = useDefaultSource
+                    )
+                } else {
+                    null
+                }
+            }
 
             return PlayableItemSnapshot(
                 id = mediaItem.mediaId.takeIf { it.isNotBlank() } ?: uri,
@@ -146,6 +168,7 @@ data class PlayableItemSnapshot(
                 durationMs = extras?.getLong(EXTRA_DURATION_MS, 0L) ?: 0L,
                 playbackUri = uri,
                 playbackContext = context,
+                sourceContext = sourceContext,
                 previewClip = clip,
                 requestHeaders = decodeHeaders(extras?.getString(EXTRA_REQUEST_HEADERS_JSON)),
                 requiresAuthorization = extras?.getBoolean(EXTRA_REQUIRES_AUTHORIZATION, false) ?: false

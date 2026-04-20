@@ -1,6 +1,7 @@
 package com.wxy.playerlite.playback.process
 
 import com.wxy.playerlite.playback.model.PlaybackPreviewClip
+import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -137,7 +138,93 @@ class OnlinePlaybackUrlResolverTest {
         )
 
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull()?.message?.contains("暂无版权") == true)
+        val error = result.exceptionOrNull() as? OnlinePlaybackResolutionException
+        assertEquals(OnlinePlaybackFailureKind.RESOURCE_UNAVAILABLE, error?.failure?.kind)
+        assertTrue(error?.message?.contains("暂无版权") == true)
+    }
+
+    @Test
+    fun resolveShouldClassifyExpiredUrlWhenPayloadMarksUrlExpired() = runBlocking {
+        val remote = FakeOnlinePlaybackRemoteDataSource(
+            songUrlV1Payload = songUrlPayload(
+                url = null,
+                size = 0L,
+                expiSeconds = 1200,
+                durationMs = 0L,
+                message = "URL expired"
+            ),
+            songUrlPayload = songUrlPayload(
+                url = null,
+                size = 0L,
+                expiSeconds = 1200,
+                durationMs = 0L,
+                message = "URL expired"
+            )
+        )
+        val resolver = OnlinePlaybackUrlResolver(
+            remoteDataSource = remote,
+            memoryCache = ResolvedOnlineUrlMemoryCache(maxEntries = 10),
+            nowMs = { 1_000L }
+        )
+
+        val result = resolver.resolve(
+            songId = "1969519579",
+            requestHeaders = emptyMap(),
+            requestedLevel = "exhigh"
+        )
+
+        assertTrue(result.isFailure)
+        val error = result.exceptionOrNull() as? OnlinePlaybackResolutionException
+        assertEquals(OnlinePlaybackFailureKind.URL_EXPIRED, error?.failure?.kind)
+        assertTrue(error?.message?.contains("expired") == true)
+    }
+
+    @Test
+    fun resolveShouldClassifyTransientNetworkFailureAsRetryable() = runBlocking {
+        val resolver = OnlinePlaybackUrlResolver(
+            remoteDataSource = object : OnlinePlaybackRemoteDataSource {
+                override suspend fun fetchSongUrlV1(
+                    songIds: String,
+                    level: String,
+                    requestHeaders: Map<String, String>,
+                    unblock: Boolean
+                ): JsonObject {
+                    throw IOException("network timeout")
+                }
+
+                override suspend fun fetchSongUrl(
+                    songIds: String,
+                    bitrate: Int,
+                    requestHeaders: Map<String, String>
+                ): JsonObject {
+                    throw IOException("connection reset")
+                }
+
+                override suspend fun checkMusic(
+                    songId: String,
+                    bitrate: Int,
+                    requestHeaders: Map<String, String>
+                ): JsonObject {
+                    return buildJsonObject {
+                        put("success", JsonPrimitive(true))
+                        put("message", JsonPrimitive("ok"))
+                    }
+                }
+            },
+            memoryCache = ResolvedOnlineUrlMemoryCache(maxEntries = 10),
+            nowMs = { 1_000L }
+        )
+
+        val result = resolver.resolve(
+            songId = "1969519579",
+            requestHeaders = emptyMap(),
+            requestedLevel = "exhigh"
+        )
+
+        assertTrue(result.isFailure)
+        val error = result.exceptionOrNull() as? OnlinePlaybackResolutionException
+        assertEquals(OnlinePlaybackFailureKind.RETRYABLE_NETWORK, error?.failure?.kind)
+        assertTrue(error?.message?.contains("network") == true)
     }
 
     @Test
@@ -440,7 +527,8 @@ class OnlinePlaybackUrlResolverTest {
         size: Long,
         expiSeconds: Int,
         durationMs: Long,
-        previewClipEndMs: Long? = null
+        previewClipEndMs: Long? = null,
+        message: String? = null
     ): JsonObject {
         return buildJsonObject {
             put("code", JsonPrimitive(200))
@@ -454,6 +542,7 @@ class OnlinePlaybackUrlResolverTest {
                             put("size", JsonPrimitive(size))
                             put("expi", JsonPrimitive(expiSeconds))
                             put("time", JsonPrimitive(durationMs))
+                            message?.let { put("message", JsonPrimitive(it)) }
                             if (previewClipEndMs != null) {
                                 put(
                                     "freeTrialInfo",
