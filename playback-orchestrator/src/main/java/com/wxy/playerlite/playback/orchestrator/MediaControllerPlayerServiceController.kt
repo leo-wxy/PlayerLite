@@ -87,5 +87,9 @@ class MediaControllerPlayerServiceController(
 
     override fun currentSnapshot(): RemotePlaybackSnapshot? = delegate.currentSnapshot()
 
+    override fun setSnapshotListener(listener: ((RemotePlaybackSnapshot?) -> Unit)?) {
+        delegate.setSnapshotListener(listener)
+    }
+
     override fun release() = delegate.release()
 }

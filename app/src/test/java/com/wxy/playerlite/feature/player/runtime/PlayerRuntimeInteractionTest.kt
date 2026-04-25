@@ -471,6 +471,77 @@ class PlayerRuntimeInteractionTest {
     }
 
     @Test
+    fun updateRemotePlaybackState_withStaleSameQueueIdentity_shouldKeepLocallySelectedItem() {
+        val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
+        val firstItem = onlineItem(
+            contextId = "playlist-same",
+            index = 0,
+            songId = "track-1",
+            title = "第一首"
+        )
+        val secondItem = onlineItem(
+            contextId = "playlist-same",
+            index = 1,
+            songId = "track-2",
+            title = "第二首"
+        )
+        val queue = listOf(firstItem, secondItem)
+        runtime.applyExternalQueueSelection(items = queue, activeIndex = 0)
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+            positionMs = 12_000L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = firstItem.id,
+            isProgressAdvancing = true,
+            currentPlayable = firstItem.toPlayableSnapshot(),
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        runtime.applyExternalQueueSelection(items = queue, activeIndex = 1)
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+            positionMs = 12_500L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = firstItem.id,
+            isProgressAdvancing = true,
+            currentPlayable = firstItem.toPlayableSnapshot(),
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        val staleState = runtime.uiStateFlow.value
+        assertEquals(1, staleState.activePlaylistIndex)
+        assertEquals("第二首", staleState.currentTrackTitle)
+        assertEquals(0L, staleState.displayedSeekMs)
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+            positionMs = 300L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = secondItem.id,
+            isProgressAdvancing = true,
+            currentPlayable = secondItem.toPlayableSnapshot(),
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        val confirmedState = runtime.uiStateFlow.value
+        assertEquals(1, confirmedState.activePlaylistIndex)
+        assertEquals("第二首", confirmedState.currentTrackTitle)
+        assertEquals(300L, confirmedState.displayedSeekMs)
+    }
+
+    @Test
     fun importedQueue_shouldPreserveContextAcrossPersistenceRestoreAndRemoval() {
         val appContext = RuntimeEnvironment.getApplication()
         appContext.getSharedPreferences("playlist_state", Context.MODE_PRIVATE)

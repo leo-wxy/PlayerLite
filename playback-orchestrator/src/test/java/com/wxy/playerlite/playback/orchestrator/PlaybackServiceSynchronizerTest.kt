@@ -6,6 +6,7 @@ import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.core.playlist.PlaylistItemType
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.MusicInfo
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
@@ -139,6 +140,7 @@ class PlaybackServiceSynchronizerTest {
             isPlaying = true,
             isSeekSupported = true,
             currentPositionMs = 12_000L,
+            bufferedPositionMs = 36_000L,
             durationMs = 200_000L,
             playbackSpeed = 1.25f,
             playbackMode = PlaybackMode.SINGLE_LOOP,
@@ -158,7 +160,14 @@ class PlaybackServiceSynchronizerTest {
             ),
             currentMediaId = "playlist:test:0:track-1",
             playbackOutputInfo = null,
-            audioMeta = null
+            audioMeta = null,
+            cacheProgress = PlaybackCacheProgressSnapshot(
+                cachedBytes = 128_000L,
+                totalBytes = 512_000L,
+                displayRatio = 0.25f,
+                isFullyCached = false,
+                isEstimated = false
+            )
         )
         val serviceController = FakePlayerServiceController(currentSnapshot = snapshot)
         val synchronizer = PlaybackServiceSynchronizer(
@@ -175,13 +184,75 @@ class PlaybackServiceSynchronizerTest {
         requireNotNull(remoteUpdate)
         assertEquals(7, remoteUpdate.playbackState)
         assertEquals(12_000L, remoteUpdate.positionMs)
+        assertEquals(36_000L, remoteUpdate.bufferedPositionMs)
         assertEquals(200_000L, remoteUpdate.durationMs)
         assertEquals(PlaybackMode.SINGLE_LOOP, remoteUpdate.playbackMode)
         assertEquals(AudioEffectPreset.WARM, remoteUpdate.audioEffectPreset)
         assertEquals(PlaybackAudioQuality.HIRES, remoteUpdate.preferredAudioQuality)
         assertEquals(PlaybackAudioQuality.LOSSLESS, remoteUpdate.appliedAudioQuality)
+        assertEquals(128_000L, remoteUpdate.cacheProgress?.cachedBytes)
+        assertEquals(0.25f, remoteUpdate.cacheProgress?.displayRatio ?: 0f, 0f)
         assertEquals("playlist:test:0:track-1", runtime.lastSyncedActiveItemId)
         assertEquals("Playing", runtime.reportedStatusText)
+    }
+
+    @Test
+    fun observeRemotePlaybackState_shouldApplySnapshotFromControllerListener() {
+        val runtime = FakePlaybackRuntime(
+            queueItems = emptyList(),
+            activeIndex = 0,
+            playbackMode = PlaybackMode.LIST_LOOP
+        )
+        val serviceController = FakePlayerServiceController(currentSnapshot = null)
+        val synchronizer = PlaybackServiceSynchronizer(
+            runtime = runtime,
+            serviceController = serviceController,
+            playbackStateMapper = { 11 },
+            localShouldContinuePlayback = { false }
+        )
+        val snapshot = RemotePlaybackSnapshot(
+            playbackState = Player.STATE_READY,
+            playWhenReady = true,
+            isPlaying = true,
+            isSeekSupported = true,
+            currentPositionMs = 24_000L,
+            bufferedPositionMs = 40_000L,
+            durationMs = 200_000L,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.SINGLE_LOOP,
+            statusText = "Playing",
+            currentPlayable = PlayableItemSnapshot(
+                id = "playlist:test:0:track-1",
+                songId = "track-1",
+                title = "第一首",
+                artistText = "测试歌手",
+                albumTitle = "测试专辑",
+                coverUrl = "https://example.com/track-1.jpg",
+                durationMs = 200_000L,
+                playbackUri = "https://example.com/track-1.mp3"
+            ),
+            currentMediaId = "playlist:test:0:track-1",
+            playbackOutputInfo = null,
+            audioMeta = null,
+            cacheProgress = PlaybackCacheProgressSnapshot(
+                cachedBytes = 256_000L,
+                totalBytes = 512_000L,
+                displayRatio = 0.5f,
+                isFullyCached = false,
+                isEstimated = false
+            )
+        )
+
+        synchronizer.observeRemotePlaybackState()
+        serviceController.emitSnapshot(snapshot)
+
+        val remoteUpdate = requireNotNull(runtime.lastRemoteUpdate)
+        assertTrue(serviceController.snapshotListenerRegistered)
+        assertEquals(11, remoteUpdate.playbackState)
+        assertEquals(24_000L, remoteUpdate.positionMs)
+        assertEquals(256_000L, remoteUpdate.cacheProgress?.cachedBytes)
+        assertEquals(0.5f, remoteUpdate.cacheProgress?.displayRatio ?: 0f, 0f)
+        assertEquals("playlist:test:0:track-1", runtime.lastSyncedActiveItemId)
     }
 
     @Test
@@ -366,6 +437,7 @@ private class FakePlaybackRuntime(
     override fun updateRemotePlaybackState(
         playbackState: Int,
         positionMs: Long,
+        bufferedPositionMs: Long,
         durationMs: Long,
         isSeekSupported: Boolean,
         isPreparing: Boolean,
@@ -378,11 +450,13 @@ private class FakePlaybackRuntime(
         audioMeta: AudioMetaDisplay?,
         audioEffectPreset: AudioEffectPreset?,
         preferredAudioQuality: PlaybackAudioQuality?,
-        appliedAudioQuality: PlaybackAudioQuality?
+        appliedAudioQuality: PlaybackAudioQuality?,
+        cacheProgress: PlaybackCacheProgressSnapshot?
     ) {
         lastRemoteUpdate = RemoteUpdate(
             playbackState = playbackState,
             positionMs = positionMs,
+            bufferedPositionMs = bufferedPositionMs,
             durationMs = durationMs,
             isSeekSupported = isSeekSupported,
             isPreparing = isPreparing,
@@ -395,7 +469,8 @@ private class FakePlaybackRuntime(
             audioMeta = audioMeta,
             audioEffectPreset = audioEffectPreset,
             preferredAudioQuality = preferredAudioQuality,
-            appliedAudioQuality = appliedAudioQuality
+            appliedAudioQuality = appliedAudioQuality,
+            cacheProgress = cacheProgress
         )
     }
 
@@ -413,6 +488,9 @@ private class FakePlayerServiceController(
 ) : PlayerServiceController {
     val actions = mutableListOf<String>()
     var lastSyncedQueue: List<PlayableItem>? = null
+    private var snapshotListener: ((RemotePlaybackSnapshot?) -> Unit)? = null
+    val snapshotListenerRegistered: Boolean
+        get() = snapshotListener != null
 
     override fun prewarmConnection() = Unit
 
@@ -477,12 +555,21 @@ private class FakePlayerServiceController(
 
     override fun currentSnapshot(): RemotePlaybackSnapshot? = currentSnapshot
 
+    fun emitSnapshot(snapshot: RemotePlaybackSnapshot?) {
+        snapshotListener?.invoke(snapshot)
+    }
+
+    override fun setSnapshotListener(listener: ((RemotePlaybackSnapshot?) -> Unit)?) {
+        snapshotListener = listener
+    }
+
     override fun release() = Unit
 }
 
 private data class RemoteUpdate(
     val playbackState: Int,
     val positionMs: Long,
+    val bufferedPositionMs: Long,
     val durationMs: Long,
     val isSeekSupported: Boolean,
     val isPreparing: Boolean,
@@ -495,5 +582,6 @@ private data class RemoteUpdate(
     val audioMeta: AudioMetaDisplay?,
     val audioEffectPreset: AudioEffectPreset?,
     val preferredAudioQuality: PlaybackAudioQuality?,
-    val appliedAudioQuality: PlaybackAudioQuality?
+    val appliedAudioQuality: PlaybackAudioQuality?,
+    val cacheProgress: PlaybackCacheProgressSnapshot?
 )

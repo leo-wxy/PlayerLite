@@ -51,6 +51,9 @@ internal class PlayerSessionPlayer(
                 runtimeState.audioMeta?.let { audioMeta ->
                     PlaybackMetadataExtras.writeAudioMeta(extras, audioMeta)
                 }
+                runtimeState.cacheProgress?.let { cacheProgress ->
+                    PlaybackMetadataExtras.writeCacheProgress(extras, cacheProgress)
+                }
                 runtimeState.playbackOutputInfo?.let { info ->
                     PlaybackMetadataExtras.writePlaybackOutputInfo(extras, info)
                 }

@@ -170,6 +170,76 @@ class PlayerRuntimeProgressRegressionTest {
         assertEquals("第三首", runtime.uiStateFlow.value.currentTrackTitle)
     }
 
+    @Test
+    fun updateRemotePlaybackState_whenPreparingAfterSeek_shouldFreezeAtSeekTarget() {
+        var elapsedRealtimeMs = 40_000L
+        val runtime = PlayerRuntime(
+            appContext = RuntimeEnvironment.getApplication(),
+            elapsedRealtimeProvider = { elapsedRealtimeMs }
+        )
+        val queueItem = onlineItem(
+            contextId = "playlist-4",
+            index = 0,
+            songId = "track-4",
+            title = "第四首"
+        )
+        runtime.applyExternalQueueSelection(
+            items = listOf(queueItem),
+            activeIndex = 0
+        )
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+            positionMs = 40_000L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            isPreparing = false,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = queueItem.id,
+            isProgressAdvancing = true,
+            currentPlayable = queueItem.toPlayableSnapshot(),
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+            positionMs = 90_000L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            isPreparing = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = queueItem.id,
+            isProgressAdvancing = true,
+            currentPlayable = queueItem.toPlayableSnapshot(),
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        elapsedRealtimeMs += 1_000L
+        runtime.tickRemotePlaybackPosition()
+        assertEquals(90_000L, runtime.uiStateFlow.value.displayedSeekMs)
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+            positionMs = 85_000L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            isPreparing = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = queueItem.id,
+            isProgressAdvancing = true,
+            currentPlayable = queueItem.toPlayableSnapshot(),
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        assertEquals(90_000L, runtime.uiStateFlow.value.displayedSeekMs)
+    }
+
     private fun onlineItem(
         contextId: String,
         index: Int,

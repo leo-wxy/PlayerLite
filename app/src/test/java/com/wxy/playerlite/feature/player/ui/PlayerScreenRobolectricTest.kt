@@ -42,6 +42,7 @@ import com.wxy.playerlite.feature.player.model.PlayerLyricUiState
 import com.wxy.playerlite.feature.player.model.PlayerMoreActionsPage
 import com.wxy.playerlite.feature.player.model.PlayerOrientationMode
 import com.wxy.playerlite.feature.player.model.PlayerTopTab
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
@@ -169,6 +170,10 @@ class PlayerScreenRobolectricTest {
             .onNodeWithTag("player_screen_top_back_button")
             .fetchSemanticsNode()
             .boundsInRoot
+        val topBarBounds = composeRule
+            .onNodeWithTag("player_screen_top_bar")
+            .fetchSemanticsNode()
+            .boundsInRoot
         val titleBounds = composeRule
             .onNodeWithTag("player_screen_top_tabs")
             .fetchSemanticsNode()
@@ -181,6 +186,260 @@ class PlayerScreenRobolectricTest {
             "Expected title to share the same top-bar baseline with back/share actions, but got title=${titleBounds.center.y}, back=${backBounds.center.y}, share=${shareBounds.center.y}",
             kotlin.math.abs(titleBounds.center.y - backBounds.center.y) < 4f &&
                 kotlin.math.abs(titleBounds.center.y - shareBounds.center.y) < 4f
+        )
+        assertTrue(
+            "Expected top tabs to stay absolutely centered in the top bar, but got tabs=${titleBounds.center.x}, bar=${topBarBounds.center.x}",
+            kotlin.math.abs(titleBounds.center.x - topBarBounds.center.x) < 1.5f
+        )
+    }
+
+    @Test
+    fun activePlayback_narrowWidthTopTabs_shouldStayHorizontal() {
+        composeRule.setContent {
+            Box(
+                modifier = Modifier.size(width = 320.dp, height = 720.dp)
+            ) {
+                PlayerLiteTheme {
+                    PlayerScreen(
+                        fileName = "夜曲",
+                        artistText = "周杰伦",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        modifier = Modifier.fillMaxSize(),
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("player_screen_top_tabs").assertIsDisplayed()
+        val songTabTextBounds = composeRule
+            .onNodeWithText("歌曲")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val lyricsTabTextBounds = composeRule
+            .onNodeWithText("歌词")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        assertTrue(
+            "Expected song and lyrics labels to remain on the same row on narrow width, but got song=${songTabTextBounds.center.y}, lyrics=${lyricsTabTextBounds.center.y}",
+            abs(songTabTextBounds.center.y - lyricsTabTextBounds.center.y) < 2f
+        )
+        assertTrue(
+            "Expected lyrics tab to stay to the right of song tab on narrow width, but got song=$songTabTextBounds lyrics=$lyricsTabTextBounds",
+            lyricsTabTextBounds.center.x > songTabTextBounds.center.x
+        )
+    }
+
+    @Test
+    fun activePlayback_topTabs_shouldUseReadableVisualTokens() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "夜曲",
+                    artistText = "周杰伦",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylistWithCover,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    selectedTopTab = PlayerTopTab.SONG,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 12_000L,
+                    currentDurationText = "00:12",
+                    durationMs = 120_000L,
+                    totalDurationText = "02:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onSelectTopTab = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {}
+                )
+            }
+        }
+
+        val songTabNode = composeRule
+            .onNodeWithTag("player_screen_top_tab_song")
+            .fetchSemanticsNode()
+        val lyricsTabNode = composeRule
+            .onNodeWithTag("player_screen_top_tab_lyrics")
+            .fetchSemanticsNode()
+        val songTabTextSize = songTabNode.config.getOrNull(PlayerTopTabTextSizeSpKey)
+            ?: error("Missing song tab text size semantics")
+        val lyricsTabTextSize = lyricsTabNode.config.getOrNull(PlayerTopTabTextSizeSpKey)
+            ?: error("Missing lyrics tab text size semantics")
+        val songTabFontWeight = songTabNode.config.getOrNull(PlayerTopTabFontWeightKey)
+            ?: error("Missing song tab font weight semantics")
+        val lyricsTabFontWeight = lyricsTabNode.config.getOrNull(PlayerTopTabFontWeightKey)
+            ?: error("Missing lyrics tab font weight semantics")
+        val songTabHorizontalPadding = songTabNode.config.getOrNull(PlayerTopTabHorizontalPaddingDpKey)
+            ?: error("Missing song tab horizontal padding semantics")
+        val lyricsTabHorizontalPadding = lyricsTabNode.config.getOrNull(PlayerTopTabHorizontalPaddingDpKey)
+            ?: error("Missing lyrics tab horizontal padding semantics")
+        val songTabIndicatorHeight = songTabNode.config.getOrNull(PlayerTopTabIndicatorHeightDpKey)
+            ?: error("Missing song tab indicator height semantics")
+        val lyricsTabIndicatorHeight = lyricsTabNode.config.getOrNull(PlayerTopTabIndicatorHeightDpKey)
+            ?: error("Missing lyrics tab indicator height semantics")
+
+        assertTrue(
+            "Expected song tab text size to remain readable, but got $songTabTextSize",
+            songTabTextSize >= 18f
+        )
+        assertTrue(
+            "Expected lyrics tab text size to remain readable, but got $lyricsTabTextSize",
+            lyricsTabTextSize >= 18f
+        )
+        assertEquals(
+            500,
+            songTabFontWeight
+        )
+        assertEquals(
+            400,
+            lyricsTabFontWeight
+        )
+        assertTrue(
+            "Expected song tab horizontal padding to remain comfortable, but got $songTabHorizontalPadding",
+            songTabHorizontalPadding >= 8f
+        )
+        assertTrue(
+            "Expected lyrics tab horizontal padding to remain comfortable, but got $lyricsTabHorizontalPadding",
+            lyricsTabHorizontalPadding >= 8f
+        )
+        assertEquals(
+            2f,
+            songTabIndicatorHeight,
+            0.01f
+        )
+        assertEquals(
+            2f,
+            lyricsTabIndicatorHeight,
+            0.01f
+        )
+    }
+
+    @Test
+    fun activePlayback_narrowWidthTopTabs_shouldStayCenteredAndClearEdgeActions() {
+        composeRule.setContent {
+            Box(
+                modifier = Modifier.size(width = 320.dp, height = 720.dp)
+            ) {
+                PlayerLiteTheme {
+                    PlayerScreen(
+                        fileName = "夜曲",
+                        artistText = "周杰伦",
+                        status = "正在播放",
+                        hasSelection = true,
+                        playlistItems = demoOnlinePlaylistWithCover,
+                        activePlaylistIndex = 0,
+                        showPlaylistSheet = false,
+                        selectedTopTab = PlayerTopTab.SONG,
+                        isPreparing = false,
+                        playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                        isSeekSupported = true,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorderPlaylist = true,
+                        seekValueMs = 12_000L,
+                        currentDurationText = "00:12",
+                        durationMs = 120_000L,
+                        totalDurationText = "02:00",
+                        enableEnterMotion = false,
+                        modifier = Modifier.fillMaxSize(),
+                        onPickAudio = {},
+                        onTogglePlaylistSheet = {},
+                        onDismissPlaylistSheet = {},
+                        onSelectTopTab = {},
+                        onSelectPlaylistItem = {},
+                        onRemovePlaylistItem = {},
+                        onMovePlaylistItem = { _, _ -> },
+                        onPlay = {},
+                        onPrevious = {},
+                        onNext = {},
+                        onPause = {},
+                        onResume = {},
+                        onCyclePlaybackMode = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSeekValueChange = {},
+                        onSeekFinished = {}
+                    )
+                }
+            }
+        }
+
+        val topBarBounds = composeRule
+            .onNodeWithTag("player_screen_top_bar")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val topTabsBounds = composeRule
+            .onNodeWithTag("player_screen_top_tabs")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val backBounds = composeRule
+            .onNodeWithTag("player_screen_top_back_button")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val actionsBounds = composeRule
+            .onNodeWithTag("player_screen_top_actions")
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        assertTrue(
+            "Expected top tabs overlay to stay centered in the top bar, but got topBar=${topBarBounds.center.x}, tabs=${topTabsBounds.center.x}",
+            abs(topBarBounds.center.x - topTabsBounds.center.x) < 1f
+        )
+        assertTrue(
+            "Expected top tabs overlay to avoid the back button on narrow width, but got backRight=${backBounds.right}, tabsLeft=${topTabsBounds.left}",
+            topTabsBounds.left - backBounds.right >= 4f
+        )
+        assertTrue(
+            "Expected top tabs overlay to avoid trailing actions on narrow width, but got tabsRight=${topTabsBounds.right}, actionsLeft=${actionsBounds.left}",
+            actionsBounds.left - topTabsBounds.right >= 4f
         )
     }
 
@@ -3415,6 +3674,238 @@ class PlayerScreenRobolectricTest {
         composeRule.onNodeWithTag("player_screen_slider_track").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_slider_active_track").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_slider_thumb").assertIsDisplayed()
+    }
+
+    @Test
+    fun activePlayback_shouldRenderCacheTrackOnSharedProgressBar() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "夜曲",
+                    artistText = "周杰伦",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylistWithCover,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 45_000L,
+                    cacheProgress = PlaybackCacheProgressSnapshot(
+                        cachedBytes = 7_000_000L,
+                        totalBytes = 10_000_000L,
+                        displayRatio = 0.7f,
+                        isFullyCached = false,
+                        isEstimated = false
+                    ).displayRatio,
+                    currentDurationText = "00:45",
+                    durationMs = 180_000L,
+                    totalDurationText = "03:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("player_screen_slider_cached_track").assertIsDisplayed()
+    }
+
+    @Test
+    fun activePlayback_fullCache_shouldStretchCachedTrackToFullSliderWidth() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "夜曲",
+                    artistText = "周杰伦",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylistWithCover,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 45_000L,
+                    cacheProgress = 1f,
+                    currentDurationText = "00:45",
+                    durationMs = 180_000L,
+                    totalDurationText = "03:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {}
+                )
+            }
+        }
+
+        val sliderTrackWidth = composeRule
+            .onNodeWithTag("player_screen_slider_track")
+            .fetchSemanticsNode()
+            .boundsInRoot
+            .width
+        val cachedTrackWidth = composeRule
+            .onNodeWithTag("player_screen_slider_cached_track")
+            .fetchSemanticsNode()
+            .boundsInRoot
+            .width
+
+        assertTrue(
+            "Expected full cache track to span the whole slider, but got cached=$cachedTrackWidth track=$sliderTrackWidth",
+            abs(cachedTrackWidth - sliderTrackWidth) < 2f
+        )
+    }
+
+    @Test
+    fun activePlayback_cacheProgressEqualToProgress_shouldKeepCachedTrackVisible() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "夜曲",
+                    artistText = "周杰伦",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylistWithCover,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 45_000L,
+                    cacheProgress = 0.25f,
+                    currentDurationText = "00:45",
+                    durationMs = 180_000L,
+                    totalDurationText = "03:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {}
+                )
+            }
+        }
+
+        val activeTrackWidth = composeRule
+            .onNodeWithTag("player_screen_slider_active_track")
+            .fetchSemanticsNode()
+            .boundsInRoot
+            .width
+        val cachedTrackWidth = composeRule
+            .onNodeWithTag("player_screen_slider_cached_track")
+            .fetchSemanticsNode()
+            .boundsInRoot
+            .width
+
+        assertTrue(
+            "Expected cached track to remain present when cacheProgress equals progress, but got cached=$cachedTrackWidth active=$activeTrackWidth",
+            abs(cachedTrackWidth - activeTrackWidth) < 2f
+        )
+    }
+
+    @Test
+    fun activePlayback_cacheProgressBelowProgress_shouldNotRaiseCachedTrackToPlaybackProgress() {
+        composeRule.setContent {
+            PlayerLiteTheme {
+                PlayerScreen(
+                    fileName = "夜曲",
+                    artistText = "周杰伦",
+                    status = "正在播放",
+                    hasSelection = true,
+                    playlistItems = demoOnlinePlaylistWithCover,
+                    activePlaylistIndex = 0,
+                    showPlaylistSheet = false,
+                    isPreparing = false,
+                    playbackState = AUDIO_TRACK_PLAYSTATE_PLAYING,
+                    isSeekSupported = true,
+                    playbackMode = PlaybackMode.LIST_LOOP,
+                    showOriginalOrderInShuffle = false,
+                    canReorderPlaylist = true,
+                    seekValueMs = 90_000L,
+                    cacheProgress = 0.25f,
+                    currentDurationText = "01:30",
+                    durationMs = 180_000L,
+                    totalDurationText = "03:00",
+                    enableEnterMotion = false,
+                    onPickAudio = {},
+                    onTogglePlaylistSheet = {},
+                    onDismissPlaylistSheet = {},
+                    onSelectPlaylistItem = {},
+                    onRemovePlaylistItem = {},
+                    onMovePlaylistItem = { _, _ -> },
+                    onPlay = {},
+                    onPrevious = {},
+                    onNext = {},
+                    onPause = {},
+                    onResume = {},
+                    onCyclePlaybackMode = {},
+                    onShowOriginalOrderInShuffleChange = {},
+                    onSeekValueChange = {},
+                    onSeekFinished = {}
+                )
+            }
+        }
+
+        val activeTrackWidth = composeRule
+            .onNodeWithTag("player_screen_slider_active_track")
+            .fetchSemanticsNode()
+            .boundsInRoot
+            .width
+        val cachedTrackWidth = composeRule
+            .onNodeWithTag("player_screen_slider_cached_track")
+            .fetchSemanticsNode()
+            .boundsInRoot
+            .width
+
+        assertTrue(
+            "Expected cached track to keep its own cache ratio below playback progress, but got cached=$cachedTrackWidth active=$activeTrackWidth",
+            cachedTrackWidth < activeTrackWidth
+        )
     }
 
     private fun assertVerticalOrder(upperTag: String, lowerTag: String) {

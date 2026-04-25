@@ -6,6 +6,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import android.util.Log
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.PlaybackSourceContext
 import com.wxy.playerlite.cache.core.CacheCore
@@ -29,6 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -49,10 +51,13 @@ internal data class PlaybackProcessState(
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val audioMeta: AudioMetaDisplay? = null,
+    val cacheProgress: PlaybackCacheProgressSnapshot? = null,
     val isPreparing: Boolean = false,
     val statusText: String = "Idle",
     val displayTitleOverride: String? = null,
-    val displaySubtitleOverride: String? = null
+    val displaySubtitleOverride: String? = null,
+    val currentCacheResourceKey: String? = null,
+    val currentCacheContentLengthHintBytes: Long? = null
 ) {
     val currentTrack: PlaybackTrack?
         get() = tracks.getOrNull(activeIndex)
@@ -80,6 +85,7 @@ internal class PlaybackProcessRuntime(
     @Volatile
     private var playbackCacheLimitBytes: Long = readPersistedPlaybackCacheLimitBytes()
     private val onlinePlaybackPlanner = OnlinePlaybackPreparationPlanner(
+        cacheRootDirPath = cacheRootDirPath,
         sourceAdapterProvider = ::currentSourceAdapter
     )
     private val mediaSourceRepository = MediaSourceRepository(appContext)
@@ -112,7 +118,6 @@ internal class PlaybackProcessRuntime(
     @Volatile
     private var lastPersistedPlaybackSessionState: PlaybackSessionState? =
         playbackSessionStateStorage?.read()
-
     private val _state = MutableStateFlow(
         PlaybackProcessState(
             audioEffectPreset = readPersistedAudioEffectPreset(),
@@ -451,7 +456,7 @@ internal class PlaybackProcessRuntime(
         pendingSeekPositionMs = null
         pendingAudioQualitySwitchTarget = requestedAudioQuality
         playbackCoordinator.stopPlayback()
-        sourceSession.release()
+        releasePreparedSourceSession()
         _state.value = previousState.copy(
             preferredAudioQuality = requestedAudioQuality,
             appliedAudioQuality = null,
@@ -494,7 +499,7 @@ internal class PlaybackProcessRuntime(
         pendingSeekPositionMs = null
         pendingAudioQualitySwitchTarget = null
         playbackCoordinator.stopPlayback()
-        sourceSession.release()
+        releasePreparedSourceSession()
         _state.value = previousState.copy(
             isPreparing = true,
             playbackState = if (shouldResumePlayback) {
@@ -526,22 +531,37 @@ internal class PlaybackProcessRuntime(
     fun restorePreparedPositionWithoutPlayback(positionMs: Long) {
         val source = sourceSession.currentSource() ?: return
         if (!source.supportFastSeek()) {
-            _state.value = _state.value.copy(
+            val previous = _state.value
+            val nextState = previous.copy(
                 positionMs = 0L,
                 playbackState = PLAYBACK_STATE_PAUSED,
                 isPreparing = false,
                 statusText = "Prepared (seek unavailable)"
+            )
+            val resolvedCacheProgress = resolveCurrentCacheProgress(nextState)
+            _state.value = nextState.copy(
+                cacheProgress = resolvedCacheProgress
             )
             return
         }
         val audioQualityStatus = consumePendingAudioQualitySwitchStatus(
             appliedAudioQuality = _state.value.appliedAudioQuality
         )
-        _state.value = _state.value.copy(
+        val nextState = _state.value.copy(
             positionMs = positionMs,
             playbackState = PLAYBACK_STATE_PAUSED,
             isPreparing = false,
             statusText = audioQualityStatus ?: "Paused"
+        )
+        _state.value = nextState.copy(
+            cacheProgress = preserveStableCacheProgress(
+                previous = _state.value.cacheProgress,
+                next = resolveCurrentCacheProgress(nextState)
+            )
+        )
+        (source as? PlaybackCacheProgressEmitter)?.onPlaybackSeekPositionChanged(
+            positionMs = positionMs,
+            durationMs = nextState.durationMs
         )
         persistPlaybackSessionState(force = true)
     }
@@ -842,7 +862,7 @@ internal class PlaybackProcessRuntime(
             val current = _state.value
             val shouldBuffer = current.playWhenReady || current.playbackState == PLAYBACK_STATE_PLAYING
             pendingSeekPositionMs = if (shouldBuffer) bounded else null
-            _state.value = current.copy(
+            val nextState = current.copy(
                 positionMs = bounded,
                 isPreparing = shouldBuffer,
                 playbackState = if (shouldBuffer) {
@@ -855,6 +875,17 @@ internal class PlaybackProcessRuntime(
                 } else {
                     current.statusText
                 }
+            )
+            val resolvedCacheProgress = resolveCurrentCacheProgress(nextState)
+            _state.value = nextState.copy(
+                cacheProgress = preserveStableCacheProgress(
+                    previous = current.cacheProgress,
+                    next = resolvedCacheProgress
+                )
+            )
+            (currentPreparedSourceOrNull() as? PlaybackCacheProgressEmitter)?.onPlaybackSeekPositionChanged(
+                positionMs = bounded,
+                durationMs = nextState.durationMs
             )
             persistPlaybackSessionState(force = true)
         } else {
@@ -887,7 +918,7 @@ internal class PlaybackProcessRuntime(
 
     fun clearCache(): Boolean {
         stop()
-        sourceSession.release()
+        releasePreparedSourceSession()
         invalidateOnlinePreparationCaches()
 
         val clearResult = CacheCore.clearAll()
@@ -898,6 +929,9 @@ internal class PlaybackProcessRuntime(
             durationMs = 0L,
             positionMs = 0L,
             audioMeta = null,
+            cacheProgress = null,
+            currentCacheResourceKey = null,
+            currentCacheContentLengthHintBytes = null,
             statusText = if (success) {
                 "缓存已清理"
             } else {
@@ -908,7 +942,7 @@ internal class PlaybackProcessRuntime(
     }
 
     fun release() {
-        sourceSession.release()
+        releasePreparedSourceSession()
         playbackCoordinator.close()
         CacheCore.shutdown()
     }
@@ -935,6 +969,9 @@ internal class PlaybackProcessRuntime(
                         playbackState = PLAYBACK_STATE_STOPPED,
                         isSeekSupported = false,
                         audioMeta = null,
+                        cacheProgress = null,
+                        currentCacheResourceKey = null,
+                        currentCacheContentLengthHintBytes = null,
                         statusText = preparation.message
                     )
                     false
@@ -943,12 +980,14 @@ internal class PlaybackProcessRuntime(
                 is PreparationResult.Ready -> {
                     sourceSession.markPrepared(item.id, preparation.source)
                     val duration = preparation.mediaMeta.durationMs.coerceAtLeast(0L)
-                    _state.value = _state.value.copy(
+                    val nextState = _state.value.copy(
                         isPreparing = false,
                         isSeekSupported = preparation.isSeekSupported,
                         appliedAudioQuality = preparation.appliedAudioQuality,
                         durationMs = duration,
                         audioMeta = preparation.mediaMeta,
+                        currentCacheResourceKey = preparation.cacheResourceKey,
+                        currentCacheContentLengthHintBytes = preparation.cacheContentLengthHintBytes,
                         statusText = if (!preparation.isSeekSupported) {
                             "Prepared (seek unavailable)"
                         } else if (duration > 0L) {
@@ -956,6 +995,14 @@ internal class PlaybackProcessRuntime(
                         } else {
                             "Prepared (duration unavailable)"
                         }
+                    )
+                    bindCacheProgressEmitter(
+                        source = preparation.source,
+                        resourceKey = preparation.cacheResourceKey
+                    )
+                    _state.value = nextState.copy(
+                        cacheProgress = preparation.initialCacheProgress
+                            ?: resolveCurrentCacheProgress(nextState)
                     )
                     true
                 }
@@ -971,6 +1018,9 @@ internal class PlaybackProcessRuntime(
                 playbackState = PLAYBACK_STATE_STOPPED,
                 isSeekSupported = false,
                 audioMeta = null,
+                cacheProgress = null,
+                currentCacheResourceKey = null,
+                currentCacheContentLengthHintBytes = null,
                 statusText = "Failed to prepare media"
             )
             false
@@ -984,7 +1034,7 @@ internal class PlaybackProcessRuntime(
         val currentActiveAudioSourceConfigJson = _state.value.activeAudioSourceConfigJson
         val currentPlaybackCacheLimitBytes = _state.value.playbackCacheLimitBytes
         stop()
-        sourceSession.release()
+        releasePreparedSourceSession()
         _state.value = PlaybackProcessState(
             playbackSpeed = currentSpeed,
             audioEffectPreset = currentAudioEffectPreset,
@@ -1329,7 +1379,7 @@ internal class PlaybackProcessRuntime(
             pendingAudioQualitySwitchTarget = null
             clearCurrentTrackSourceOverride()
             playbackCoordinator.stopPlayback()
-            sourceSession.release()
+            releasePreparedSourceSession()
         }
 
         _state.value = previous.copy(
@@ -1342,13 +1392,162 @@ internal class PlaybackProcessRuntime(
             durationMs = if (changedTrack) 0L else previous.durationMs,
             appliedAudioQuality = if (changedTrack) null else previous.appliedAudioQuality,
             audioMeta = if (changedTrack) null else previous.audioMeta,
+            cacheProgress = if (changedTrack) null else previous.cacheProgress,
             isPreparing = false,
             playbackState = if (changedTrack) PLAYBACK_STATE_STOPPED else previous.playbackState,
             statusText = statusText,
             displayTitleOverride = if (changedTrack) null else previous.displayTitleOverride,
-            displaySubtitleOverride = if (changedTrack) null else previous.displaySubtitleOverride
+            displaySubtitleOverride = if (changedTrack) null else previous.displaySubtitleOverride,
+            currentCacheResourceKey = if (changedTrack) null else previous.currentCacheResourceKey,
+            currentCacheContentLengthHintBytes = if (changedTrack) {
+                null
+            } else {
+                previous.currentCacheContentLengthHintBytes
+            }
         )
         persistPlaybackSessionState(force = true)
+    }
+
+    private fun resolveCurrentCacheProgress(
+        state: PlaybackProcessState
+    ): PlaybackCacheProgressSnapshot? {
+        val resourceKey = state.currentCacheResourceKey?.takeIf { it.isNotBlank() } ?: run {
+            emitCacheProgressDebugLog(
+                "cacheProgress skipped: missing resourceKey, track=${state.currentTrack?.id ?: "<none>"}, pos=${state.positionMs}, dur=${state.durationMs}"
+            )
+            return null
+        }
+        val snapshot = CacheCore.lookup(resourceKey).getOrNull()
+        emitCacheProgressDebugLog(
+            buildString {
+                append("cacheProgress resolve: key=")
+                append(resourceKey)
+                append(", pos=")
+                append(state.positionMs)
+                append(", dur=")
+                append(state.durationMs)
+                append(", hint=")
+                append(state.currentCacheContentLengthHintBytes ?: -1L)
+                append(", snapshot=")
+                append(describeCacheSnapshot(snapshot))
+            }
+        )
+        return resolvePlaybackCacheProgressSnapshot(
+            snapshot = snapshot,
+            totalBytesHint = state.currentCacheContentLengthHintBytes,
+            playbackPositionMs = state.positionMs,
+            durationMs = state.durationMs,
+            resourceKey = resourceKey,
+            cacheRootDirPath = cacheRootDirPath
+        )
+    }
+
+    private fun bindCacheProgressEmitter(
+        source: IPlaysource,
+        resourceKey: String?
+    ) {
+        val normalizedResourceKey = resourceKey?.takeIf { it.isNotBlank() } ?: return
+        (source as? PlaybackCacheProgressEmitter)?.setCacheProgressListener { emitted ->
+            _state.update { current ->
+                if (current.currentCacheResourceKey != normalizedResourceKey) {
+                    return@update current
+                }
+                val resolved = emitted ?: return@update current
+                val diskResolved = resolveCurrentCacheProgress(current)
+                val authoritative = selectAuthoritativeCacheProgress(
+                    emitted = resolved,
+                    diskResolved = diskResolved
+                )
+                val monotonic = preserveStableCacheProgress(
+                    previous = current.cacheProgress,
+                    next = authoritative
+                )
+                if (monotonic == current.cacheProgress) {
+                    return@update current
+                }
+                val stabilized = stabilizePlaybackCacheProgressSnapshot(
+                    previous = current.cacheProgress,
+                    resolved = monotonic,
+                    resourceKey = normalizedResourceKey
+                )
+                if (stabilized == current.cacheProgress) {
+                    current
+                } else {
+                    emitCacheProgressDebugLog(
+                        buildString {
+                            append("cacheProgress callback: key=")
+                            append(normalizedResourceKey)
+                            append(", old=")
+                            append(describeCacheProgress(current.cacheProgress))
+                            append(", new=")
+                            append(describeCacheProgress(stabilized))
+                        }
+                    )
+                    current.copy(cacheProgress = stabilized)
+                }
+            }
+        }
+    }
+
+    private fun clearCacheProgressEmitter(source: IPlaysource?) {
+        (source as? PlaybackCacheProgressEmitter)?.setCacheProgressListener(null)
+    }
+
+    private fun preserveStableCacheProgress(
+        previous: PlaybackCacheProgressSnapshot?,
+        next: PlaybackCacheProgressSnapshot?
+    ): PlaybackCacheProgressSnapshot? {
+        if (previous == null) {
+            return next
+        }
+        if (next == null) {
+            return previous
+        }
+        if (previous.isFullyCached && !next.isFullyCached) {
+            return previous
+        }
+        if (next.isFullyCached) {
+            return next
+        }
+        if (next.normalizedDisplayRatio < previous.normalizedDisplayRatio) {
+            return previous
+        }
+        if (
+            next.normalizedDisplayRatio == previous.normalizedDisplayRatio &&
+            next.cachedBytes < previous.cachedBytes
+        ) {
+            return previous
+        }
+        return next
+    }
+
+    private fun selectAuthoritativeCacheProgress(
+        emitted: PlaybackCacheProgressSnapshot,
+        diskResolved: PlaybackCacheProgressSnapshot?
+    ): PlaybackCacheProgressSnapshot {
+        if (diskResolved == null) {
+            return emitted
+        }
+        if (diskResolved.isFullyCached) {
+            return diskResolved
+        }
+        if (emitted.isFullyCached) {
+            return emitted
+        }
+        return if (diskResolved.normalizedDisplayRatio > emitted.normalizedDisplayRatio) {
+            diskResolved
+        } else {
+            emitted
+        }
+    }
+
+    private fun currentPreparedSourceOrNull(): IPlaysource? {
+        return runCatching { sourceSession.currentSource() }.getOrNull()
+    }
+
+    private fun releasePreparedSourceSession() {
+        clearCacheProgressEmitter(sourceSession.currentSource())
+        sourceSession.release()
     }
 
     private fun persistPlaybackSessionState(force: Boolean = false) {
@@ -1413,6 +1612,7 @@ internal class PlaybackProcessRuntime(
         private const val TAG = "PlaybackProcessRuntime"
         private const val API_BASE_URL = "http://139.9.223.233:3000"
         private const val STALE_PROGRESS_REGRESSION_TOLERANCE_MS = 300L
+        private const val SEEK_COMPLETION_PROGRESS_TOLERANCE_MS = 1_000L
         private const val MAX_PLAYBACK_RETRY_ATTEMPTS = 2
         private const val INITIAL_PLAYBACK_SEEK_MAX_ATTEMPTS = 12
         private const val INITIAL_PLAYBACK_SEEK_RETRY_DELAY_MS = 25L
@@ -1435,16 +1635,47 @@ internal class PlaybackProcessRuntime(
         runCatching { Log.e(TAG, message) }
     }
 
+    private fun safeLogD(message: String) {
+        runCatching { Log.d(TAG, message) }
+    }
+
+    private fun emitCacheProgressDebugLog(message: String) {
+        safeLogD(message)
+    }
+
+    private fun describeCacheProgress(snapshot: PlaybackCacheProgressSnapshot?): String {
+        if (snapshot == null) {
+            return "<null>"
+        }
+        return "cached=${snapshot.cachedBytes},total=${snapshot.totalBytes ?: -1L},ratio=${snapshot.normalizedDisplayRatio},full=${snapshot.isFullyCached},estimated=${snapshot.isEstimated}"
+    }
+
+    private fun describeCacheSnapshot(snapshot: com.wxy.playerlite.cache.core.CacheLookupSnapshot?): String {
+        if (snapshot == null) {
+            return "<null>"
+        }
+        val blocks = snapshot.cachedBlocks
+            .sorted()
+            .let { sorted ->
+                if (sorted.size <= 8) {
+                    sorted.joinToString(prefix = "[", postfix = "]")
+                } else {
+                    sorted.take(8).joinToString(prefix = "[", postfix = ", ... size=${sorted.size}]")
+                }
+            }
+        val ranges = snapshot.completedRanges.joinToString(prefix = "[", postfix = "]") {
+            "${it.start}-${it.endExclusive}"
+        }
+        val configPath = snapshot.configFilePath
+        val configExists = configPath.isNotBlank() && File(configPath).exists()
+        return "contentLength=${snapshot.contentLength},duration=${snapshot.durationMs},fileBytes=${snapshot.dataFileSizeBytes},blockSize=${snapshot.blockSizeBytes},blocks=$blocks,ranges=$ranges,configPath=$configPath,configExists=$configExists"
+    }
+
     private fun shouldAcceptPendingSeekProgress(
         targetMs: Long,
         reportedMs: Long
     ): Boolean {
-        val backwardToleranceMs = 5_000L
-        val forwardToleranceMs = 10_000L
-        return when {
-            reportedMs < targetMs -> targetMs - reportedMs <= backwardToleranceMs
-            else -> abs(reportedMs - targetMs) <= forwardToleranceMs
-        }
+        return abs(reportedMs - targetMs) <= SEEK_COMPLETION_PROGRESS_TOLERANCE_MS
     }
 
     private fun launchDeferredPlaybackSeek(

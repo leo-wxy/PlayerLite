@@ -2,8 +2,11 @@ package com.wxy.playerlite.cache.core
 
 import com.wxy.playerlite.cache.core.config.CacheCoreConfig
 import com.wxy.playerlite.cache.core.session.CacheSession
+import com.wxy.playerlite.cache.core.session.CacheProgressChunk
+import com.wxy.playerlite.cache.core.session.CacheProgressChunkEmitter
 import com.wxy.playerlite.cache.core.session.OpenSessionParams
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.concurrent.thread
 
 internal class NativeCacheCoreEngine : CacheCoreEngine {
     @Volatile
@@ -125,9 +128,21 @@ internal class NativeCacheCoreEngine : CacheCoreEngine {
         override val resourceKey: String,
         private val providerHandle: Long,
         private val onClose: (Long) -> Unit
-    ) : CacheSession {
+    ) : CacheSession, CacheProgressChunkEmitter {
         @Volatile
         private var closed = false
+        @Volatile
+        private var cacheProgressChunkListener: ((CacheProgressChunk) -> Unit)? = null
+        @Volatile
+        private var cacheProgressObserver: Thread? = null
+        private val observerLock = Any()
+
+        override fun setCacheProgressChunkListener(listener: ((CacheProgressChunk) -> Unit)?) {
+            cacheProgressChunkListener = listener
+            if (listener != null) {
+                ensureCacheProgressObserver()
+            }
+        }
 
         override fun read(size: Int): Result<ByteArray> {
             if (size <= 0) {
@@ -182,6 +197,47 @@ internal class NativeCacheCoreEngine : CacheCoreEngine {
             runCatching { CacheCoreNativeBridge.closeSession(sessionId) }
             runCatching { CacheCoreNativeBridge.releaseProviderHandle(providerHandle) }
             onClose(sessionId)
+        }
+
+        private fun ensureCacheProgressObserver() {
+            synchronized(observerLock) {
+                if (closed || cacheProgressObserver?.isAlive == true) {
+                    return
+                }
+                cacheProgressObserver = thread(
+                    start = true,
+                    isDaemon = true,
+                    name = "cache-progress-$sessionId"
+                ) {
+                    try {
+                        while (!closed) {
+                            val listener = cacheProgressChunkListener ?: break
+                            val raw = CacheCoreNativeBridge.waitAndDrainCacheProgressChunks(
+                                sessionId = sessionId,
+                                timeoutMs = 250
+                            )
+                            if (closed || raw.isEmpty()) {
+                                continue
+                            }
+                            var index = 0
+                            while (index + 1 < raw.size) {
+                                val offset = raw[index]
+                                val length = raw[index + 1].toInt()
+                                if (offset >= 0L && length > 0) {
+                                    listener(CacheProgressChunk(offset = offset, length = length))
+                                }
+                                index += 2
+                            }
+                        }
+                    } finally {
+                        synchronized(observerLock) {
+                            if (cacheProgressObserver === Thread.currentThread()) {
+                                cacheProgressObserver = null
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

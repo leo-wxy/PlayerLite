@@ -1,6 +1,7 @@
 package com.wxy.playerlite.cache.core.session
 
 import com.wxy.playerlite.cache.core.CacheCore
+import com.wxy.playerlite.cache.core.JvmFakeCacheCoreEngine
 import com.wxy.playerlite.cache.core.config.CacheCoreConfig
 import com.wxy.playerlite.cache.core.provider.RangeDataProvider
 import java.io.File
@@ -9,6 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,6 +20,7 @@ class CacheCoreReadSessionTest {
     @After
     fun tearDown() {
         CacheCore.shutdown()
+        CacheCore.resetEngineForTesting()
         createdRoots.forEach { it.deleteRecursively() }
         createdRoots.clear()
     }
@@ -74,6 +77,63 @@ class CacheCoreReadSessionTest {
         val secondRead = sessionB.readAt(offset = 0L, size = payload.size).getOrThrow()
         assertArrayEquals(payload, secondRead)
         assertEquals(0, providerB.callCount.get())
+    }
+
+    @Test
+    fun readAtShouldEmitCacheProgressChunkFromSession() {
+        val root = createRoot()
+        CacheCore.installEngineForTesting(JvmFakeCacheCoreEngine())
+        assertTrue(CacheCore.init(CacheCoreConfig(cacheRootDirPath = root.absolutePath)).isSuccess)
+
+        val provider = RecordingProvider("hello-native-cache".encodeToByteArray())
+        val session = CacheCore.openSession(
+            OpenSessionParams(
+                resourceKey = "song_read_progress_event",
+                provider = provider,
+                config = SessionCacheConfig(blockSizeBytes = 8)
+            )
+        ).getOrThrow()
+
+        val emitter = session as? CacheProgressChunkEmitter
+        assertNotNull(emitter)
+        var emitted: CacheProgressChunk? = null
+        emitter?.setCacheProgressChunkListener { chunk ->
+            emitted = chunk
+        }
+
+        val read = session.readAt(offset = 0L, size = 5).getOrThrow()
+
+        assertArrayEquals("hello".encodeToByteArray(), read)
+        assertEquals(CacheProgressChunk(offset = 0L, length = 8), emitted)
+    }
+
+    @Test
+    fun cachedReadShouldNotReemitCacheProgressChunkWithoutNewWrite() {
+        val root = createRoot()
+        CacheCore.installEngineForTesting(JvmFakeCacheCoreEngine())
+        assertTrue(CacheCore.init(CacheCoreConfig(cacheRootDirPath = root.absolutePath)).isSuccess)
+
+        val provider = RecordingProvider("hello-native-cache".encodeToByteArray())
+        val session = CacheCore.openSession(
+            OpenSessionParams(
+                resourceKey = "song_read_progress_event_cached_read",
+                provider = provider,
+                config = SessionCacheConfig(blockSizeBytes = 8)
+            )
+        ).getOrThrow()
+
+        val emitter = session as? CacheProgressChunkEmitter
+        assertNotNull(emitter)
+        val emitted = mutableListOf<CacheProgressChunk>()
+        emitter?.setCacheProgressChunkListener { chunk ->
+            emitted += chunk
+        }
+
+        assertArrayEquals("hello".encodeToByteArray(), session.readAt(offset = 0L, size = 5).getOrThrow())
+        emitted.clear()
+
+        assertArrayEquals("hello".encodeToByteArray(), session.readAt(offset = 0L, size = 5).getOrThrow())
+        assertTrue(emitted.isEmpty())
     }
 
     private fun createRoot(): File {

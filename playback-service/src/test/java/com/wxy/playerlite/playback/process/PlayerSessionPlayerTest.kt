@@ -6,6 +6,7 @@ import android.os.Looper
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.MusicInfo
@@ -212,6 +213,41 @@ class PlayerSessionPlayerTest {
             PlaybackAudioQuality.LOSSLESS,
             PlaybackMetadataExtras.readAppliedAudioQuality(extrasRef.get())
         )
+    }
+
+    @Test
+    fun getState_writesCacheProgressIntoCurrentItemExtras() {
+        val runtime = createRuntime(
+            PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-1",
+                            title = "Track 1",
+                            playbackUri = "https://example.com/track-1.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 0,
+                cacheProgress = PlaybackCacheProgressSnapshot(
+                    cachedBytes = 5_000_000L,
+                    totalBytes = 10_000_000L,
+                    displayRatio = 0.5f,
+                    isFullyCached = false,
+                    isEstimated = false
+                )
+            )
+        )
+
+        val player = PlayerSessionPlayer(runtime = runtime, serviceScope = serviceScope)
+        val extrasRef = AtomicReference<android.os.Bundle?>()
+
+        Handler(Looper.getMainLooper()).post {
+            extrasRef.set(player.currentMediaItem?.mediaMetadata?.extras)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(0.5f, PlaybackMetadataExtras.readCacheProgress(extrasRef.get())?.displayRatio ?: 0f, 0f)
     }
 
     @Test

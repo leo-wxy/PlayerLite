@@ -43,5 +43,6 @@ interface PlayerServiceController {
     fun setPlaybackMode(playbackMode: PlaybackMode, onResult: ((Boolean) -> Unit)? = null): Boolean
     fun setDisplayMetadata(title: String?, subtitle: String?): Boolean
     fun currentSnapshot(): RemotePlaybackSnapshot?
+    fun setSnapshotListener(listener: ((RemotePlaybackSnapshot?) -> Unit)?) = Unit
     fun release()
 }

@@ -3,6 +3,7 @@ package com.wxy.playerlite.playback.orchestrator
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
@@ -134,6 +135,7 @@ private class FakeSettingsRuntime : PlaybackRuntimePort {
     override fun updateRemotePlaybackState(
         playbackState: Int,
         positionMs: Long,
+        bufferedPositionMs: Long,
         durationMs: Long,
         isSeekSupported: Boolean,
         isPreparing: Boolean,
@@ -146,7 +148,8 @@ private class FakeSettingsRuntime : PlaybackRuntimePort {
         audioMeta: AudioMetaDisplay?,
         audioEffectPreset: AudioEffectPreset?,
         preferredAudioQuality: PlaybackAudioQuality?,
-        appliedAudioQuality: PlaybackAudioQuality?
+        appliedAudioQuality: PlaybackAudioQuality?,
+        cacheProgress: PlaybackCacheProgressSnapshot?
     ) = Unit
 
     override fun syncActiveItemById(itemId: String?) = Unit

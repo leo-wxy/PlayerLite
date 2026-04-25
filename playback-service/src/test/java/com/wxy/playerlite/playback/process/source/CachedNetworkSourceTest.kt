@@ -6,6 +6,7 @@ import com.wxy.playerlite.cache.core.provider.RangeDataProvider
 import com.wxy.playerlite.cache.core.session.SessionCacheConfig
 import com.wxy.playerlite.player.source.IPlaysource
 import com.wxy.playerlite.playback.process.OnlineCacheMetadata
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import java.io.File
 import java.nio.file.Files
 import org.junit.After
@@ -44,6 +45,96 @@ class CachedNetworkSourceTest {
         assertArrayEquals("hello".encodeToByteArray(), buffer)
         source.close()
         assertTrue(provider.closed)
+    }
+
+    @Test
+    fun readSuccessShouldEmitCacheProgressCallback() {
+        val root = createRoot()
+        CacheCore.init(CacheCoreConfig(cacheRootDirPath = root.absolutePath)).getOrThrow()
+
+        val payload = "hello-native-cache".encodeToByteArray()
+        val source = CachedNetworkSource(
+            resourceKey = "song_cached_source_progress_callback",
+            provider = RecordingProvider(payload),
+            sessionConfig = SessionCacheConfig(blockSizeBytes = 8),
+            contentLengthHint = payload.size.toLong(),
+            durationMsHint = 1_800L
+        )
+        var emitted: PlaybackCacheProgressSnapshot? = null
+        source.setCacheProgressListener { progress ->
+            emitted = progress
+        }
+
+        assertEquals(IPlaysource.AudioSourceCode.ASC_SUCCESS, source.open())
+        val buffer = ByteArray(8)
+        assertEquals(8, source.read(buffer, buffer.size))
+
+        val progress = requireNotNull(emitted)
+        assertEquals(8L, progress.cachedBytes)
+        assertEquals(payload.size.toLong(), progress.totalBytes)
+        assertEquals(8f / payload.size.toFloat(), progress.displayRatio, 0.0001f)
+    }
+
+    @Test
+    fun listenerAttachedAfterReadShouldReceiveObservedCacheProgressImmediately() {
+        val root = createRoot()
+        CacheCore.init(CacheCoreConfig(cacheRootDirPath = root.absolutePath)).getOrThrow()
+
+        val payload = "hello-native-cache".encodeToByteArray()
+        val source = CachedNetworkSource(
+            resourceKey = "song_cached_source_late_listener",
+            provider = RecordingProvider(payload),
+            sessionConfig = SessionCacheConfig(blockSizeBytes = 8),
+            contentLengthHint = payload.size.toLong(),
+            durationMsHint = 1_800L
+        )
+
+        assertEquals(IPlaysource.AudioSourceCode.ASC_SUCCESS, source.open())
+
+        val buffer = ByteArray(8)
+        assertEquals(8, source.read(buffer, buffer.size))
+
+        var emitted: PlaybackCacheProgressSnapshot? = null
+        source.setCacheProgressListener { progress ->
+            emitted = progress
+        }
+
+        val progress = requireNotNull(emitted)
+        assertEquals(8L, progress.cachedBytes)
+        assertEquals(payload.size.toLong(), progress.totalBytes)
+        assertEquals(8f / payload.size.toFloat(), progress.displayRatio, 0.0001f)
+    }
+
+    @Test
+    fun tailProbeReadShouldNotExpandDisplayProgressBeyondContiguousHeadCache() {
+        val root = createRoot()
+        CacheCore.init(CacheCoreConfig(cacheRootDirPath = root.absolutePath)).getOrThrow()
+
+        val payload = ByteArray(100) { it.toByte() }
+        val source = CachedNetworkSource(
+            resourceKey = "song_cached_source_tail_probe_progress",
+            provider = RecordingProvider(payload),
+            sessionConfig = SessionCacheConfig(blockSizeBytes = 8),
+            contentLengthHint = payload.size.toLong()
+        )
+        var emitted: PlaybackCacheProgressSnapshot? = null
+        source.setCacheProgressListener { progress ->
+            emitted = progress
+        }
+
+        assertEquals(IPlaysource.AudioSourceCode.ASC_SUCCESS, source.open())
+
+        val head = ByteArray(8)
+        assertEquals(8, source.read(head, head.size))
+        assertEquals(8f / payload.size.toFloat(), requireNotNull(emitted).displayRatio, 0.0001f)
+
+        assertEquals(96L, source.seek(96L, IPlaysource.SEEK_SET))
+        val tail = ByteArray(8)
+        assertEquals(4, source.read(tail, tail.size))
+
+        val progress = requireNotNull(emitted)
+        assertEquals(12L, progress.cachedBytes)
+        assertEquals(8f / payload.size.toFloat(), progress.displayRatio, 0.0001f)
     }
 
     @Test

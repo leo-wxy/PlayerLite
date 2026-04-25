@@ -8,6 +8,7 @@ import com.wxy.playerlite.playback.model.PlaybackPreviewClip
 import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
 import com.wxy.playerlite.playback.model.SongAudioQualityOption
 import java.io.File
+import java.io.RandomAccessFile
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -152,6 +153,55 @@ class OnlinePlaybackPreparationPlannerTest {
             assertEquals("song_1969519579_exhigh_full", plan.resourceKey)
             assertEquals(219_893L, plan.durationHintMs)
             assertEquals(8_798_445L, plan.contentLengthHintBytes)
+            assertEquals(0, resolver.calls)
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun buildPlanUsesCompleteSidecarWhenCacheLookupReturnsNull() {
+        runBlocking {
+            val root = Files.createTempDirectory("online-cache-plan-sidecar-").toFile()
+            val resourceKey = "song_1859245776_exhigh_full"
+            writeCompleteSidecarCache(
+                root = root,
+                resourceKey = resourceKey,
+                contentLength = 30_147_193L,
+                durationMs = 141_810L
+            )
+            val resolver = FakeResolver(
+                Result.success(
+                    ResolvedOnlineStream(
+                        playbackUrl = "https://example.com/should-not-be-used.flac",
+                        requestHeaders = emptyMap(),
+                        contentLengthBytes = 5_674_605L,
+                        durationMs = 141_810L,
+                        expiresAtMs = 5_000L
+                    )
+                )
+            )
+            val planner = OnlinePlaybackPreparationPlanner(
+                cacheLookup = { Result.success(null) },
+                cacheRootDirPath = root.absolutePath,
+                resolver = resolver
+            )
+
+            val plan = planner.buildPlan(
+                PlaybackTrack(
+                    playable = MusicInfo(
+                        id = "queue-online-sidecar",
+                        songId = "1859245776",
+                        title = "STAY",
+                        durationMs = 141_810L,
+                        playbackUri = ""
+                    )
+                )
+            ).getOrThrow()
+
+            assertTrue(plan.useCacheOnlyProvider)
+            assertEquals(resourceKey, plan.resourceKey)
+            assertEquals(141_810L, plan.durationHintMs)
+            assertEquals(30_147_193L, plan.contentLengthHintBytes)
             assertEquals(0, resolver.calls)
             root.deleteRecursively()
         }
@@ -431,6 +481,38 @@ class OnlinePlaybackPreparationPlannerTest {
             """
             {
               "${OnlineCacheMetadata.CLIP_MODE_KEY}": "${clipMode.wireValue}"
+            }
+            """.trimIndent()
+        )
+    }
+
+    private fun writeCompleteSidecarCache(
+        root: File,
+        resourceKey: String,
+        contentLength: Long,
+        durationMs: Long
+    ) {
+        RandomAccessFile(File(root, "$resourceKey.data"), "rw").use { file ->
+            file.setLength(contentLength)
+        }
+        File(root, "${resourceKey}_config.json").writeText(
+            """
+            {
+              "version": 1,
+              "resourceKey": "$resourceKey",
+              "contentLength": $contentLength,
+              "durationMs": $durationMs,
+              "blockSizeBytes": 65536,
+              "blocks": [0],
+              "completedRanges": [{"start":0,"end":$contentLength}],
+              "lastAccessEpochMs": 1
+            }
+            """.trimIndent()
+        )
+        File(root, "${resourceKey}_extra.json").writeText(
+            """
+            {
+              "${OnlineCacheMetadata.CLIP_MODE_KEY}": "${OnlineClipMode.FULL.wireValue}"
             }
             """.trimIndent()
         )

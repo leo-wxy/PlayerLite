@@ -333,6 +333,9 @@ internal fun buildSessionExtras(state: PlaybackProcessState): Bundle {
         state.audioMeta?.let { audioMeta ->
             PlaybackMetadataExtras.writeAudioMeta(this, audioMeta)
         }
+        state.cacheProgress?.let { cacheProgress ->
+            PlaybackMetadataExtras.writeCacheProgress(this, cacheProgress)
+        }
         state.playbackOutputInfo?.let { info ->
             PlaybackMetadataExtras.writePlaybackOutputInfo(this, info)
         }

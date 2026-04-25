@@ -105,6 +105,17 @@ internal object CacheCoreNativeBridge {
         runCatching { nativeCancelPendingRead(sessionId) }
     }
 
+    fun waitAndDrainCacheProgressChunks(sessionId: Long, timeoutMs: Int): LongArray {
+        if (!nativeLoaded || sessionId <= 0L || timeoutMs < 0) {
+            return LongArray(0)
+        }
+        return runCatching {
+            nativeWaitAndDrainCacheProgressChunks(sessionId, timeoutMs)
+        }.getOrElse {
+            LongArray(0)
+        }
+    }
+
     fun closeSession(sessionId: Long): Boolean {
         if (!nativeLoaded || sessionId <= 0L) {
             return false
@@ -228,6 +239,11 @@ internal object CacheCoreNativeBridge {
     private external fun nativeSeek(sessionId: Long, offset: Long, whence: Int): Long
 
     private external fun nativeCancelPendingRead(sessionId: Long)
+
+    private external fun nativeWaitAndDrainCacheProgressChunks(
+        sessionId: Long,
+        timeoutMs: Int
+    ): LongArray
 
     private external fun nativeCloseSession(sessionId: Long): Boolean
 

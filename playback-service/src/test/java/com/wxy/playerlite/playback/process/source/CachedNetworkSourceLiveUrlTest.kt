@@ -3,9 +3,12 @@ package com.wxy.playerlite.playback.process.source
 import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.config.CacheCoreConfig
 import com.wxy.playerlite.cache.core.session.SessionCacheConfig
+import com.wxy.playerlite.playback.process.resolvePlaybackCacheProgressSnapshot
 import java.io.File
 import java.nio.file.Files
 import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -65,10 +68,57 @@ class CachedNetworkSourceLiveUrlTest {
         assertTrue("config should include resource key", config.contains("\"resourceKey\": \"$resourceKey\""))
     }
 
+    @Test
+    fun liveUrlSeekReadShouldExposeCacheProgressEvenWithoutZeroOriginCache() {
+        assumeTrue(
+            "Set RUN_LIVE_NETWORK_TESTS=true to execute live network regression test",
+            System.getenv("RUN_LIVE_NETWORK_TESTS")?.equals("true", ignoreCase = true) == true
+        )
+
+        val root = createRoot()
+        CacheCore.init(CacheCoreConfig(cacheRootDirPath = root.absolutePath)).getOrThrow()
+
+        val resourceKey = "live_seek_cache_progress"
+        val seekTo = 2L * 1024L * 1024L
+        val source = CachedNetworkSource(
+            resourceKey = resourceKey,
+            provider = HttpRangeDataProvider("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"),
+            sessionConfig = SessionCacheConfig(blockSizeBytes = 64 * 1024)
+        )
+
+        try {
+            source.open()
+            val seekResult = source.seek(seekTo, com.wxy.playerlite.player.source.IPlaysource.SEEK_SET)
+            assertTrue("seek should move to requested offset", seekResult >= seekTo)
+
+            val buffer = ByteArray(16 * 1024)
+            val read = source.read(buffer, buffer.size)
+            assertTrue("read after seek should return bytes", read > 0)
+        } finally {
+            source.close()
+        }
+
+        val snapshot = requireNotNull(CacheCore.lookup(resourceKey).getOrNull())
+        val totalBytes = snapshot.contentLength.takeIf { it > 0L } ?: snapshot.dataFileSizeBytes
+        assertTrue("total bytes should be known", totalBytes > 0L)
+
+        val resolved = resolvePlaybackCacheProgressSnapshot(
+            snapshot = snapshot,
+            totalBytesHint = totalBytes,
+            playbackPositionMs = seekTo,
+            durationMs = totalBytes
+        )
+
+        requireNotNull(resolved)
+        assertNotNull(resolved)
+        assertTrue("cache progress should be visible", resolved.displayRatio > (seekTo.toDouble() / totalBytes.toDouble()).toFloat())
+        assertTrue("cached bytes should be reported", resolved.cachedBytes > 0L)
+        assertEquals(false, resolved.isFullyCached)
+    }
+
     private fun createRoot(): File {
         val root = Files.createTempDirectory("playback-live-cache-test-").toFile()
         createdRoots += root
         return root
     }
 }
-

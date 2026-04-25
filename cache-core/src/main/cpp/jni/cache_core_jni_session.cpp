@@ -86,6 +86,35 @@ Java_com_wxy_playerlite_cache_core_CacheCoreNativeBridge_nativeCancelPendingRead
     cachecore::jni::Runtime().CancelPendingRead(static_cast<int64_t>(session_id));
 }
 
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_com_wxy_playerlite_cache_core_CacheCoreNativeBridge_nativeWaitAndDrainCacheProgressChunks(
+        JNIEnv* env,
+        jclass,
+        jlong session_id,
+        jint timeout_ms) {
+    if (env == nullptr || session_id <= 0 || timeout_ms < 0) {
+        return env != nullptr ? env->NewLongArray(0) : nullptr;
+    }
+
+    const auto chunks = cachecore::jni::Runtime().WaitAndDrainCacheProgressChunks(
+            static_cast<int64_t>(session_id),
+            static_cast<int32_t>(timeout_ms));
+    const jsize pair_count = static_cast<jsize>(chunks.size() * 2);
+    auto* result = env->NewLongArray(pair_count);
+    if (result == nullptr || chunks.empty()) {
+        return result;
+    }
+
+    std::vector<jlong> flattened;
+    flattened.reserve(static_cast<std::size_t>(pair_count));
+    for (const auto& chunk : chunks) {
+        flattened.push_back(static_cast<jlong>(chunk.start));
+        flattened.push_back(static_cast<jlong>(chunk.Length()));
+    }
+    env->SetLongArrayRegion(result, 0, pair_count, flattened.data());
+    return result;
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_wxy_playerlite_cache_core_CacheCoreNativeBridge_nativeCloseSession(
         JNIEnv*,

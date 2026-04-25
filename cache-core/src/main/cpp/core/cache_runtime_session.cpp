@@ -1,6 +1,7 @@
 #include "cache_runtime.h"
 
 #include <algorithm>
+#include <chrono>
 
 namespace cachecore {
 
@@ -44,10 +45,10 @@ int64_t CacheRuntime::OpenSession(
     const int64_t bounded_cap = std::max<int64_t>(0, memory_cache_cap_bytes_);
     const int64_t preferred_window = std::max<int64_t>(
             session->storage.block_size_bytes * 32LL,
-            2 * 1024 * 1024LL);
+            8 * 1024 * 1024LL);
     const int64_t minimum_window = std::max<int64_t>(
             session->storage.block_size_bytes * 16LL,
-            1024 * 1024LL);
+            4 * 1024 * 1024LL);
 
     int64_t target_window = std::min<int64_t>(preferred_window, bounded_cap);
     if (bounded_cap >= minimum_window) {
@@ -266,6 +267,31 @@ void CacheRuntime::CancelPendingRead(int64_t session_id) {
     if (provider_bridge_ != nullptr && session->provider_handle > 0) {
         provider_bridge_->CancelInFlightRead(session->provider_handle);
     }
+}
+
+std::vector<Range> CacheRuntime::WaitAndDrainCacheProgressChunks(int64_t session_id, int32_t timeout_ms) {
+    auto session = GetSession(session_id);
+    if (session == nullptr) {
+        return {};
+    }
+
+    std::unique_lock<std::mutex> lock(session->mutex);
+    if (!session->closed.load() && session->pending_progress_chunks.empty() && timeout_ms > 0) {
+        session->data_cv.wait_for(
+                lock,
+                std::chrono::milliseconds(timeout_ms),
+                [session]() {
+                    return session->closed.load() || !session->pending_progress_chunks.empty();
+                });
+    }
+
+    if (session->pending_progress_chunks.empty()) {
+        return {};
+    }
+
+    auto drained = std::move(session->pending_progress_chunks);
+    session->pending_progress_chunks.clear();
+    return drained;
 }
 
 bool CacheRuntime::ReleaseProviderHandle(int64_t provider_handle) {

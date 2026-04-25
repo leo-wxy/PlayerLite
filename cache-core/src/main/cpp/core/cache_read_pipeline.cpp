@@ -11,7 +11,7 @@ namespace {
 // decode thread usually hits memory/disk.
 constexpr int32_t kProviderFetchMaxBytes = 256 * 1024;
 constexpr int32_t kPrefetchChunkBytes = 256 * 1024;
-constexpr int64_t kPrefetchAheadMinBytes = 1024 * 1024;
+constexpr int64_t kPrefetchAheadMinBytes = 8 * 1024 * 1024;
 constexpr int32_t kReadWaitTimeoutMs = 120;
 constexpr int32_t kReadStallFailMs = 12 * 1000;
 
@@ -220,6 +220,9 @@ void CacheRuntime::PrefetchLoop(
                     session->memory_cache.Write(chunk_offset, chunk);
                     session->memory_cached_bytes.store(static_cast<int64_t>(session->memory_cache.Size()));
                     session->storage.last_access_epoch_ms = NowEpochMs();
+                    session->pending_progress_chunks.push_back(Range{
+                            .start = chunk_offset,
+                            .end = chunk_offset + static_cast<int64_t>(chunk.size())});
                     accepted = true;
                 }
             }
@@ -514,6 +517,9 @@ bool CacheRuntime::FetchBlockFromProvider(
                     session->memory_cache.Write(chunk_offset, chunk);
                     session->memory_cached_bytes.store(static_cast<int64_t>(session->memory_cache.Size()));
                     session->storage.last_access_epoch_ms = NowEpochMs();
+                    session->pending_progress_chunks.push_back(Range{
+                            .start = chunk_offset,
+                            .end = chunk_offset + static_cast<int64_t>(chunk.size())});
                     accepted = true;
                 }
             }
@@ -522,6 +528,7 @@ bool CacheRuntime::FetchBlockFromProvider(
             }
 
             streamed_bytes.fetch_add(static_cast<int32_t>(chunk.size()));
+            session->data_cv.notify_all();
             ScheduleBlockPersist(session, chunk_offset, std::vector<uint8_t>(chunk), expected_generation);
             return true;
         };

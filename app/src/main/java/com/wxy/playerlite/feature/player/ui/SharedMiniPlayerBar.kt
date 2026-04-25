@@ -12,13 +12,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -65,6 +68,8 @@ private val SharedMiniPlayerArtworkInset = 7.dp
 internal data class SharedMiniPlayerBarState(
     val contentLine: String,
     val progress: Float,
+    val cacheProgressStart: Float? = null,
+    val cacheProgress: Float? = null,
     val isPlaying: Boolean,
     val artworkUrl: String?
 )
@@ -78,6 +83,9 @@ internal data class SharedMiniPlayerBarTestTags(
 
     val progressFillTag: String
         get() = "${prefix}_progress_fill"
+
+    val progressCacheFillTag: String
+        get() = "${prefix}_progress_cache_fill"
 
     val barTag: String
         get() = "${prefix}_bar"
@@ -126,6 +134,8 @@ internal fun resolveSharedMiniPlayerBarState(playerState: PlayerUiState): Shared
     return SharedMiniPlayerBarState(
         contentLine = displayProjection.miniPlayerContentLine,
         progress = progress,
+        cacheProgressStart = playerState.displayedCacheProgressStartRatio,
+        cacheProgress = playerState.displayedCacheProgressRatio,
         isPlaying = playerState.playbackState == AUDIO_TRACK_PLAYSTATE_PLAYING,
         artworkUrl = playerState.currentCoverUrl
             ?.takeIf { it.isNotBlank() }
@@ -185,7 +195,7 @@ internal fun SharedMiniPlayerBar(
                 ),
             contentAlignment = Alignment.CenterStart
         ) {
-            Box(
+            BoxWithConstraints(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -202,9 +212,31 @@ internal fun SharedMiniPlayerBar(
                     )
                     .testTag(testTags.progressLineTag)
             ) {
+                val progressFraction = state.progress.coerceIn(0f, 1f)
+                val cacheStartFraction = state.cacheProgressStart
+                    ?.coerceIn(0f, 1f)
+                    ?: 0f
+                val cacheFraction = state.cacheProgress
+                    ?.coerceIn(0f, 1f)
+                    ?: 0f
+                val cacheWidthFraction = (cacheFraction - cacheStartFraction).coerceIn(0f, 1f)
+                if (cacheWidthFraction > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = maxWidth * cacheStartFraction)
+                            .width(maxWidth * cacheWidthFraction)
+                            .fillMaxSize()
+                            .background(
+                                color = colors.miniPlayerProgressFill.copy(alpha = 0.38f),
+                                shape = RoundedCornerShape(999.dp)
+                            )
+                            .testTag(testTags.progressCacheFillTag)
+                    )
+                }
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(state.progress.coerceIn(0f, 1f))
+                        .fillMaxWidth(progressFraction)
                         .fillMaxSize()
                         .background(
                             color = colors.miniPlayerProgressFill,

@@ -123,6 +123,44 @@ class PlaybackProcessRuntimeSeekTest {
         assertNull(readField(runtime, "pendingSeekPositionMs"))
     }
 
+    @Test
+    fun progressListener_whenSeekPending_shouldIgnoreProgressFarFromSeekTarget() {
+        val fakePlayer = FakeSeekNativePlayer()
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        val runtime = PlaybackProcessRuntime(
+            appContext = appContext,
+            serviceScope = serviceScope,
+            nativePlayerFactory = { fakePlayer }
+        )
+        val state = MutableStateFlow(
+            PlaybackProcessState(
+                playWhenReady = true,
+                playbackState = PLAYBACK_STATE_STOPPED,
+                isPreparing = true,
+                isSeekSupported = true,
+                positionMs = 90_000L,
+                durationMs = 240_000L
+            )
+        )
+
+        setField(runtime, "_state", state)
+        setField(runtime, "pendingSeekPositionMs", 90_000L)
+
+        fakePlayer.dispatchProgress(85_000L)
+
+        assertTrue(state.value.isPreparing)
+        assertEquals(PLAYBACK_STATE_STOPPED, state.value.playbackState)
+        assertEquals(90_000L, state.value.positionMs)
+        assertEquals(90_000L, readField(runtime, "pendingSeekPositionMs"))
+
+        fakePlayer.dispatchProgress(90_250L)
+
+        assertFalse(state.value.isPreparing)
+        assertEquals(PLAYBACK_STATE_PLAYING, state.value.playbackState)
+        assertEquals(90_250L, state.value.positionMs)
+        assertNull(readField(runtime, "pendingSeekPositionMs"))
+    }
+
     private fun setField(target: Any, name: String, value: Any?) {
         val field = target.javaClass.getDeclaredField(name)
         field.isAccessible = true

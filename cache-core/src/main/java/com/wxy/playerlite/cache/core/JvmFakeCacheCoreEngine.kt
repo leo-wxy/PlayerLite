@@ -3,6 +3,8 @@ package com.wxy.playerlite.cache.core
 import com.wxy.playerlite.cache.core.config.CacheCoreConfig
 import com.wxy.playerlite.cache.core.provider.RangeDataProvider
 import com.wxy.playerlite.cache.core.session.CacheSession
+import com.wxy.playerlite.cache.core.session.CacheProgressChunk
+import com.wxy.playerlite.cache.core.session.CacheProgressChunkEmitter
 import com.wxy.playerlite.cache.core.session.OpenSessionParams
 import java.io.File
 import java.io.RandomAccessFile
@@ -543,11 +545,17 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
         private val provider: RangeDataProvider,
         private val onClose: (Long) -> Unit,
         private val storage: SessionStorageFiles
-    ) : CacheSession {
+    ) : CacheSession, CacheProgressChunkEmitter {
         private val lock = Any()
         private var closed = false
         private var currentOffset: Long = 0L
         private val memoryBlocks: MutableMap<Long, ByteArray> = linkedMapOf()
+        @Volatile
+        private var cacheProgressChunkListener: ((CacheProgressChunk) -> Unit)? = null
+
+        override fun setCacheProgressChunkListener(listener: ((CacheProgressChunk) -> Unit)?) {
+            cacheProgressChunkListener = listener
+        }
 
         override fun read(size: Int): Result<ByteArray> {
             val offset = synchronized(lock) { currentOffset }
@@ -696,6 +704,9 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
             memoryBlocks[blockIndex] = fetched
             refreshContentLengthFromProviderLocked()
             persistConfigLocked()
+            cacheProgressChunkListener?.invoke(
+                CacheProgressChunk(offset = blockStart, length = fetched.size)
+            )
             return fetched
         }
 

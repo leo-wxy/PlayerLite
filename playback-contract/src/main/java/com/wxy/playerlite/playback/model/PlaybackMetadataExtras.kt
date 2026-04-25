@@ -25,6 +25,12 @@ object PlaybackMetadataExtras {
     private const val KEY_AUDIO_META_CHANNELS = "audio_meta_channels"
     private const val KEY_AUDIO_META_BIT_RATE = "audio_meta_bit_rate"
     private const val KEY_AUDIO_META_DURATION_MS = "audio_meta_duration_ms"
+    private const val KEY_CACHE_PROGRESS_CACHED_BYTES = "cache_progress_cached_bytes"
+    private const val KEY_CACHE_PROGRESS_TOTAL_BYTES = "cache_progress_total_bytes"
+    private const val KEY_CACHE_PROGRESS_DISPLAY_START_RATIO = "cache_progress_display_start_ratio"
+    private const val KEY_CACHE_PROGRESS_DISPLAY_RATIO = "cache_progress_display_ratio"
+    private const val KEY_CACHE_PROGRESS_IS_FULLY_CACHED = "cache_progress_is_fully_cached"
+    private const val KEY_CACHE_PROGRESS_IS_ESTIMATED = "cache_progress_is_estimated"
 
     fun writePlaybackOutputInfo(extras: Bundle, info: PlaybackOutputInfo) {
         extras.putInt(KEY_OUTPUT_INPUT_SAMPLE_RATE, info.inputSampleRateHz)
@@ -70,6 +76,19 @@ object PlaybackMetadataExtras {
         extras.putString(KEY_AUDIO_META_CHANNELS, audioMeta.channels)
         extras.putString(KEY_AUDIO_META_BIT_RATE, audioMeta.bitRate)
         extras.putLong(KEY_AUDIO_META_DURATION_MS, audioMeta.durationMs)
+    }
+
+    fun writeCacheProgress(extras: Bundle, cacheProgress: PlaybackCacheProgressSnapshot) {
+        extras.putLong(KEY_CACHE_PROGRESS_CACHED_BYTES, cacheProgress.cachedBytes.coerceAtLeast(0L))
+        if (cacheProgress.totalBytes != null && cacheProgress.totalBytes > 0L) {
+            extras.putLong(KEY_CACHE_PROGRESS_TOTAL_BYTES, cacheProgress.totalBytes)
+        } else {
+            extras.remove(KEY_CACHE_PROGRESS_TOTAL_BYTES)
+        }
+        extras.putFloat(KEY_CACHE_PROGRESS_DISPLAY_START_RATIO, cacheProgress.normalizedDisplayStartRatio)
+        extras.putFloat(KEY_CACHE_PROGRESS_DISPLAY_RATIO, cacheProgress.normalizedDisplayRatio)
+        extras.putBoolean(KEY_CACHE_PROGRESS_IS_FULLY_CACHED, cacheProgress.isFullyCached)
+        extras.putBoolean(KEY_CACHE_PROGRESS_IS_ESTIMATED, cacheProgress.isEstimated)
     }
 
     fun readStatusText(extras: Bundle?): String? {
@@ -128,6 +147,34 @@ object PlaybackMetadataExtras {
             channels = extras.getString(KEY_AUDIO_META_CHANNELS).orEmpty(),
             bitRate = extras.getString(KEY_AUDIO_META_BIT_RATE).orEmpty(),
             durationMs = extras.getLong(KEY_AUDIO_META_DURATION_MS, 0L)
+        )
+    }
+
+    fun readCacheProgress(extras: Bundle?): PlaybackCacheProgressSnapshot? {
+        if (extras == null || !extras.containsKey(KEY_CACHE_PROGRESS_DISPLAY_RATIO)) {
+            return null
+        }
+        val totalBytes = if (extras.containsKey(KEY_CACHE_PROGRESS_TOTAL_BYTES)) {
+            extras.getLong(KEY_CACHE_PROGRESS_TOTAL_BYTES).takeIf { it > 0L }
+        } else {
+            null
+        }
+        val isFullyCached = extras.getBoolean(KEY_CACHE_PROGRESS_IS_FULLY_CACHED, false)
+        return PlaybackCacheProgressSnapshot(
+            cachedBytes = extras.getLong(KEY_CACHE_PROGRESS_CACHED_BYTES, 0L).coerceAtLeast(0L),
+            totalBytes = totalBytes,
+            displayStartRatio = if (isFullyCached) {
+                0f
+            } else {
+                extras.getFloat(KEY_CACHE_PROGRESS_DISPLAY_START_RATIO, 0f).coerceIn(0f, 1f)
+            },
+            displayRatio = if (isFullyCached) {
+                1f
+            } else {
+                extras.getFloat(KEY_CACHE_PROGRESS_DISPLAY_RATIO, 0f).coerceIn(0f, 1f)
+            },
+            isFullyCached = isFullyCached,
+            isEstimated = extras.getBoolean(KEY_CACHE_PROGRESS_IS_ESTIMATED, false)
         )
     }
 

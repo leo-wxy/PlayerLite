@@ -6,6 +6,7 @@ import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.provider.RangeDataProvider
 import com.wxy.playerlite.cache.core.session.SessionCacheConfig
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.source.IPlaysource
 import com.wxy.playerlite.playback.process.source.CachedNetworkSource
@@ -192,7 +193,16 @@ internal class TrackPreparationCoordinator(
                 }
                 return PreparationResult.Invalid("Resolved online stream is shorter than expected")
             }
-            return ready.copy(appliedAudioQuality = plan.appliedAudioQuality)
+            return ready.copy(
+                appliedAudioQuality = plan.appliedAudioQuality,
+                cacheResourceKey = plan.resourceKey,
+                cacheContentLengthHintBytes = plan.contentLengthHintBytes,
+                initialCacheProgress = resolveInitialPlaybackCacheProgressSnapshot(
+                    resourceKey = plan.resourceKey,
+                    totalBytesHint = plan.contentLengthHintBytes,
+                    durationMs = ready.mediaMeta.durationMs
+                )
+            )
         }
     }
 
@@ -347,7 +357,10 @@ internal sealed interface PreparationResult {
         val source: IPlaysource,
         val mediaMeta: AudioMetaDisplay,
         val isSeekSupported: Boolean,
-        val appliedAudioQuality: PlaybackAudioQuality?
+        val appliedAudioQuality: PlaybackAudioQuality?,
+        val cacheResourceKey: String? = null,
+        val cacheContentLengthHintBytes: Long? = null,
+        val initialCacheProgress: PlaybackCacheProgressSnapshot? = null
     ) : PreparationResult
 
     data class Invalid(

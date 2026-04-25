@@ -12,11 +12,29 @@ class PlaybackServiceSynchronizer(
     private val playbackStateMapper: (RemotePlaybackSnapshot) -> Int,
     private val localShouldContinuePlayback: () -> Boolean
 ) {
+    fun observeRemotePlaybackState() {
+        serviceController.setSnapshotListener { snapshot ->
+            if (snapshot != null) {
+                applyRemotePlaybackSnapshot(snapshot)
+            }
+        }
+        syncRemotePlaybackState()
+    }
+
+    fun stopObservingRemotePlaybackState() {
+        serviceController.setSnapshotListener(null)
+    }
+
     fun syncRemotePlaybackState(): Boolean {
         val snapshot = serviceController.currentSnapshot() ?: return false
+        return applyRemotePlaybackSnapshot(snapshot)
+    }
+
+    private fun applyRemotePlaybackSnapshot(snapshot: RemotePlaybackSnapshot): Boolean {
         runtime.updateRemotePlaybackState(
             playbackState = playbackStateMapper(snapshot),
             positionMs = snapshot.currentPositionMs,
+            bufferedPositionMs = snapshot.bufferedPositionMs,
             durationMs = snapshot.durationMs,
             isSeekSupported = snapshot.isSeekSupported,
             isPreparing = snapshot.playbackState == Player.STATE_BUFFERING,
@@ -29,7 +47,8 @@ class PlaybackServiceSynchronizer(
             audioMeta = snapshot.audioMeta,
             audioEffectPreset = snapshot.audioEffectPreset,
             preferredAudioQuality = snapshot.preferredAudioQuality,
-            appliedAudioQuality = snapshot.appliedAudioQuality
+            appliedAudioQuality = snapshot.appliedAudioQuality,
+            cacheProgress = snapshot.cacheProgress
         )
         runtime.syncActiveItemById(snapshot.currentMediaId)
         syncCurrentPlayableSourceContext(snapshot)

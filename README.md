@@ -1,6 +1,6 @@
 # PlayerLite
 
-一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、歌曲详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要、系统 `MediaSession` 动态展示链路，以及当前音源管理、在线音质切换、默认音效 preset、横屏播放器独立沉浸布局、首页每日推荐站内入口与每日推荐歌曲页、首页横向歌曲推荐区块、搜索页共享主题统一和网页歌单导入等较完整的播放能力。近期进一步完成了项目结构重构：播放器展示层拆到 `:feature-player`，首页发现流拆到 `:feature-home`，播放列表域拆到 `:playlist-core`，应用侧播放编排拆到 `:playback-orchestrator`，`app` 退回到宿主、装配与入口适配职责。
+一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、歌曲详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要、系统 `MediaSession` 动态展示链路，以及当前音源管理、在线音质切换、默认音效 preset、横屏播放器独立沉浸布局、首页每日推荐站内入口与每日推荐歌曲页、首页横向歌曲推荐区块、搜索页共享主题统一和网页歌单导入等较完整的播放能力。在线播放链路已补充当前播放项缓存进度投影，`minibar` 与播放页可在同一进度条上展示已播放、已缓存未播放和未缓存状态，并支持 seek 后基于缓存 range 展示新的缓存段。近期进一步完成了项目结构重构：播放器展示层拆到 `:feature-player`，首页发现流拆到 `:feature-home`，播放列表域拆到 `:playlist-core`，应用侧播放编排拆到 `:playback-orchestrator`，`app` 退回到宿主、装配与入口适配职责。
 
 ## 主要能力
 
@@ -8,7 +8,9 @@
 - 独立 `:playback-service` 进程后台播放，接入 `MediaSessionService`、系统通知、锁屏控制和外部控制器
 - 播放列表管理与持久化恢复，支持删除、激活切换、拖拽排序
 - 播放模式：列表循环、单曲循环、随机播放
-- 网络音源 Range 播放、边播边缓存、缓存清理
+- 网络音源 Range 播放、边播边缓存、缓存清理，以及当前播放项缓存进度展示
+- 在线缓存进度由播放服务权威投影到前台，`minibar` 与播放页在同一进度条上展示缓存段；完整缓存时直接拉满，seek 后按新的 offset / length range 展示缓存区间
+- 在线读取链路提供有限 ahead 预读窗口和默认内存缓存预算，避免缓存条长期贴着播放进度移动，同时不把预读等同于整首下载
 - 在线受保护播放登录前置卡口、当前音源管理与最近一次成功音源配置恢复
 - 支持内置与自定义 JSON 音源配置，当前 native runtime 支持 `netease-compatible` 与 `http-mapping`
 - 在线歌曲真实可用音质目录、偏好音质与当前实际生效音质分离、切换音质时按当前位置重准备
@@ -79,7 +81,7 @@
 - `:player`
   - Kotlin 播放器 API 与 JNI 桥接，驱动 Native C++ + FFmpeg
 - `:cache-core`
-  - Native-first 缓存核心，提供 Range 缓存与会话能力
+  - Native-first 缓存核心，提供 Range 缓存、会话能力、缓存进度事件与有限 ahead 预读窗口
 
 ## 支持的数据源
 
@@ -139,6 +141,17 @@ OkHttpRangeDataProvider
   -> CachedNetworkSource
   -> CacheCore / CacheSession
   -> FFmpeg playback pipeline
+```
+
+当前播放项缓存进度投影链路：
+
+```text
+CacheCore / CacheProgressEvents
+  -> CachedNetworkSource
+  -> PlaybackCacheProgressEmitter / PlaybackCacheProgressResolver
+  -> PlaybackMetadataExtras / RemotePlaybackSnapshot
+  -> PlayerRuntime / PlayerUiState
+  -> SharedMiniPlayerBar / PlayerScreen
 ```
 
 ## 构建环境

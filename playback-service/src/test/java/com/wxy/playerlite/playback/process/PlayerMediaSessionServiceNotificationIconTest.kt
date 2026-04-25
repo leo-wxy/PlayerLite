@@ -7,6 +7,7 @@ import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionResult
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
@@ -121,7 +122,14 @@ class PlayerMediaSessionServiceNotificationIconTest {
                 playbackMode = PlaybackMode.SINGLE_LOOP,
                 audioEffectPreset = AudioEffectPreset.WARM,
                 preferredAudioQuality = PlaybackAudioQuality.HIRES,
-                appliedAudioQuality = PlaybackAudioQuality.LOSSLESS
+                appliedAudioQuality = PlaybackAudioQuality.LOSSLESS,
+                cacheProgress = PlaybackCacheProgressSnapshot(
+                    cachedBytes = 3_000_000L,
+                    totalBytes = 6_000_000L,
+                    displayRatio = 0.5f,
+                    isFullyCached = false,
+                    isEstimated = false
+                )
             )
         )
 
@@ -132,6 +140,7 @@ class PlayerMediaSessionServiceNotificationIconTest {
         assertEquals(AudioEffectPreset.WARM, PlaybackMetadataExtras.readAudioEffectPreset(extras))
         assertEquals(PlaybackAudioQuality.HIRES, PlaybackMetadataExtras.readPreferredAudioQuality(extras))
         assertEquals(PlaybackAudioQuality.LOSSLESS, PlaybackMetadataExtras.readAppliedAudioQuality(extras))
+        assertEquals(0.5f, PlaybackMetadataExtras.readCacheProgress(extras)?.displayRatio ?: 0f, 0f)
     }
 
     @Test

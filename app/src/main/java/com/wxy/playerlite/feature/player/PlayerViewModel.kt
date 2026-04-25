@@ -68,12 +68,11 @@ internal class PlayerViewModel(
         }
     ),
     private val initializeSessionRestore: Boolean = true,
-    private val remoteSyncIntervalMs: Long = 250L,
+    remoteSyncIntervalMs: Long = 250L,
     private val uiProgressIntervalMs: Long = 100L,
     private val lyricRequestDelayMs: Long = DEFAULT_LYRIC_REQUEST_DELAY_MS
 ) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
-    private val remoteSyncJob: Job
     private val uiProgressJob: Job
     private val userStateJob: Job
     private val localRecentPlaybackJob: Job
@@ -137,6 +136,7 @@ internal class PlayerViewModel(
 
     init {
         serviceBridge.prewarmConnection()
+        playbackSynchronizer.observeRemotePlaybackState()
         userStateJob = viewModelScope.launch {
             userRepository.loginStateFlow.collect(::publishUserState)
         }
@@ -214,12 +214,6 @@ internal class PlayerViewModel(
                     )
                     hasPublishedDisplayMetadata = true
                 }
-        }
-        remoteSyncJob = viewModelScope.launch {
-            while (isActive) {
-                playbackSynchronizer.syncRemotePlaybackState()
-                delay(remoteSyncIntervalMs)
-            }
         }
         uiProgressJob = viewModelScope.launch {
             while (isActive) {
@@ -588,8 +582,8 @@ internal class PlayerViewModel(
         displayMetadataJob.cancel()
         userStateJob.cancel()
         localRecentPlaybackJob.cancel()
-        remoteSyncJob.cancel()
         uiProgressJob.cancel()
+        playbackSynchronizer.stopObservingRemotePlaybackState()
         runtime.onHostStop()
         serviceBridge.release()
         super.onCleared()

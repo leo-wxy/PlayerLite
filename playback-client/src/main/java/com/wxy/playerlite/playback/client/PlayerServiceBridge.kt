@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
@@ -38,6 +39,26 @@ class PlayerServiceBridge(
     private var pendingQueueSyncRequest: PendingQueueSyncRequest? = null
     private var pendingPlaybackModeUpdate: PlaybackMode? = null
     private var pendingDisplayMetadataUpdate: PendingDisplayMetadataUpdate? = null
+    private var lastSnapshotCacheDebugSignature: String? = null
+    private var snapshotListener: ((RemotePlaybackSnapshot?) -> Unit)? = null
+    private val sessionListener = object : MediaController.Listener {
+        override fun onExtrasChanged(controller: MediaController, extras: Bundle) {
+            dispatchSnapshot(controller)
+        }
+
+        override fun onDisconnected(controller: MediaController) {
+            if (this@PlayerServiceBridge.controller == controller) {
+                this@PlayerServiceBridge.controller = null
+            }
+            releaseController(controller)
+            snapshotListener?.invoke(null)
+        }
+    }
+    private val playerListener = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) {
+            dispatchSnapshot(player as? MediaController ?: return)
+        }
+    }
 
     fun prewarmConnection() {
         connectIfNeeded()
@@ -66,7 +87,7 @@ class PlayerServiceBridge(
             if (isConnected(existing)) {
                 return
             }
-            runCatching { existing.release() }
+            releaseController(existing)
             controller = null
             safeLogW("MediaController exists but disconnected; rebuilding controller")
         }
@@ -79,7 +100,9 @@ class PlayerServiceBridge(
             return
         }
         val token = SessionToken(appContext, componentName)
-        val future = MediaController.Builder(appContext, token).buildAsync()
+        val future = MediaController.Builder(appContext, token)
+            .setListener(sessionListener)
+            .buildAsync()
         controllerFuture = future
 
         future.addListener(
@@ -93,7 +116,9 @@ class PlayerServiceBridge(
                 built.onSuccess {
                     if (isConnected(it)) {
                         controller = it
+                        it.addListener(playerListener)
                         flushPendingActions(it)
+                        dispatchSnapshot(it)
                     } else {
                         runCatching { it.release() }
                         controller = null
@@ -160,7 +185,7 @@ class PlayerServiceBridge(
                 return false
             }
             if (activeController != null) {
-                runCatching { activeController.release() }
+                releaseController(activeController)
                 controller = null
             }
             // A newer queue sync supersedes stale transport commands that were queued
@@ -360,7 +385,7 @@ class PlayerServiceBridge(
                 return false
             }
             if (activeController != null) {
-                runCatching { activeController.release() }
+                releaseController(activeController)
                 controller = null
             }
             pendingPlaybackModeUpdate = playbackMode
@@ -528,7 +553,7 @@ class PlayerServiceBridge(
                 return false
             }
             if (activeController != null) {
-                runCatching { activeController.release() }
+                releaseController(activeController)
                 controller = null
             }
             pendingDisplayMetadataUpdate = PendingDisplayMetadataUpdate(
@@ -565,6 +590,10 @@ class PlayerServiceBridge(
 
     fun currentSnapshot(): RemotePlaybackSnapshot? {
         val activeController = controller ?: return null
+        return currentSnapshot(activeController)
+    }
+
+    private fun currentSnapshot(activeController: MediaController): RemotePlaybackSnapshot? {
         if (!isConnected(activeController)) {
             return null
         }
@@ -573,6 +602,34 @@ class PlayerServiceBridge(
         val currentMetadataExtras = currentMetadata?.extras
         val rootMetadataExtras = activeController.mediaMetadata.extras
         val currentPlayable = activeController.currentMediaItem?.let(PlayableItemSnapshot::fromMediaItem)
+        val currentMetadataCacheProgress = PlaybackMetadataExtras.readCacheProgress(currentMetadataExtras)
+        val sessionCacheProgress = PlaybackMetadataExtras.readCacheProgress(sessionExtras)
+        val rootMetadataCacheProgress = PlaybackMetadataExtras.readCacheProgress(rootMetadataExtras)
+        val preferredCacheProgress = RemotePlaybackSnapshotMapper.readPreferredCacheProgress(
+            currentMetadataExtras = currentMetadataExtras,
+            sessionExtras = sessionExtras,
+            rootMetadataExtras = rootMetadataExtras
+        )
+        val selectedCacheProgressSource = when {
+            preferredCacheProgress == sessionCacheProgress && sessionCacheProgress != null -> "sessionExtras"
+            preferredCacheProgress == currentMetadataCacheProgress && currentMetadataCacheProgress != null -> "currentMetadata"
+            preferredCacheProgress == rootMetadataCacheProgress && rootMetadataCacheProgress != null -> "rootMetadata"
+            else -> "none"
+        }
+        emitSnapshotCacheDebugLog(
+            buildString {
+                append("currentSnapshot cacheProgress: mediaId=")
+                append(activeController.currentMediaItem?.mediaId ?: "<none>")
+                append(", source=")
+                append(selectedCacheProgressSource)
+                append(", current=")
+                append(describeCacheProgress(currentMetadataCacheProgress))
+                append(", session=")
+                append(describeCacheProgress(sessionCacheProgress))
+                append(", root=")
+                append(describeCacheProgress(rootMetadataCacheProgress))
+            }
+        )
         val seekSupported = PlaybackMetadataExtras.readSeekSupported(currentMetadataExtras)
             ?: PlaybackMetadataExtras.readSeekSupported(sessionExtras)
             ?: PlaybackMetadataExtras.readSeekSupported(rootMetadataExtras)
@@ -587,6 +644,7 @@ class PlayerServiceBridge(
             isPlaying = activeController.isPlaying,
             isSeekSupported = seekSupported,
             currentPositionMs = activeController.currentPosition,
+            bufferedPositionMs = activeController.bufferedPosition.takeIf { it != C.TIME_UNSET } ?: 0L,
             durationMs = activeController.duration.takeIf { it != C.TIME_UNSET } ?: 0L,
             playbackParametersSpeed = activeController.playbackParameters.speed,
             currentMetadataExtras = currentMetadataExtras,
@@ -603,8 +661,17 @@ class PlayerServiceBridge(
         controllerFuture?.cancel(false)
         controllerFuture = null
 
-        controller?.release()
+        controller?.let(::releaseController)
         controller = null
+        snapshotListener = null
+    }
+
+    fun setSnapshotListener(listener: ((RemotePlaybackSnapshot?) -> Unit)?) {
+        snapshotListener = listener
+        val activeController = controller ?: return
+        if (listener != null) {
+            listener(currentSnapshot(activeController))
+        }
     }
 
     private fun withController(action: (MediaController) -> Unit): Boolean {
@@ -614,7 +681,7 @@ class PlayerServiceBridge(
                 return false
             }
             if (activeController != null) {
-                runCatching { activeController.release() }
+                releaseController(activeController)
                 controller = null
             }
             pendingActions += action
@@ -686,6 +753,15 @@ class PlayerServiceBridge(
         }
     }
 
+    private fun dispatchSnapshot(activeController: MediaController) {
+        snapshotListener?.invoke(currentSnapshot(activeController))
+    }
+
+    private fun releaseController(activeController: MediaController) {
+        runCatching { activeController.removeListener(playerListener) }
+        runCatching { activeController.release() }
+    }
+
     private companion object {
         private const val TAG = "PlayerServiceBridge"
     }
@@ -708,5 +784,22 @@ class PlayerServiceBridge(
 
     private fun safeLogW(message: String) {
         runCatching { Log.w(TAG, message) }
+    }
+
+    private fun emitSnapshotCacheDebugLog(message: String) {
+        if (lastSnapshotCacheDebugSignature == message) {
+            return
+        }
+        lastSnapshotCacheDebugSignature = message
+        safeLogD(message)
+    }
+
+    private fun describeCacheProgress(
+        cacheProgress: com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot?
+    ): String {
+        if (cacheProgress == null) {
+            return "<null>"
+        }
+        return "cached=${cacheProgress.cachedBytes},total=${cacheProgress.totalBytes ?: -1L},ratio=${cacheProgress.normalizedDisplayRatio},full=${cacheProgress.isFullyCached},estimated=${cacheProgress.isEstimated}"
     }
 }

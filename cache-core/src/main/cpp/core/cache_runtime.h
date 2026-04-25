@@ -89,6 +89,7 @@ public:
     std::vector<uint8_t> ReadAt(int64_t session_id, int64_t offset, int32_t size);
     int64_t Seek(int64_t session_id, int64_t offset, int32_t whence);
     void CancelPendingRead(int64_t session_id);
+    std::vector<Range> WaitAndDrainCacheProgressChunks(int64_t session_id, int32_t timeout_ms);
 
     std::optional<CacheLookupSnapshot> Lookup(const std::string& resource_key);
     std::vector<CacheLookupSnapshot> LookupByPrefix(const std::string& prefix, int32_t limit);
@@ -135,6 +136,7 @@ private:
         bool prefetch_failed = false;
         uint64_t prefetch_failure_generation = 0;
         int64_t prefetch_failure_offset = -1;
+        std::vector<Range> pending_progress_chunks;
     };
 
     struct StorageSnapshot {

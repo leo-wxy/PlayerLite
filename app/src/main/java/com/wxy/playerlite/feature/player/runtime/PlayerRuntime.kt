@@ -18,6 +18,7 @@ import com.wxy.playerlite.feature.player.model.withAudioQuality
 import com.wxy.playerlite.feature.player.model.withAudioEffectPreset
 import com.wxy.playerlite.feature.player.model.withPlaybackSpeed
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.orchestrator.AudioEffectPresetSyncResolver
@@ -60,6 +61,8 @@ internal class PlayerRuntime(
     private var pendingPlaybackMode: PlaybackMode? = null
     private var pendingPreferredAudioQuality: PlaybackAudioQuality? = null
     private var pendingAudioEffectPreset: AudioEffectPreset? = null
+    private var lastRemotePlaybackIds: Set<String> = emptySet()
+    private var pendingRemotePlaybackItemId: String? = null
 
     private var uiState: PlayerUiState
         get() = _uiState.value
@@ -240,6 +243,7 @@ internal class PlayerRuntime(
         playlistSession.setActiveIndex(index)
         syncSelectionFromPlaylist()
         if (previousActiveId != target.id) {
+            pendingRemotePlaybackItemId = target.id
             resetPlaybackProjection()
         }
         uiState = uiState.copy(
@@ -272,6 +276,7 @@ internal class PlayerRuntime(
         }
 
         if (previousActiveId != playlistSession.activeItem?.id) {
+            pendingRemotePlaybackItemId = playlistSession.activeItem?.id
             resetPlaybackProjection()
             uiState = uiState.copy(
                 statusText = "已移除当前项",
@@ -308,6 +313,7 @@ internal class PlayerRuntime(
         }
 
         playlistSession.replaceAll(emptyList(), activeIndex = 0)
+        pendingRemotePlaybackItemId = null
         syncSelectionFromPlaylist()
         resetPlaybackProjection()
         uiState = uiState.copy(
@@ -360,16 +366,23 @@ internal class PlayerRuntime(
         if (itemId.isNullOrBlank()) {
             return
         }
+        val pendingItemId = pendingRemotePlaybackItemId
+        if (pendingItemId != null && pendingItemId != itemId) {
+            return
+        }
         if (playlistSession.activeItem?.id == itemId) {
+            pendingRemotePlaybackItemId = null
             return
         }
         playlistSession.setActiveItemId(itemId)
+        pendingRemotePlaybackItemId = null
         syncSelectionFromPlaylist()
     }
 
     override fun updateRemotePlaybackState(
         playbackState: Int,
         positionMs: Long,
+        bufferedPositionMs: Long,
         durationMs: Long,
         isSeekSupported: Boolean,
         isPreparing: Boolean,
@@ -382,7 +395,8 @@ internal class PlayerRuntime(
         audioMeta: AudioMetaDisplay?,
         audioEffectPreset: AudioEffectPreset?,
         preferredAudioQuality: PlaybackAudioQuality?,
-        appliedAudioQuality: PlaybackAudioQuality?
+        appliedAudioQuality: PlaybackAudioQuality?,
+        cacheProgress: PlaybackCacheProgressSnapshot?
     ) {
         val speedResolution = PlaybackSpeedSyncResolver.onRemoteUpdate(
             remoteSpeed = playbackSpeed,
@@ -403,8 +417,22 @@ internal class PlayerRuntime(
             currentMediaId = currentMediaId,
             currentPlayable = currentPlayable
         )
+        val currentRemotePlaybackIds = collectRemotePlaybackIds(
+            currentMediaId = currentMediaId,
+            currentPlayable = currentPlayable
+        )
+        val pendingItemId = pendingRemotePlaybackItemId
+        val remoteMatchesPendingSelection = pendingItemId == null ||
+            currentRemotePlaybackIds.contains(pendingItemId)
+        if (pendingItemId != null && remoteMatchesPendingSelection) {
+            pendingRemotePlaybackItemId = null
+        }
+        val remoteProjectionAuthoritative = remoteProjection.isAuthoritative &&
+            remoteMatchesPendingSelection
+        val sameRemotePlaybackIdentity = currentRemotePlaybackIds.isNotEmpty() &&
+            currentRemotePlaybackIds.any(lastRemotePlaybackIds::contains)
         val localPlaybackMode = playlistSession.state.playbackMode
-        val remoteModeAuthoritative = remoteProjection.isAuthoritative
+        val remoteModeAuthoritative = remoteProjectionAuthoritative
         val resolvedPlaybackMode = when {
             pendingPlaybackMode != null && pendingPlaybackMode != playbackMode -> pendingPlaybackMode!!
             remoteModeAuthoritative -> playbackMode
@@ -416,7 +444,7 @@ internal class PlayerRuntime(
             pendingPlaybackMode
         }
         playlistSession.setPlaybackMode(resolvedPlaybackMode)
-        val shouldApplyRemoteProgress = remoteProjection.isAuthoritative
+        val shouldApplyRemoteProgress = remoteProjectionAuthoritative
         val nextDuration = if (shouldApplyRemoteProgress && durationMs > 0L) {
             durationMs
         } else {
@@ -429,9 +457,24 @@ internal class PlayerRuntime(
         } else {
             uiState.seekPositionMs
         }
+        val remoteBufferedPosition = if (shouldApplyRemoteProgress && nextDuration > 0L) {
+            bufferedPositionMs.coerceIn(0L, nextDuration)
+        } else if (shouldApplyRemoteProgress) {
+            bufferedPositionMs.coerceAtLeast(0L)
+        } else {
+            uiState.bufferedPositionMs
+        }
         val currentProjectedPosition = uiState.displayedSeekMs
         val sameActiveQueueItem = remoteProjection.queueItem?.id == playlistSession.activeItem?.id
         val bounded = if (
+            shouldApplyRemoteProgress &&
+            sameActiveQueueItem &&
+            isPreparing &&
+            currentProjectedPosition > 0L &&
+            remoteBoundedPosition < currentProjectedPosition
+        ) {
+            currentProjectedPosition
+        } else if (
             shouldApplyRemoteProgress &&
             sameActiveQueueItem &&
             isProgressAdvancing &&
@@ -454,47 +497,61 @@ internal class PlayerRuntime(
         } else {
             remoteBoundedPosition
         }
-        remoteProgressShouldAdvance = shouldApplyRemoteProgress && isProgressAdvancing
+        val boundedBufferedPosition = if (shouldApplyRemoteProgress) {
+            maxOf(bounded, remoteBufferedPosition)
+        } else {
+            uiState.bufferedPositionMs
+        }
+        val resolvedCacheProgress = if (shouldApplyRemoteProgress) {
+            stabilizeRemoteCacheProgress(
+                previous = uiState.cacheProgress,
+                next = cacheProgress,
+                sameRemotePlaybackIdentity = sameRemotePlaybackIdentity
+            )
+        } else {
+            uiState.cacheProgress
+        }
+        remoteProgressShouldAdvance = shouldApplyRemoteProgress && isProgressAdvancing && !isPreparing
         if (shouldApplyRemoteProgress) {
             updateRemoteProgressAnchor(bounded)
         }
         val currentQueueItem = remoteProjection.queueItem
         uiState = uiState.copy(
-            selectedFileName = if (remoteProjection.isAuthoritative) {
+            selectedFileName = if (remoteProjectionAuthoritative) {
                 currentPlayable?.title?.takeIf { it.isNotBlank() }
                     ?: currentQueueItem?.displayName
                     ?: uiState.selectedFileName
             } else {
                 uiState.selectedFileName
             },
-            currentTrackTitle = if (remoteProjection.isAuthoritative) {
+            currentTrackTitle = if (remoteProjectionAuthoritative) {
                 currentPlayable?.title?.takeIf { it.isNotBlank() }
                     ?: currentQueueItem?.effectiveTitle
                     ?: uiState.currentTrackTitle
             } else {
                 uiState.currentTrackTitle
             },
-            currentTrackArtist = if (remoteProjection.isAuthoritative) {
+            currentTrackArtist = if (remoteProjectionAuthoritative) {
                 currentPlayable?.artistText?.takeIf { it.isNotBlank() }
                     ?: currentQueueItem?.artistText
                     ?: uiState.currentTrackArtist
             } else {
                 uiState.currentTrackArtist
             },
-            currentArtistId = if (remoteProjection.isAuthoritative) {
+            currentArtistId = if (remoteProjectionAuthoritative) {
                 currentQueueItem?.primaryArtistId?.takeIf { it.isNotBlank() }
                     ?: uiState.currentArtistId
             } else {
                 uiState.currentArtistId
             },
-            currentCoverUrl = if (remoteProjection.isAuthoritative) {
+            currentCoverUrl = if (remoteProjectionAuthoritative) {
                 currentPlayable?.coverUrl?.takeIf { it.isNotBlank() }
                     ?: currentQueueItem?.coverUrl?.takeIf { it.isNotBlank() }
                     ?: uiState.currentCoverUrl
             } else {
                 uiState.currentCoverUrl
             },
-            currentSongIdOverride = if (remoteProjection.isAuthoritative) {
+            currentSongIdOverride = if (remoteProjectionAuthoritative) {
                 currentPlayable?.songId?.takeIf { it.isNotBlank() }
                     ?: currentQueueItem?.songId?.takeIf { it.isNotBlank() }
                     ?: uiState.currentSongIdOverride
@@ -506,6 +563,7 @@ internal class PlayerRuntime(
             durationMs = nextDuration,
             isSeekSupported = if (shouldApplyRemoteProgress) isSeekSupported else uiState.isSeekSupported,
             seekPositionMs = if (uiState.isSeekDragging) uiState.seekPositionMs else bounded,
+            bufferedPositionMs = boundedBufferedPosition,
             seekDragPositionMs = if (uiState.isSeekDragging) uiState.seekDragPositionMs else bounded,
             playbackOutputInfo = if (shouldApplyRemoteProgress) {
                 playbackOutputInfo
@@ -518,6 +576,7 @@ internal class PlayerRuntime(
                 reportedDurationMs = if (shouldApplyRemoteProgress) durationMs else uiState.durationMs,
                 isSeekSupported = if (shouldApplyRemoteProgress) isSeekSupported else uiState.isSeekSupported
             ),
+            cacheProgress = resolvedCacheProgress,
             playbackMode = playlistSession.state.playbackMode
         ).withPlaybackSpeed(speedResolution.resolvedSpeed)
             .withAudioQuality(
@@ -531,6 +590,9 @@ internal class PlayerRuntime(
         }
         if (audioEffectPreset != null) {
             persistAudioEffectPreset(resolvedAudioEffectPreset)
+        }
+        if (remoteMatchesPendingSelection && currentRemotePlaybackIds.isNotEmpty()) {
+            lastRemotePlaybackIds = currentRemotePlaybackIds
         }
         syncSelectionFromPlaylist()
     }
@@ -551,6 +613,7 @@ internal class PlayerRuntime(
         updateRemotePlaybackState(
             playbackState = playbackState,
             positionMs = positionMs,
+            bufferedPositionMs = positionMs,
             durationMs = durationMs,
             isSeekSupported = isSeekSupported,
             isPreparing = false,
@@ -563,7 +626,8 @@ internal class PlayerRuntime(
             audioMeta = audioMeta,
             audioEffectPreset = null,
             preferredAudioQuality = null,
-            appliedAudioQuality = null
+            appliedAudioQuality = null,
+            cacheProgress = null
         )
     }
 
@@ -584,6 +648,7 @@ internal class PlayerRuntime(
         updateRemotePlaybackState(
             playbackState = playbackState,
             positionMs = positionMs,
+            bufferedPositionMs = positionMs,
             durationMs = durationMs,
             isSeekSupported = isSeekSupported,
             isPreparing = isPreparing,
@@ -596,7 +661,8 @@ internal class PlayerRuntime(
             audioMeta = audioMeta,
             audioEffectPreset = null,
             preferredAudioQuality = null,
-            appliedAudioQuality = null
+            appliedAudioQuality = null,
+            cacheProgress = null
         )
     }
 
@@ -695,9 +761,11 @@ internal class PlayerRuntime(
             currentCoverUrl = null,
             currentSongIdOverride = null,
             seekPositionMs = 0L,
+            bufferedPositionMs = 0L,
             seekDragPositionMs = 0L,
             isSeekDragging = false,
             appliedAudioQuality = null,
+            cacheProgress = null,
             isPreparing = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
             showMoreActionsSheet = false,
@@ -712,6 +780,38 @@ internal class PlayerRuntime(
 
     fun formatDuration(durationMs: Long): String {
         return PlayerUiFormatter.formatDuration(durationMs)
+    }
+
+    private fun stabilizeRemoteCacheProgress(
+        previous: PlaybackCacheProgressSnapshot?,
+        next: PlaybackCacheProgressSnapshot?,
+        sameRemotePlaybackIdentity: Boolean
+    ): PlaybackCacheProgressSnapshot? {
+        if (!sameRemotePlaybackIdentity) {
+            return next
+        }
+        if (previous == null) {
+            return next
+        }
+        if (next == null) {
+            return previous
+        }
+        if (previous.isFullyCached && !next.isFullyCached) {
+            return previous
+        }
+        if (next.isFullyCached) {
+            return next
+        }
+        if (next.normalizedDisplayRatio < previous.normalizedDisplayRatio) {
+            return previous
+        }
+        if (
+            next.normalizedDisplayRatio == previous.normalizedDisplayRatio &&
+            next.cachedBytes < previous.cachedBytes
+        ) {
+            return previous
+        }
+        return next
     }
 
     override fun playbackQueueItems(): List<PlaylistItem> {
@@ -763,6 +863,7 @@ internal class PlayerRuntime(
         }
         syncSelectionFromPlaylist()
         if (previousActiveId != playlistSession.activeItem?.id) {
+            pendingRemotePlaybackItemId = playlistSession.activeItem?.id
             resetPlaybackProjection()
         }
         uiState = uiState.copy(
@@ -820,8 +921,10 @@ internal class PlayerRuntime(
             isPreparing = false,
             durationMs = restoredItem.durationMs.coerceAtLeast(0L),
             seekPositionMs = restoredPositionMs,
+            bufferedPositionMs = restoredPositionMs,
             seekDragPositionMs = restoredPositionMs,
-            isSeekDragging = false
+            isSeekDragging = false,
+            cacheProgress = null
         )
     }
 
@@ -852,6 +955,7 @@ internal class PlayerRuntime(
         playlistSession.addItem(item, makeActive = true)
         syncSelectionFromPlaylist()
         if (previousActiveId != item.id) {
+            pendingRemotePlaybackItemId = item.id
             resetPlaybackProjection()
         }
         uiState = uiState.copy(statusText = "Added to playlist: $displayName")
@@ -867,9 +971,11 @@ internal class PlayerRuntime(
             isSeekSupported = false,
             durationMs = 0L,
             seekPositionMs = 0L,
+            bufferedPositionMs = 0L,
             seekDragPositionMs = 0L,
             isSeekDragging = false,
             appliedAudioQuality = null,
+            cacheProgress = null,
             isPreparing = false,
             playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
             showMoreActionsSheet = false,
@@ -965,14 +1071,10 @@ internal class PlayerRuntime(
         currentMediaId: String?,
         currentPlayable: PlayableItemSnapshot?
     ): RemotePlaybackProjection {
-        val remoteIds = buildList {
-            currentMediaId?.takeIf { it.isNotBlank() }?.let(::add)
-            currentPlayable?.id?.takeIf { it.isNotBlank() }?.let { playableId ->
-                if (playableId !in this) {
-                    add(playableId)
-                }
-            }
-        }
+        val remoteIds = collectRemotePlaybackIds(
+            currentMediaId = currentMediaId,
+            currentPlayable = currentPlayable
+        )
         val queueItem = remoteIds.firstNotNullOfOrNull { remoteId ->
             playlistSession.originalItems.firstOrNull { it.id == remoteId }
         }
@@ -983,6 +1085,16 @@ internal class PlayerRuntime(
             hasIdentity = hasIdentity,
             isAuthoritative = isAuthoritative
         )
+    }
+
+    private fun collectRemotePlaybackIds(
+        currentMediaId: String?,
+        currentPlayable: PlayableItemSnapshot?
+    ): LinkedHashSet<String> {
+        return linkedSetOf<String>().apply {
+            currentMediaId?.takeIf { it.isNotBlank() }?.let(::add)
+            currentPlayable?.id?.takeIf { it.isNotBlank() }?.let(::add)
+        }
     }
 
     private fun resolveAudioMeta(

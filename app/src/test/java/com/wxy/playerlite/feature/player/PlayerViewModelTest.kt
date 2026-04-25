@@ -477,6 +477,35 @@ class PlayerViewModelTest {
     }
 
     @Test
+    fun init_shouldObserveRemoteSnapshotsWithoutPollingCurrentSnapshot() = runTest {
+        val runtime = PlayerRuntime(application)
+        val bridge = FakePlayerControlBridge(currentSnapshot = null)
+
+        val viewModel = PlayerViewModel(
+            application = application,
+            runtime = runtime,
+            userRepository = FakeUserRepository(),
+            serviceBridge = bridge,
+            initializeSessionRestore = false,
+            remoteSyncIntervalMs = 250L,
+            uiProgressIntervalMs = 60_000L
+        )
+        try {
+            runCurrent()
+            val initialSnapshotCalls = bridge.currentSnapshotCallCount
+
+            advanceTimeBy(1_500L)
+            runCurrent()
+
+            assertTrue(bridge.snapshotListenerRegistered)
+            assertEquals(initialSnapshotCalls, bridge.currentSnapshotCallCount)
+        } finally {
+            clearViewModel(viewModel)
+            runCurrent()
+        }
+    }
+
+    @Test
     fun init_shouldPreservePersistedAudioEffectPresetWhenRemoteSnapshotOmitsPreset() = runTest {
         val preferences = application.getSharedPreferences(
             "player_view_model_audio_effect_restore_test",
@@ -1139,6 +1168,11 @@ private class FakePlayerControlBridge(
     private val currentSnapshot: RemotePlaybackSnapshot?
 ) : PlayerServiceController {
     val actions = mutableListOf<String>()
+    var currentSnapshotCallCount: Int = 0
+        private set
+    private var snapshotListener: ((RemotePlaybackSnapshot?) -> Unit)? = null
+    val snapshotListenerRegistered: Boolean
+        get() = snapshotListener != null
 
     fun clearActions() {
         actions.clear()
@@ -1221,7 +1255,14 @@ private class FakePlayerControlBridge(
         return true
     }
 
-    override fun currentSnapshot(): RemotePlaybackSnapshot? = currentSnapshot
+    override fun currentSnapshot(): RemotePlaybackSnapshot? {
+        currentSnapshotCallCount += 1
+        return currentSnapshot
+    }
+
+    override fun setSnapshotListener(listener: ((RemotePlaybackSnapshot?) -> Unit)?) {
+        snapshotListener = listener
+    }
 
     override fun release() = Unit
 }

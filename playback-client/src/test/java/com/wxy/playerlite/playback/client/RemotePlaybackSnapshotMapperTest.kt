@@ -3,6 +3,7 @@ package com.wxy.playerlite.playback.client
 import android.os.Bundle
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioMetaDisplay
@@ -120,5 +121,152 @@ class RemotePlaybackSnapshotMapperTest {
         assertNull(defaultSnapshot.audioEffectPreset)
         assertNull(defaultSnapshot.preferredAudioQuality)
         assertNull(defaultSnapshot.appliedAudioQuality)
+    }
+
+    @Test
+    fun map_readsCacheProgressFromMetadataExtras() {
+        val currentMetadataExtras = Bundle().apply {
+            PlaybackMetadataExtras.writeCacheProgress(
+                this,
+                PlaybackCacheProgressSnapshot(
+                    cachedBytes = 4_200_000L,
+                    totalBytes = 8_400_000L,
+                    displayRatio = 0.5f,
+                    isFullyCached = false,
+                    isEstimated = false
+                )
+            )
+        }
+
+        val snapshot = RemotePlaybackSnapshotMapper.map(
+            playbackState = 3,
+            playWhenReady = true,
+            isPlaying = true,
+            isSeekSupported = true,
+            currentPositionMs = 456L,
+            durationMs = 789L,
+            playbackParametersSpeed = 1f,
+            currentMetadataExtras = currentMetadataExtras,
+            sessionExtras = Bundle(),
+            rootMetadataExtras = Bundle(),
+            currentPlayable = null,
+            currentMediaId = "track-1",
+            statusText = "Playing"
+        )
+
+        assertNotNull(snapshot.cacheProgress)
+        assertEquals(4_200_000L, snapshot.cacheProgress?.cachedBytes)
+        assertEquals(8_400_000L, snapshot.cacheProgress?.totalBytes)
+        assertEquals(0.5f, snapshot.cacheProgress?.displayRatio ?: 0f, 0f)
+    }
+
+    @Test
+    fun map_carriesBufferedPositionFromControllerSnapshot() {
+        val snapshot = RemotePlaybackSnapshotMapper.map(
+            playbackState = 3,
+            playWhenReady = true,
+            isPlaying = true,
+            isSeekSupported = true,
+            currentPositionMs = 12_000L,
+            bufferedPositionMs = 48_000L,
+            durationMs = 120_000L,
+            playbackParametersSpeed = 1f,
+            currentMetadataExtras = Bundle(),
+            sessionExtras = Bundle(),
+            rootMetadataExtras = Bundle(),
+            currentPlayable = null,
+            currentMediaId = "track-1",
+            statusText = "Playing"
+        )
+
+        assertEquals(48_000L, snapshot.bufferedPositionMs)
+    }
+
+    @Test
+    fun map_prefersSessionCacheProgressOverCurrentMetadata() {
+        val currentMetadataExtras = Bundle().apply {
+            PlaybackMetadataExtras.writeCacheProgress(
+                this,
+                PlaybackCacheProgressSnapshot(
+                    cachedBytes = 0L,
+                    totalBytes = 720_813L,
+                    displayRatio = 0.0112932045f,
+                    isFullyCached = false,
+                    isEstimated = true
+                )
+            )
+        }
+        val sessionExtras = Bundle().apply {
+            PlaybackMetadataExtras.writeCacheProgress(
+                this,
+                PlaybackCacheProgressSnapshot(
+                    cachedBytes = 720_813L,
+                    totalBytes = 720_813L,
+                    displayRatio = 1f,
+                    isFullyCached = true,
+                    isEstimated = true
+                )
+            )
+        }
+
+        val snapshot = RemotePlaybackSnapshotMapper.map(
+            playbackState = 3,
+            playWhenReady = true,
+            isPlaying = true,
+            isSeekSupported = true,
+            currentPositionMs = 3_400L,
+            durationMs = 301_066L,
+            playbackParametersSpeed = 1f,
+            currentMetadataExtras = currentMetadataExtras,
+            sessionExtras = sessionExtras,
+            rootMetadataExtras = Bundle(),
+            currentPlayable = null,
+            currentMediaId = "track-1",
+            statusText = "Playing"
+        )
+
+        assertNotNull(snapshot.cacheProgress)
+        assertEquals(720_813L, snapshot.cacheProgress?.cachedBytes)
+        assertEquals(720_813L, snapshot.cacheProgress?.totalBytes)
+        assertEquals(1f, snapshot.cacheProgress?.displayRatio ?: 0f, 0f)
+        assertEquals(true, snapshot.cacheProgress?.isFullyCached)
+    }
+
+    @Test
+    fun map_fallsBackToCurrentMetadataCacheProgressWhenSessionExtrasMissing() {
+        val currentMetadataExtras = Bundle().apply {
+            PlaybackMetadataExtras.writeCacheProgress(
+                this,
+                PlaybackCacheProgressSnapshot(
+                    cachedBytes = 180_000L,
+                    totalBytes = 720_813L,
+                    displayRatio = 0.25f,
+                    isFullyCached = false,
+                    isEstimated = false
+                )
+            )
+        }
+
+        val snapshot = RemotePlaybackSnapshotMapper.map(
+            playbackState = 3,
+            playWhenReady = true,
+            isPlaying = true,
+            isSeekSupported = true,
+            currentPositionMs = 3_400L,
+            durationMs = 301_066L,
+            playbackParametersSpeed = 1f,
+            currentMetadataExtras = currentMetadataExtras,
+            sessionExtras = null,
+            rootMetadataExtras = Bundle(),
+            currentPlayable = null,
+            currentMediaId = "track-1",
+            statusText = "Playing"
+        )
+
+        assertNotNull(snapshot.cacheProgress)
+        assertEquals(180_000L, snapshot.cacheProgress?.cachedBytes)
+        assertEquals(720_813L, snapshot.cacheProgress?.totalBytes)
+        assertEquals(0.25f, snapshot.cacheProgress?.displayRatio ?: 0f, 0f)
+        assertEquals(false, snapshot.cacheProgress?.isFullyCached)
     }
 }

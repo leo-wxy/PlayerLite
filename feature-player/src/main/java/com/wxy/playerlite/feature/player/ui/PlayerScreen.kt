@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -140,8 +141,32 @@ import kotlinx.coroutines.flow.first
 val PlayerLyricsFirstVisibleIndexKey =
     SemanticsPropertyKey<Int>("PlayerLyricsFirstVisibleIndex")
 
+val PlayerTopTabTextSizeSpKey =
+    SemanticsPropertyKey<Float>("PlayerTopTabTextSizeSp")
+
+val PlayerTopTabFontWeightKey =
+    SemanticsPropertyKey<Int>("PlayerTopTabFontWeight")
+
+val PlayerTopTabHorizontalPaddingDpKey =
+    SemanticsPropertyKey<Float>("PlayerTopTabHorizontalPaddingDp")
+
+val PlayerTopTabIndicatorHeightDpKey =
+    SemanticsPropertyKey<Float>("PlayerTopTabIndicatorHeightDp")
+
 internal var SemanticsPropertyReceiver.playerLyricsFirstVisibleIndex by
     PlayerLyricsFirstVisibleIndexKey
+
+internal var SemanticsPropertyReceiver.playerTopTabTextSizeSp by
+    PlayerTopTabTextSizeSpKey
+
+internal var SemanticsPropertyReceiver.playerTopTabFontWeight by
+    PlayerTopTabFontWeightKey
+
+internal var SemanticsPropertyReceiver.playerTopTabHorizontalPaddingDp by
+    PlayerTopTabHorizontalPaddingDpKey
+
+internal var SemanticsPropertyReceiver.playerTopTabIndicatorHeightDp by
+    PlayerTopTabIndicatorHeightDpKey
 
 @Composable
 fun PlayerScreen(
@@ -197,6 +222,8 @@ fun PlayerScreen(
         showOriginalOrderInShuffle = uiState.showOriginalOrderInShuffle,
         canReorderPlaylist = uiState.canReorderPlaylist,
         seekValueMs = uiState.displayedSeekMs,
+        cacheProgressStart = uiState.displayedCacheProgressStartRatio,
+        cacheProgress = uiState.displayedCacheProgressRatio,
         currentDurationText = currentDurationText,
         durationMs = uiState.durationMs,
         totalDurationText = totalDurationText,
@@ -277,6 +304,8 @@ fun PlayerScreen(
     showOriginalOrderInShuffle: Boolean,
     canReorderPlaylist: Boolean,
     seekValueMs: Long,
+    cacheProgressStart: Float? = null,
+    cacheProgress: Float? = null,
     currentDurationText: String,
     durationMs: Long,
     totalDurationText: String,
@@ -460,6 +489,8 @@ fun PlayerScreen(
                 playbackMode = playbackMode,
                 sliderValue = sliderValue,
                 sliderMax = sliderMax,
+                cacheProgressStart = cacheProgressStart,
+                cacheProgress = cacheProgress,
                 seekEnabled = seekEnabled,
                 currentPositionMs = seekValueMs,
                 currentDurationText = currentDurationText,
@@ -1197,83 +1228,98 @@ private fun PlayerScreenTopBar(
     layoutMetrics: PlayerScreenLayoutMetrics,
     modifier: Modifier = Modifier
 ) {
-    val orientationTarget = remember(orientationMode, isCurrentlyLandscape) {
-        resolvePlayerOrientationToggleTarget(
-            currentMode = orientationMode,
-            isCurrentlyLandscape = isCurrentlyLandscape
-        )
-    }
-    val orientationAction = remember(orientationTarget) {
-        resolvePlayerOrientationModeAction(orientationTarget)
-    }
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .statusBarsPadding()
             .height(layoutMetrics.topBarHeight)
-            .testTag("player_screen_top_bar"),
+            .testTag("player_screen_top_bar")
     ) {
-        Box(
-            modifier = Modifier.align(Alignment.CenterStart)
-        ) {
-            PlayerTopBarActionButton(
-                icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                contentDescription = "返回首页",
-                tag = "player_screen_top_back_button",
-                buttonSize = layoutMetrics.topBarActionButtonSize,
-                onClick = onBackClick
+        val orientationTarget = remember(orientationMode, isCurrentlyLandscape) {
+            resolvePlayerOrientationToggleTarget(
+                currentMode = orientationMode,
+                isCurrentlyLandscape = isCurrentlyLandscape
             )
         }
-        if (showTabs) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = (layoutMetrics.topBarActionButtonSize * 2) + 24.dp)
-                    .testTag("player_screen_top_tabs"),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-                verticalAlignment = Alignment.CenterVertically
+        val orientationAction = remember(orientationTarget) {
+            resolvePlayerOrientationModeAction(orientationTarget)
+        }
+        val compactTopTabs = maxWidth < 340.dp
+        val topTabsSpacing = if (compactTopTabs) 10.dp else 12.dp
+        val topTabHorizontalPadding = layoutMetrics.topTabHorizontalPadding
+        val topTabMinWidth = if (compactTopTabs) 44.dp else 48.dp
+        val topTabTextSizeSp = layoutMetrics.topTabTextSizeSp
+        val topTabIndicatorWidth = if (compactTopTabs) 28.dp else 32.dp
+        val topTabIndicatorHeight = 2.dp
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier.align(Alignment.CenterStart)
             ) {
-                PlayerTopBarTab(
-                    text = "歌曲",
-                    selected = selectedTopTab == PlayerTopTab.SONG,
-                    tag = "player_screen_top_tab_song",
-                    indicatorTag = "player_screen_top_tab_indicator_song",
-                    textSizeSp = layoutMetrics.topTabTextSizeSp,
-                    horizontalPadding = layoutMetrics.topTabHorizontalPadding,
-                    onClick = { onSelectTopTab(PlayerTopTab.SONG) }
-                )
-                PlayerTopBarTab(
-                    text = "歌词",
-                    selected = selectedTopTab == PlayerTopTab.LYRICS,
-                    tag = "player_screen_top_tab_lyrics",
-                    indicatorTag = "player_screen_top_tab_indicator_lyrics",
-                    textSizeSp = layoutMetrics.topTabTextSizeSp,
-                    horizontalPadding = layoutMetrics.topTabHorizontalPadding,
-                    onClick = { onSelectTopTab(PlayerTopTab.LYRICS) }
+                PlayerTopBarActionButton(
+                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "返回首页",
+                    tag = "player_screen_top_back_button",
+                    buttonSize = layoutMetrics.topBarActionButtonSize,
+                    onClick = onBackClick
                 )
             }
-        }
-        Row(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .testTag("player_screen_top_actions"),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            PlayerTopBarActionButton(
-                icon = orientationAction.icon,
-                contentDescription = orientationAction.contentDescription,
-                tag = "player_screen_orientation_mode_button",
-                buttonSize = layoutMetrics.topBarActionButtonSize,
-                onClick = { onCycleOrientationMode(orientationTarget) }
-            )
-            PlayerTopBarActionButton(
-                icon = Icons.Rounded.Share,
-                contentDescription = "分享当前歌曲",
-                tag = "player_screen_top_share_button",
-                buttonSize = layoutMetrics.topBarActionButtonSize,
-                onClick = onShareClick
-            )
+            if (showTabs) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .testTag("player_screen_top_tabs"),
+                    horizontalArrangement = Arrangement.spacedBy(topTabsSpacing),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PlayerTopBarTab(
+                        text = "歌曲",
+                        selected = selectedTopTab == PlayerTopTab.SONG,
+                        tag = "player_screen_top_tab_song",
+                        indicatorTag = "player_screen_top_tab_indicator_song",
+                        textSizeSp = topTabTextSizeSp,
+                        horizontalPadding = topTabHorizontalPadding,
+                        minWidth = topTabMinWidth,
+                        indicatorWidth = topTabIndicatorWidth,
+                        indicatorHeight = topTabIndicatorHeight,
+                        onClick = { onSelectTopTab(PlayerTopTab.SONG) }
+                    )
+                    PlayerTopBarTab(
+                        text = "歌词",
+                        selected = selectedTopTab == PlayerTopTab.LYRICS,
+                        tag = "player_screen_top_tab_lyrics",
+                        indicatorTag = "player_screen_top_tab_indicator_lyrics",
+                        textSizeSp = topTabTextSizeSp,
+                        horizontalPadding = topTabHorizontalPadding,
+                        minWidth = topTabMinWidth,
+                        indicatorWidth = topTabIndicatorWidth,
+                        indicatorHeight = topTabIndicatorHeight,
+                        onClick = { onSelectTopTab(PlayerTopTab.LYRICS) }
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .testTag("player_screen_top_actions"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PlayerTopBarActionButton(
+                    icon = orientationAction.icon,
+                    contentDescription = orientationAction.contentDescription,
+                    tag = "player_screen_orientation_mode_button",
+                    buttonSize = layoutMetrics.topBarActionButtonSize,
+                    onClick = { onCycleOrientationMode(orientationTarget) }
+                )
+                PlayerTopBarActionButton(
+                    icon = Icons.Rounded.Share,
+                    contentDescription = "分享当前歌曲",
+                    tag = "player_screen_top_share_button",
+                    buttonSize = layoutMetrics.topBarActionButtonSize,
+                    onClick = onShareClick
+                )
+            }
         }
     }
 }
@@ -1367,6 +1413,9 @@ private fun PlayerTopBarTab(
     indicatorTag: String,
     textSizeSp: Float,
     horizontalPadding: Dp,
+    minWidth: Dp,
+    indicatorWidth: Dp,
+    indicatorHeight: Dp,
     onClick: () -> Unit
 ) {
     val visuals = resolvePlayerTopBarTabVisuals(
@@ -1375,23 +1424,31 @@ private fun PlayerTopBarTab(
     )
     Column(
         modifier = Modifier
+            .widthIn(min = minWidth)
             .testTag(tag)
-            .clip(CircleShape)
+            .semantics {
+                playerTopTabTextSizeSp = textSizeSp
+                playerTopTabFontWeight = visuals.fontWeight.weight
+                playerTopTabHorizontalPaddingDp = horizontalPadding.value
+                playerTopTabIndicatorHeightDp = indicatorHeight.value
+            }
             .clickable(onClick = onClick)
-            .padding(horizontal = horizontalPadding, vertical = 5.dp),
+            .padding(horizontal = horizontalPadding, vertical = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.titleMedium.copy(fontSize = textSizeSp.sp),
+            style = MaterialTheme.typography.titleSmall.copy(fontSize = textSizeSp.sp),
             fontWeight = visuals.fontWeight,
             color = visuals.textColor,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            softWrap = false
         )
         Box(
             modifier = Modifier
-                .size(width = 52.dp, height = 3.dp)
+                .size(width = indicatorWidth, height = indicatorHeight)
                 .clip(RoundedCornerShape(999.dp))
                 .background(
                     if (selected) visuals.indicatorColor else Color.Transparent
@@ -1419,12 +1476,12 @@ fun resolvePlayerTopBarTabVisuals(
 ): PlayerTopBarTabVisuals {
     return PlayerTopBarTabVisuals(
         textColor = if (selected) {
-            visualTokens.accentStrong
+            visualTokens.accentStrong.copy(alpha = 0.92f)
         } else {
-            PlayerLiteThemeContract.DefaultBrandPalettes.light.neutral
+            Color.White.copy(alpha = 0.80f)
         },
-        indicatorColor = visualTokens.accentStrong,
-        fontWeight = FontWeight.Medium
+        indicatorColor = visualTokens.accentStrong.copy(alpha = 0.88f),
+        fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal
     )
 }
 
@@ -1683,6 +1740,8 @@ private fun PlayerScreenContent(
     playbackMode: PlaybackMode,
     sliderValue: Float,
     sliderMax: Float,
+    cacheProgressStart: Float?,
+    cacheProgress: Float?,
     seekEnabled: Boolean,
     currentPositionMs: Long,
     currentDurationText: String,
@@ -1815,6 +1874,8 @@ private fun PlayerScreenContent(
                                 playbackMode = playbackMode,
                                 sliderValue = sliderValue,
                                 sliderMax = sliderMax,
+                                cacheProgressStart = cacheProgressStart,
+                                cacheProgress = cacheProgress,
                                 seekEnabled = seekEnabled,
                                 currentDurationText = currentDurationText,
                                 totalDurationText = totalDurationText,
@@ -1999,6 +2060,8 @@ private fun PlayerScreenContent(
                                     PlayerProgressBarSlider(
                                         value = sliderValue,
                                         max = sliderMax,
+                                        cacheProgressStart = cacheProgressStart,
+                                        cacheProgress = cacheProgress,
                                         enabled = seekEnabled,
                                         onValueChange = { value -> onSeekValueChange(value.toLong()) },
                                         onValueChangeFinished = onSeekFinished,
@@ -2202,6 +2265,8 @@ private fun PlayerLandscapeSongPage(
     playbackMode: PlaybackMode,
     sliderValue: Float,
     sliderMax: Float,
+    cacheProgressStart: Float?,
+    cacheProgress: Float?,
     seekEnabled: Boolean,
     currentDurationText: String,
     totalDurationText: String,
@@ -2304,6 +2369,8 @@ private fun PlayerLandscapeSongPage(
                             PlayerProgressBarSlider(
                                 value = sliderValue,
                                 max = sliderMax,
+                                cacheProgressStart = cacheProgressStart,
+                                cacheProgress = cacheProgress,
                                 enabled = seekEnabled,
                                 onValueChange = { value -> onSeekValueChange(value.toLong()) },
                                 onValueChangeFinished = onSeekFinished,
@@ -2708,6 +2775,8 @@ private fun formatLyricSummaryLine(text: String): String {
 private fun PlayerProgressBarSlider(
     value: Float,
     max: Float,
+    cacheProgressStart: Float?,
+    cacheProgress: Float?,
     enabled: Boolean,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
@@ -2717,6 +2786,11 @@ private fun PlayerProgressBarSlider(
     val boundedMax = max.coerceAtLeast(1f)
     val boundedValue = value.coerceIn(0f, boundedMax)
     val progressFraction = (boundedValue / boundedMax).coerceIn(0f, 1f)
+    val cacheProgressStartFraction = cacheProgressStart
+        ?.coerceIn(0f, 1f)
+        ?: 0f
+    val cacheProgressFraction = cacheProgress
+        ?.coerceIn(0f, 1f)
     val thumbSize = 8.dp
     val trackHeight = 3.dp
 
@@ -2724,6 +2798,7 @@ private fun PlayerProgressBarSlider(
         modifier = modifier
             .height(20.dp)
     ) {
+        val trackMaxWidth = maxWidth
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
@@ -2735,6 +2810,25 @@ private fun PlayerProgressBarSlider(
                 )
                 .testTag("player_screen_slider_track")
         ) {
+            val cacheWidthFraction = cacheProgressFraction
+                ?.let { (it - cacheProgressStartFraction).coerceIn(0f, 1f) }
+                ?: 0f
+            if (cacheWidthFraction > 0f) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = trackMaxWidth * cacheProgressStartFraction)
+                        .width(trackMaxWidth * cacheWidthFraction)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(
+                            visualTokens.miniPlayerProgressFill.copy(
+                                alpha = if (enabled) 0.36f else 0.22f
+                            )
+                        )
+                        .testTag("player_screen_slider_cached_track")
+                )
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth(progressFraction)

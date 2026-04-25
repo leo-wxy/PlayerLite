@@ -8,12 +8,21 @@ import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackSpeed
 
 internal object RemotePlaybackSnapshotMapper {
+    fun readPreferredCacheProgress(
+        currentMetadataExtras: Bundle?,
+        sessionExtras: Bundle?,
+        rootMetadataExtras: Bundle?
+    ) = PlaybackMetadataExtras.readCacheProgress(sessionExtras)
+        ?: PlaybackMetadataExtras.readCacheProgress(currentMetadataExtras)
+        ?: PlaybackMetadataExtras.readCacheProgress(rootMetadataExtras)
+
     fun map(
         playbackState: Int,
         playWhenReady: Boolean,
         isPlaying: Boolean,
         isSeekSupported: Boolean,
         currentPositionMs: Long,
+        bufferedPositionMs: Long = currentPositionMs,
         durationMs: Long,
         playbackParametersSpeed: Float,
         currentMetadataExtras: Bundle?,
@@ -48,6 +57,7 @@ internal object RemotePlaybackSnapshotMapper {
             isPlaying = isPlaying,
             isSeekSupported = isSeekSupported,
             currentPositionMs = currentPositionMs,
+            bufferedPositionMs = bufferedPositionMs,
             durationMs = durationMs,
             playbackSpeed = playbackSpeed,
             playbackMode = playbackMode,
@@ -62,7 +72,12 @@ internal object RemotePlaybackSnapshotMapper {
                 ?: PlaybackMetadataExtras.readPlaybackOutputInfo(rootMetadataExtras),
             audioMeta = PlaybackMetadataExtras.readAudioMeta(currentMetadataExtras)
                 ?: PlaybackMetadataExtras.readAudioMeta(sessionExtras)
-                ?: PlaybackMetadataExtras.readAudioMeta(rootMetadataExtras)
+                ?: PlaybackMetadataExtras.readAudioMeta(rootMetadataExtras),
+            cacheProgress = readPreferredCacheProgress(
+                currentMetadataExtras = currentMetadataExtras,
+                sessionExtras = sessionExtras,
+                rootMetadataExtras = rootMetadataExtras
+            )
         )
     }
 }

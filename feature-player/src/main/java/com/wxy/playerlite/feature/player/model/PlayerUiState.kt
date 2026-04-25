@@ -3,6 +3,7 @@ package com.wxy.playerlite.feature.player.model
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.feature.player.ParsedLyrics
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
 import com.wxy.playerlite.player.AudioMetaDisplay
@@ -118,8 +119,10 @@ data class PlayerUiState(
     val canReorderPlaylist: Boolean = true,
     val durationMs: Long = 0L,
     val seekPositionMs: Long = 0L,
+    val bufferedPositionMs: Long = 0L,
     val seekDragPositionMs: Long = 0L,
-    val isSeekDragging: Boolean = false
+    val isSeekDragging: Boolean = false,
+    val cacheProgress: PlaybackCacheProgressSnapshot? = null
 ) {
     val displayedSeekMs: Long
         get() = if (isSeekDragging) seekDragPositionMs else seekPositionMs
@@ -161,6 +164,12 @@ data class PlayerUiState(
                 .getOrNull(activePlaylistIndex)
                 ?.songId
                 ?.takeIf { it.isNotBlank() }
+
+    val displayedCacheProgressRatio: Float?
+        get() = cacheProgress?.normalizedDisplayRatio
+
+    val displayedCacheProgressStartRatio: Float?
+        get() = cacheProgress?.normalizedDisplayStartRatio
 }
 
 fun emptyAudioMeta(): AudioMetaDisplay {

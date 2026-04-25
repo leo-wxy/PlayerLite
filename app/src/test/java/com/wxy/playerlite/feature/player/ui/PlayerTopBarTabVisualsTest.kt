@@ -9,7 +9,7 @@ import org.junit.Test
 class PlayerTopBarTabVisualsTest {
 
     @Test
-    fun resolvePlayerTopBarTabVisuals_shouldUseSecondaryForUnselectedAndKeepSameWeight() {
+    fun resolvePlayerTopBarTabVisuals_shouldMatchCurrentSelectedAndUnselectedTokens() {
         val colorScheme = PlayerLiteThemeContract.colorScheme(darkTheme = false)
         val visualTokens = PlayerLiteThemeContract.visualTokens(
             darkTheme = false,
@@ -25,14 +25,13 @@ class PlayerTopBarTabVisualsTest {
             visualTokens = visualTokens
         )
 
-        assertEquals(visualTokens.accentStrong, selected.textColor)
-        assertEquals(visualTokens.accentStrong, selected.indicatorColor)
+        assertEquals(visualTokens.accentStrong.copy(alpha = 0.92f), selected.textColor)
+        assertEquals(visualTokens.accentStrong.copy(alpha = 0.88f), selected.indicatorColor)
         assertEquals(
-            PlayerLiteThemeContract.DefaultBrandPalettes.light.neutral,
+            Color.White.copy(alpha = 0.80f),
             unselected.textColor
         )
         assertEquals(FontWeight.Medium, selected.fontWeight)
-        assertEquals(FontWeight.Medium, unselected.fontWeight)
-        assertEquals(selected.fontWeight, unselected.fontWeight)
+        assertEquals(FontWeight.Normal, unselected.fontWeight)
     }
 }

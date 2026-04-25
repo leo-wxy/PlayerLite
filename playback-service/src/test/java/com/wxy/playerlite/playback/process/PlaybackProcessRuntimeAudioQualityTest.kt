@@ -32,6 +32,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class PlaybackProcessRuntimeAudioQualityTest {
+    private companion object {
+        const val PLAY_CODE_RETRY_LATER = -2005
+    }
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     @After
@@ -160,7 +164,9 @@ class PlaybackProcessRuntimeAudioQualityTest {
     fun setPreferredAudioQuality_whenPlayingOnlineTrack_shouldReprepareCurrentTrackFromCurrentPosition() = runBlocking {
         val appContext = RuntimeEnvironment.getApplication() as Context
         val testScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
-        val nativePlayer = FakeAudioQualityNativePlayer()
+        val nativePlayer = FakeAudioQualityNativePlayer(
+            playFromSourceResult = PLAY_CODE_RETRY_LATER
+        )
         val firstSource = FakeAudioQualityPlaySource(sourceId = "source-exhigh")
         val secondSource = FakeAudioQualityPlaySource(sourceId = "source-lossless")
         val trackPreparer = FakeTrackPreparer(
@@ -228,7 +234,9 @@ class PlaybackProcessRuntimeAudioQualityTest {
     fun setPreferredAudioQuality_whenPausedOnlineTrack_shouldKeepPausedPositionWithoutByteSeekingSource() = runBlocking {
         val appContext = RuntimeEnvironment.getApplication() as Context
         val testScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
-        val nativePlayer = FakeAudioQualityNativePlayer()
+        val nativePlayer = FakeAudioQualityNativePlayer(
+            playFromSourceResult = PLAY_CODE_RETRY_LATER
+        )
         val firstSource = FakeAudioQualityPlaySource(sourceId = "source-exhigh")
         val secondSource = FakeAudioQualityPlaySource(sourceId = "source-lossless")
         val trackPreparer = FakeTrackPreparer(
@@ -288,7 +296,9 @@ class PlaybackProcessRuntimeAudioQualityTest {
     fun setPreferredAudioQuality_whenFallbackApplied_shouldReportActualQualityInStatusText() = runBlocking {
         val appContext = RuntimeEnvironment.getApplication() as Context
         val testScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
-        val nativePlayer = FakeAudioQualityNativePlayer()
+        val nativePlayer = FakeAudioQualityNativePlayer(
+            playFromSourceResult = PLAY_CODE_RETRY_LATER
+        )
         val firstSource = FakeAudioQualityPlaySource(sourceId = "source-exhigh")
         val secondSource = FakeAudioQualityPlaySource(sourceId = "source-lossless")
         val trackPreparer = FakeTrackPreparer(
@@ -360,7 +370,9 @@ class PlaybackProcessRuntimeAudioQualityTest {
             adapterId = "source-default",
             normalizedConfigJson = firstConfig
         )
-        val nativePlayer = FakeAudioQualityNativePlayer()
+        val nativePlayer = FakeAudioQualityNativePlayer(
+            playFromSourceResult = PLAY_CODE_RETRY_LATER
+        )
         val firstSource = FakeAudioQualityPlaySource(sourceId = "source-exhigh")
         val refreshedSource = FakeAudioQualityPlaySource(sourceId = "source-hires-refreshed")
         val trackPreparer = FakeTrackPreparer(
@@ -593,8 +605,8 @@ class PlaybackProcessRuntimeAudioQualityTest {
             trackPreparer = trackPreparer
         )
         val previousConfig = neteaseCompatibleConfigJson("https://default.example.com/api")
+        assertTrue(runtime.setActiveAudioSourceConfigJson(previousConfig))
         mutableState(runtime).value = runtime.state.value.copy(
-            activeAudioSourceConfigJson = previousConfig,
             statusText = "Playing"
         )
 
@@ -1058,7 +1070,9 @@ class PlaybackProcessRuntimeAudioQualityTest {
         )
     }
 
-    private class FakeAudioQualityNativePlayer : INativePlayer {
+    private class FakeAudioQualityNativePlayer(
+        private val playFromSourceResult: Int = 0
+    ) : INativePlayer {
         var stopCalls: Int = 0
         var resumeCalls: Int = 0
 
@@ -1070,7 +1084,7 @@ class PlaybackProcessRuntimeAudioQualityTest {
 
         override fun setPlaybackSpeed(speed: Float): Int = 0
 
-        override fun playFromSource(source: IPlaysource): Int = 0
+        override fun playFromSource(source: IPlaysource): Int = playFromSourceResult
 
         override fun pause(): Int = 0
 

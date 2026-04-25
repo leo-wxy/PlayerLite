@@ -1,5 +1,7 @@
 package com.wxy.playerlite.playback.process
 
+import android.util.Log
+import com.wxy.playerlite.cache.core.CacheCompletedRange
 import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.CacheLookupSnapshot
 import com.wxy.playerlite.network.core.JsonHttpClient
@@ -8,6 +10,7 @@ import com.wxy.playerlite.playback.model.PlaybackPreviewClip
 import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
 import com.wxy.playerlite.playback.model.SongAudioQualityCatalogJsonMapper
 import com.wxy.playerlite.playback.model.SongAudioQualityOption
+import java.io.File
 import java.io.IOException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -478,6 +481,7 @@ internal data class OnlinePlaybackPlan(
 
 internal class OnlinePlaybackPreparationPlanner(
     private val cacheLookup: (String) -> Result<CacheLookupSnapshot?> = CacheCore::lookup,
+    private val cacheRootDirPath: String? = null,
     private val resolver: OnlinePlaybackResolver? = null,
     private val audioQualityCatalogProvider: suspend (String, Map<String, String>) -> SongAudioQualityCatalog? = { _, _ -> null },
     private val sourceAdapterProvider: (() -> SourceAdapter)? = null,
@@ -502,13 +506,18 @@ internal class OnlinePlaybackPreparationPlanner(
         }
         val appliedLevel = (preview?.appliedAudioQuality ?: preferredAudioQuality).wireValue
         val initialKey = buildOnlineResourceKey(songId, appliedLevel, requestedMode)
-        val initialSnapshot = cacheLookup(initialKey)
-            .getOrNull()
+        val initialSnapshot = lookupReusableCacheSnapshot(initialKey)
             ?.sanitizeForReuse(
                 expectedClipMode = requestedMode,
                 expectedDurationMs = track.durationHintMs
             )
+        logOnlinePlaybackSupport(
+            "buildPlan initial: key=$initialKey mode=${requestedMode.wireValue} snapshot=${describeOnlineCacheSnapshot(initialSnapshot)}"
+        )
         if (initialSnapshot.isCompleteCachedContent()) {
+            logOnlinePlaybackSupport(
+                "buildPlan initial cache hit: key=$initialKey useCacheOnly=true contentLength=${initialSnapshot?.contentLength ?: -1L}"
+            )
             return Result.success(
                 OnlinePlaybackPlan(
                     resourceKey = initialKey,
@@ -545,7 +554,7 @@ internal class OnlinePlaybackPreparationPlanner(
             clipMode = actualMode
         )
         val finalSnapshot = if (finalKey != initialKey) {
-            cacheLookup(finalKey).getOrNull()
+            lookupReusableCacheSnapshot(finalKey)
         } else {
             initialSnapshot
         }?.sanitizeForReuse(
@@ -553,6 +562,9 @@ internal class OnlinePlaybackPreparationPlanner(
             expectedDurationMs = track.durationHintMs
         )
         val completeSnapshot = finalSnapshot.takeIf { it.isCompleteCachedContent() }
+        logOnlinePlaybackSupport(
+            "buildPlan final: initialKey=$initialKey finalKey=$finalKey complete=${completeSnapshot != null} finalSnapshot=${describeOnlineCacheSnapshot(finalSnapshot)} resolvedContentLength=${resolvedMusicUrl.contentLengthBytes ?: -1L} useCacheOnly=${completeSnapshot != null}"
+        )
 
         return Result.success(
             OnlinePlaybackPlan(
@@ -583,6 +595,15 @@ internal class OnlinePlaybackPreparationPlanner(
                     audioQualityCatalogProvider = audioQualityCatalogProvider
                 )
             }
+    }
+
+    private fun lookupReusableCacheSnapshot(resourceKey: String): CacheLookupSnapshot? {
+        val directSnapshot = cacheLookup(resourceKey).getOrNull()
+        if (directSnapshot != null) {
+            return directSnapshot
+        }
+        val fallbackRoot = cacheRootDirPath?.takeIf { it.isNotBlank() } ?: return null
+        return readOnlineCacheSidecarSnapshot(resourceKey, fallbackRoot)
     }
 
     private companion object {
@@ -864,34 +885,97 @@ internal fun Throwable.asOnlinePlaybackFailure(): OnlinePlaybackFailure? {
 
 private fun CacheLookupSnapshot?.isCompleteCachedContent(): Boolean {
     if (this == null) {
+        logOnlinePlaybackSupport("isCompleteCachedContent=false reason=null_snapshot")
         return false
     }
     if (contentLength <= 0L) {
+        logOnlinePlaybackSupport(
+            "isCompleteCachedContent=false key=$resourceKey reason=missing_content_length fileBytes=$dataFileSizeBytes ranges=${describeOnlineRanges(completedRanges)}"
+        )
         return false
     }
     val mergedRanges = completedRanges
         .filter { it.endExclusive > it.start }
         .sortedBy { it.start }
     if (mergedRanges.isEmpty()) {
+        logOnlinePlaybackSupport(
+            "isCompleteCachedContent=false key=$resourceKey reason=empty_ranges contentLength=$contentLength"
+        )
         return false
     }
     if (mergedRanges.first().start > 0L) {
+        logOnlinePlaybackSupport(
+            "isCompleteCachedContent=false key=$resourceKey reason=range_not_from_zero firstStart=${mergedRanges.first().start} contentLength=$contentLength"
+        )
         return false
     }
     var coveredEnd = mergedRanges.first().endExclusive
     for (index in 1 until mergedRanges.size) {
         val range = mergedRanges[index]
         if (range.start > coveredEnd) {
+            logOnlinePlaybackSupport(
+                "isCompleteCachedContent=false key=$resourceKey reason=gap gapStart=${range.start} coveredEnd=$coveredEnd contentLength=$contentLength ranges=${describeOnlineRanges(mergedRanges)}"
+            )
             return false
         }
         if (range.endExclusive > coveredEnd) {
             coveredEnd = range.endExclusive
         }
         if (coveredEnd >= contentLength) {
+            logOnlinePlaybackSupport(
+                "isCompleteCachedContent=true key=$resourceKey coveredEnd=$coveredEnd contentLength=$contentLength ranges=${describeOnlineRanges(mergedRanges)}"
+            )
             return true
         }
     }
-    return coveredEnd >= contentLength
+    val isComplete = coveredEnd >= contentLength
+    logOnlinePlaybackSupport(
+        "isCompleteCachedContent=$isComplete key=$resourceKey coveredEnd=$coveredEnd contentLength=$contentLength ranges=${describeOnlineRanges(mergedRanges)}"
+    )
+    return isComplete
+}
+
+private fun readOnlineCacheSidecarSnapshot(
+    resourceKey: String,
+    cacheRootDirPath: String
+): CacheLookupSnapshot? {
+    val root = File(cacheRootDirPath)
+    val configFile = File(root, "${resourceKey}_config.json")
+    val dataFile = File(root, "$resourceKey.data")
+    val extraFile = File(root, "${resourceKey}_extra.json")
+    if (!configFile.isFile || !dataFile.isFile) {
+        logOnlinePlaybackSupport(
+            "sidecar cache snapshot skipped: key=$resourceKey reason=missing_file config=${configFile.exists()} data=${dataFile.exists()}"
+        )
+        return null
+    }
+    return runCatching {
+        val payload = configFile.readText()
+        val contentLength = payload.parseOnlineLongField("contentLength") ?: -1L
+        val durationMs = payload.parseOnlineLongField("durationMs") ?: -1L
+        val blockSizeBytes = payload.parseOnlineLongField("blockSizeBytes")?.toInt() ?: 0
+        CacheLookupSnapshot(
+            resourceKey = resourceKey,
+            dataFilePath = dataFile.absolutePath,
+            configFilePath = configFile.absolutePath,
+            extraFilePath = extraFile.absolutePath,
+            dataFileSizeBytes = dataFile.length(),
+            blockSizeBytes = blockSizeBytes,
+            contentLength = contentLength,
+            durationMs = durationMs,
+            cachedBlocks = payload.parseOnlineLongArrayField("blocks"),
+            lastAccessEpochMs = configFile.lastModified(),
+            completedRanges = payload.parseOnlineRangesField("completedRanges")
+        )
+    }.onSuccess { snapshot ->
+        logOnlinePlaybackSupport(
+            "sidecar cache snapshot loaded: key=$resourceKey contentLength=${snapshot.contentLength} fileBytes=${snapshot.dataFileSizeBytes} ranges=${describeOnlineRanges(snapshot.completedRanges)}"
+        )
+    }.onFailure { error ->
+        logOnlinePlaybackSupport(
+            "sidecar cache snapshot failed: key=$resourceKey error=${error.message ?: error::class.java.simpleName}"
+        )
+    }.getOrNull()
 }
 
 private fun CacheLookupSnapshot.sanitizeForReuse(
@@ -918,6 +1002,61 @@ private fun CacheLookupSnapshot.sanitizeForReuse(
 
 private fun firstPositive(vararg values: Long?): Long {
     return values.firstOrNull { it != null && it > 0L } ?: 0L
+}
+
+private const val ONLINE_PLAYBACK_SUPPORT_TAG = "OnlinePlaybackSupport"
+
+@Volatile
+private var lastOnlinePlaybackSupportSignature: String? = null
+
+private fun logOnlinePlaybackSupport(message: String) {
+    if (lastOnlinePlaybackSupportSignature == message) {
+        return
+    }
+    lastOnlinePlaybackSupportSignature = message
+    runCatching { Log.d(ONLINE_PLAYBACK_SUPPORT_TAG, message) }
+}
+
+private fun describeOnlineCacheSnapshot(snapshot: CacheLookupSnapshot?): String {
+    if (snapshot == null) {
+        return "<null>"
+    }
+    return "key=${snapshot.resourceKey},contentLength=${snapshot.contentLength},fileBytes=${snapshot.dataFileSizeBytes},duration=${snapshot.durationMs},ranges=${describeOnlineRanges(snapshot.completedRanges)}"
+}
+
+private fun describeOnlineRanges(ranges: List<CacheCompletedRange>): String {
+    return ranges.joinToString(prefix = "[", postfix = "]") { "${it.start}-${it.endExclusive}" }
+}
+
+private fun String.parseOnlineLongField(field: String): Long? {
+    val regex = Regex("\"$field\"\\s*:\\s*(-?\\d+)")
+    return regex.find(this)?.groupValues?.get(1)?.toLongOrNull()
+}
+
+private fun String.parseOnlineLongArrayField(field: String): Set<Long> {
+    val bodyPattern = Regex("\"$field\"\\s*:\\s*\\[(.*?)]", RegexOption.DOT_MATCHES_ALL)
+    val body = bodyPattern.find(this)?.groupValues?.get(1) ?: return emptySet()
+    return body.split(',')
+        .mapNotNull { token -> token.trim().takeIf { it.isNotEmpty() }?.toLongOrNull() }
+        .filter { it >= 0L }
+        .toSet()
+}
+
+private fun String.parseOnlineRangesField(field: String): List<CacheCompletedRange> {
+    val bodyPattern = Regex("\"$field\"\\s*:\\s*\\[(.*?)]", RegexOption.DOT_MATCHES_ALL)
+    val body = bodyPattern.find(this)?.groupValues?.get(1) ?: return emptyList()
+    val entryPattern = Regex("\\{\\s*\"start\"\\s*:\\s*(-?\\d+)\\s*,\\s*\"end\"\\s*:\\s*(-?\\d+)\\s*\\}")
+    return entryPattern.findAll(body)
+        .mapNotNull { match ->
+            val start = match.groupValues[1].toLongOrNull() ?: return@mapNotNull null
+            val end = match.groupValues[2].toLongOrNull() ?: return@mapNotNull null
+            if (start >= 0L && end > start) {
+                CacheCompletedRange(start = start, endExclusive = end)
+            } else {
+                null
+            }
+        }
+        .toList()
 }
 
 private fun ResolvedOnlineStream.normalizeForExpectedDuration(
