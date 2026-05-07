@@ -41,6 +41,10 @@ internal class PlayerRuntime(
     private val elapsedRealtimeProvider: () -> Long = { SystemClock.elapsedRealtime() }
 ) : PlaybackRuntimePort {
     private val mediaSourceRepository = MediaSourceRepository(appContext)
+    private val playbackPreferences = appContext.getSharedPreferences(
+        PLAYBACK_PREFERENCES_NAME,
+        Context.MODE_PRIVATE
+    )
     private val playbackSessionStateStorage =
         SharedPreferencesPlaybackSessionStateStorage.fromContext(appContext)
     private val playlistSession = PlaylistSessionCoordinator(
@@ -63,6 +67,7 @@ internal class PlayerRuntime(
     private var pendingAudioEffectPreset: AudioEffectPreset? = null
     private var lastRemotePlaybackIds: Set<String> = emptySet()
     private var pendingRemotePlaybackItemId: String? = null
+    private var pendingLocalSeekCacheReanchorPositionMs: Long? = null
 
     private var uiState: PlayerUiState
         get() = _uiState.value
@@ -72,8 +77,10 @@ internal class PlayerRuntime(
 
     init {
         restoreAudioEffectPreset()
-        restorePlaylistState()
-        restorePlaybackSessionState()
+        if (shouldRestoreLastPlaybackOnStartup()) {
+            restorePlaylistState()
+            restorePlaybackSessionState()
+        }
     }
 
     fun onAudioPicked(uri: Uri?) {
@@ -219,6 +226,7 @@ internal class PlayerRuntime(
             seekDragPositionMs = bounded,
             isSeekDragging = false
         )
+        pendingLocalSeekCacheReanchorPositionMs = bounded
         updateRemoteProgressAnchor(bounded)
     }
 
@@ -506,10 +514,22 @@ internal class PlayerRuntime(
             stabilizeRemoteCacheProgress(
                 previous = uiState.cacheProgress,
                 next = cacheProgress,
-                sameRemotePlaybackIdentity = sameRemotePlaybackIdentity
+                sameRemotePlaybackIdentity = sameRemotePlaybackIdentity,
+                currentProjectedPositionMs = currentProjectedPosition,
+                remotePositionMs = bounded
             )
         } else {
             uiState.cacheProgress
+        }
+        if (
+            shouldApplyRemoteProgress &&
+            shouldConsumeLocalSeekCacheReanchor(
+                resolved = resolvedCacheProgress,
+                next = cacheProgress,
+                remotePositionMs = bounded
+            )
+        ) {
+            pendingLocalSeekCacheReanchorPositionMs = null
         }
         remoteProgressShouldAdvance = shouldApplyRemoteProgress && isProgressAdvancing && !isPreparing
         if (shouldApplyRemoteProgress) {
@@ -750,6 +770,7 @@ internal class PlayerRuntime(
         pendingPlaybackMode = null
         pendingPreferredAudioQuality = null
         pendingAudioEffectPreset = null
+        pendingLocalSeekCacheReanchorPositionMs = null
         resetRemoteProgressAnchor()
         uiState = uiState.copy(
             audioMeta = emptyAudioMeta(),
@@ -785,7 +806,9 @@ internal class PlayerRuntime(
     private fun stabilizeRemoteCacheProgress(
         previous: PlaybackCacheProgressSnapshot?,
         next: PlaybackCacheProgressSnapshot?,
-        sameRemotePlaybackIdentity: Boolean
+        sameRemotePlaybackIdentity: Boolean,
+        currentProjectedPositionMs: Long,
+        remotePositionMs: Long
     ): PlaybackCacheProgressSnapshot? {
         if (!sameRemotePlaybackIdentity) {
             return next
@@ -794,12 +817,18 @@ internal class PlayerRuntime(
             return next
         }
         if (next == null) {
+            if (shouldClearRemoteCacheProgressAfterReanchor(previous, currentProjectedPositionMs, remotePositionMs)) {
+                return null
+            }
             return previous
         }
         if (previous.isFullyCached && !next.isFullyCached) {
             return previous
         }
         if (next.isFullyCached) {
+            return next
+        }
+        if (shouldAcceptRemoteCacheProgressReanchor(previous, next, currentProjectedPositionMs, remotePositionMs)) {
             return next
         }
         if (next.normalizedDisplayRatio < previous.normalizedDisplayRatio) {
@@ -812,6 +841,64 @@ internal class PlayerRuntime(
             return previous
         }
         return next
+    }
+
+    private fun shouldAcceptRemoteCacheProgressReanchor(
+        previous: PlaybackCacheProgressSnapshot,
+        next: PlaybackCacheProgressSnapshot,
+        currentProjectedPositionMs: Long,
+        remotePositionMs: Long
+    ): Boolean {
+        if (!hasRemoteCacheProgressSeekEvidence(currentProjectedPositionMs, remotePositionMs)) {
+            return false
+        }
+        return next.normalizedDisplayStartRatio != previous.normalizedDisplayStartRatio ||
+            next.normalizedDisplayRatio < previous.normalizedDisplayRatio ||
+            (
+                next.normalizedDisplayRatio == previous.normalizedDisplayRatio &&
+                    next.cachedBytes < previous.cachedBytes
+                )
+    }
+
+    private fun shouldClearRemoteCacheProgressAfterReanchor(
+        previous: PlaybackCacheProgressSnapshot,
+        currentProjectedPositionMs: Long,
+        remotePositionMs: Long
+    ): Boolean {
+        if (previous.isFullyCached) {
+            return false
+        }
+        return hasRemoteCacheProgressSeekEvidence(currentProjectedPositionMs, remotePositionMs)
+    }
+
+    private fun hasRemoteCacheProgressSeekEvidence(
+        currentProjectedPositionMs: Long,
+        remotePositionMs: Long
+    ): Boolean {
+        if (
+            kotlin.math.abs(remotePositionMs - currentProjectedPositionMs) >
+            REMOTE_CACHE_REANCHOR_POSITION_JUMP_THRESHOLD_MS
+        ) {
+            return true
+        }
+        val pendingSeekPositionMs = pendingLocalSeekCacheReanchorPositionMs ?: return false
+        return kotlin.math.abs(pendingSeekPositionMs - remotePositionMs) <=
+            MINOR_REMOTE_PROGRESS_REGRESSION_TOLERANCE_MS
+    }
+
+    private fun shouldConsumeLocalSeekCacheReanchor(
+        resolved: PlaybackCacheProgressSnapshot?,
+        next: PlaybackCacheProgressSnapshot?,
+        remotePositionMs: Long
+    ): Boolean {
+        val pendingSeekPositionMs = pendingLocalSeekCacheReanchorPositionMs ?: return false
+        if (
+            kotlin.math.abs(pendingSeekPositionMs - remotePositionMs) >
+            MINOR_REMOTE_PROGRESS_REGRESSION_TOLERANCE_MS
+        ) {
+            return false
+        }
+        return resolved == next
     }
 
     override fun playbackQueueItems(): List<PlaylistItem> {
@@ -910,11 +997,16 @@ internal class PlayerRuntime(
             playlistSession.setActiveItemId(restoredItem.id)
             syncSelectionFromPlaylist()
         }
-        val restoredPositionMs = restoredItem.durationMs
-            .takeIf { it > 0L }
-            ?.let { session.positionMs.coerceIn(0L, it) }
-            ?: session.positionMs.coerceAtLeast(0L)
+        val restoredPositionMs = if (shouldResumeFromLastPosition()) {
+            restoredItem.durationMs
+                .takeIf { it > 0L }
+                ?.let { session.positionMs.coerceIn(0L, it) }
+                ?: session.positionMs.coerceAtLeast(0L)
+        } else {
+            0L
+        }
         remoteProgressShouldAdvance = false
+        pendingLocalSeekCacheReanchorPositionMs = null
         updateRemoteProgressAnchor(restoredPositionMs)
         uiState = uiState.copy(
             playbackState = AUDIO_TRACK_PLAYSTATE_PAUSED,
@@ -931,6 +1023,14 @@ internal class PlayerRuntime(
     private fun restoreAudioEffectPreset() {
         val restoredPreset = audioEffectPresetStorage?.read() ?: return
         uiState = uiState.withAudioEffectPreset(restoredPreset)
+    }
+
+    private fun shouldRestoreLastPlaybackOnStartup(): Boolean {
+        return playbackPreferences.getBoolean(KEY_RESTORE_LAST_PLAYBACK_ON_STARTUP, true)
+    }
+
+    private fun shouldResumeFromLastPosition(): Boolean {
+        return playbackPreferences.getBoolean(KEY_RESUME_FROM_LAST_POSITION, true)
     }
 
     private fun addPickedUriToPlaylist(uri: Uri) {
@@ -964,6 +1064,7 @@ internal class PlayerRuntime(
     private fun resetPlaybackProjection() {
         remoteProgressShouldAdvance = false
         pendingPreferredAudioQuality = null
+        pendingLocalSeekCacheReanchorPositionMs = null
         resetRemoteProgressAnchor()
         uiState = uiState.copy(
             audioMeta = emptyAudioMeta(),
@@ -1108,6 +1209,10 @@ internal class PlayerRuntime(
 }
 
 private const val MINOR_REMOTE_PROGRESS_REGRESSION_TOLERANCE_MS = 450L
+private const val REMOTE_CACHE_REANCHOR_POSITION_JUMP_THRESHOLD_MS = 5_000L
+private const val PLAYBACK_PREFERENCES_NAME = "player_playback_preferences"
+private const val KEY_RESTORE_LAST_PLAYBACK_ON_STARTUP = "restore_last_playback_on_startup"
+private const val KEY_RESUME_FROM_LAST_POSITION = "resume_from_last_position"
 
 internal data class ExternalQueueSelectionResult(
     val replacedQueue: Boolean,

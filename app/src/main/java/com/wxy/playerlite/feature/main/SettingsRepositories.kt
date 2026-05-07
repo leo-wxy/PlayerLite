@@ -6,6 +6,7 @@ import android.net.Uri
 import com.wxy.playerlite.core.AppEnvironmentConfig
 import com.wxy.playerlite.core.playback.AppPlaybackGraph
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
 import com.wxy.playerlite.playback.orchestrator.PlayerServiceController
 import java.io.File
 import java.net.HttpURLConnection
@@ -103,6 +104,95 @@ internal class SettingsPlaybackPreferencesRepository(
             .apply()
     }
 
+    override suspend fun readPlaybackBehaviorPreferences(): PlaybackBehaviorPreferences {
+        return PlaybackBehaviorPreferences(
+            restoreLastPlaybackOnStartup = preferences.getBoolean(
+                KEY_RESTORE_LAST_PLAYBACK_ON_STARTUP,
+                true
+            ),
+            resumeFromLastPosition = preferences.getBoolean(
+                KEY_RESUME_FROM_LAST_POSITION,
+                true
+            ),
+            weakNetworkAutoRetry = preferences.getBoolean(
+                KEY_WEAK_NETWORK_AUTO_RETRY,
+                true
+            )
+        )
+    }
+
+    override suspend fun writePlaybackBehaviorPreferences(
+        preferences: PlaybackBehaviorPreferences
+    ) {
+        this.preferences.edit()
+            .putBoolean(
+                KEY_RESTORE_LAST_PLAYBACK_ON_STARTUP,
+                preferences.restoreLastPlaybackOnStartup
+            )
+            .putBoolean(KEY_RESUME_FROM_LAST_POSITION, preferences.resumeFromLastPosition)
+            .putBoolean(KEY_WEAK_NETWORK_AUTO_RETRY, preferences.weakNetworkAutoRetry)
+            .apply()
+    }
+
+    override suspend fun readCachePolicyPreferences(): CachePolicyPreferences {
+        return CachePolicyPreferences(
+            showCacheFailureNotifications = preferences.getBoolean(
+                KEY_SHOW_CACHE_FAILURE_NOTIFICATIONS,
+                true
+            )
+        )
+    }
+
+    override suspend fun writeCachePolicyPreferences(preferences: CachePolicyPreferences) {
+        this.preferences.edit()
+            .putBoolean(
+                KEY_SHOW_CACHE_FAILURE_NOTIFICATIONS,
+                preferences.showCacheFailureNotifications
+            )
+            .apply()
+    }
+
+    override suspend fun readPlaybackPrewarmPreferences(): PlaybackPrewarmPreferences {
+        return PlaybackPrewarmPreferences(
+            enabled = preferences.getBoolean(
+                KEY_PLAYBACK_PREWARM_ENABLED,
+                true
+            ),
+            budgetDurationMs = preferences.getLong(
+                KEY_PLAYBACK_PREWARM_BUDGET_DURATION_MS,
+                PlaybackPrewarmPreferences.DEFAULT_BUDGET_DURATION_MS
+            ),
+            budgetBytes = preferences.getLong(
+                KEY_PLAYBACK_PREWARM_BUDGET_BYTES,
+                PlaybackPrewarmPreferences.DEFAULT_BUDGET_BYTES
+            ),
+            readyThresholdDurationMs = preferences.getLong(
+                KEY_PLAYBACK_PREWARM_READY_THRESHOLD_DURATION_MS,
+                PlaybackPrewarmPreferences.DEFAULT_READY_THRESHOLD_DURATION_MS
+            ),
+            readyThresholdBytes = preferences.getLong(
+                KEY_PLAYBACK_PREWARM_READY_THRESHOLD_BYTES,
+                PlaybackPrewarmPreferences.DEFAULT_READY_THRESHOLD_BYTES
+            )
+        ).sanitized()
+    }
+
+    override suspend fun writePlaybackPrewarmPreferences(
+        preferences: PlaybackPrewarmPreferences
+    ) {
+        val sanitized = preferences.sanitized()
+        this.preferences.edit()
+            .putBoolean(KEY_PLAYBACK_PREWARM_ENABLED, sanitized.enabled)
+            .putLong(KEY_PLAYBACK_PREWARM_BUDGET_DURATION_MS, sanitized.budgetDurationMs)
+            .putLong(KEY_PLAYBACK_PREWARM_BUDGET_BYTES, sanitized.budgetBytes)
+            .putLong(
+                KEY_PLAYBACK_PREWARM_READY_THRESHOLD_DURATION_MS,
+                sanitized.readyThresholdDurationMs
+            )
+            .putLong(KEY_PLAYBACK_PREWARM_READY_THRESHOLD_BYTES, sanitized.readyThresholdBytes)
+            .apply()
+    }
+
     override suspend fun readPlaybackCacheLimitBytes(): Long {
         return preferences.getLong(
             KEY_PLAYBACK_CACHE_LIMIT_BYTES,
@@ -154,6 +244,18 @@ internal class SettingsPlaybackPreferencesRepository(
         const val PREFERENCES_NAME = "player_playback_preferences"
         const val KEY_PREFERRED_AUDIO_QUALITY = "preferred_audio_quality"
         const val KEY_PLAYBACK_CACHE_LIMIT_BYTES = "playback_cache_limit_bytes"
+        const val KEY_RESTORE_LAST_PLAYBACK_ON_STARTUP = "restore_last_playback_on_startup"
+        const val KEY_RESUME_FROM_LAST_POSITION = "resume_from_last_position"
+        const val KEY_WEAK_NETWORK_AUTO_RETRY = "weak_network_auto_retry"
+        const val KEY_SHOW_CACHE_FAILURE_NOTIFICATIONS = "show_cache_failure_notifications"
+        const val KEY_PLAYBACK_PREWARM_ENABLED = "playback_prewarm_enabled"
+        const val KEY_PLAYBACK_PREWARM_BUDGET_DURATION_MS =
+            "playback_prewarm_budget_duration_ms"
+        const val KEY_PLAYBACK_PREWARM_BUDGET_BYTES = "playback_prewarm_budget_bytes"
+        const val KEY_PLAYBACK_PREWARM_READY_THRESHOLD_DURATION_MS =
+            "playback_prewarm_ready_threshold_duration_ms"
+        const val KEY_PLAYBACK_PREWARM_READY_THRESHOLD_BYTES =
+            "playback_prewarm_ready_threshold_bytes"
         const val KEY_ACTIVE_AUDIO_SOURCE_CONFIG_JSON = "active_audio_source_config_json"
         const val KEY_PREFERRED_AUDIO_SOURCE_BASE_URL = "preferred_audio_source_base_url"
         const val MIN_PLAYBACK_CACHE_LIMIT_BYTES = 64L * BYTES_PER_MB
@@ -185,6 +287,30 @@ internal class SettingsPlaybackController(
         serviceController.ensurePlaybackServiceStartedForPlayback()
         serviceController.connectIfNeeded()
         return serviceController.setPreferredAudioQuality(audioQuality)
+    }
+
+    override suspend fun setWeakNetworkAutoRetryEnabled(enabled: Boolean): Boolean {
+        serviceController.ensurePlaybackServiceStartedForPlayback()
+        serviceController.connectIfNeeded()
+        return serviceController.setWeakNetworkAutoRetryEnabled(enabled)
+    }
+
+    override suspend fun setCachePolicyPreferences(
+        preferences: CachePolicyPreferences
+    ): Boolean {
+        serviceController.ensurePlaybackServiceStartedForPlayback()
+        serviceController.connectIfNeeded()
+        return serviceController.setCachePolicyPreferences(
+            showCacheFailureNotifications = preferences.showCacheFailureNotifications
+        )
+    }
+
+    override suspend fun setPlaybackPrewarmPreferences(
+        preferences: PlaybackPrewarmPreferences
+    ): Boolean {
+        serviceController.ensurePlaybackServiceStartedForPlayback()
+        serviceController.connectIfNeeded()
+        return serviceController.setPlaybackPrewarmPreferences(preferences.sanitized())
     }
 
     override suspend fun setPlaybackCacheLimitBytes(maxBytes: Long): Boolean {

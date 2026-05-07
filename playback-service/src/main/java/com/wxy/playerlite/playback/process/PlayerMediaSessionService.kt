@@ -21,6 +21,7 @@ import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackLaunchRequest
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
 import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.PlaybackSpeed
@@ -227,6 +228,9 @@ internal fun appendSupportedPlaybackSessionCommands(
         .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_AUDIO_EFFECT_PRESET, Bundle.EMPTY))
         .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PREFERRED_AUDIO_QUALITY, Bundle.EMPTY))
         .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_ACTIVE_AUDIO_SOURCE_CONFIG, Bundle.EMPTY))
+        .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_WEAK_NETWORK_AUTO_RETRY, Bundle.EMPTY))
+        .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_CACHE_POLICY, Bundle.EMPTY))
+        .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_PREWARM, Bundle.EMPTY))
         .add(SessionCommand(PlaybackSessionCommands.ACTION_SET_DISPLAY_METADATA, Bundle.EMPTY))
         .build()
 }
@@ -307,6 +311,54 @@ internal fun handlePlaybackCustomCommand(
             )
         }
 
+        PlaybackSessionCommands.ACTION_SET_WEAK_NETWORK_AUTO_RETRY -> {
+            runtime.setWeakNetworkAutoRetryEnabled(
+                args.getBoolean(
+                    PlaybackSessionCommands.EXTRA_WEAK_NETWORK_AUTO_RETRY_ENABLED,
+                    true
+                )
+            )
+            SessionResult(SessionResult.RESULT_SUCCESS)
+        }
+
+        PlaybackSessionCommands.ACTION_SET_CACHE_POLICY -> {
+            runtime.setCachePolicyPreferences(
+                showCacheFailureNotifications = args.getBoolean(
+                    PlaybackSessionCommands.EXTRA_SHOW_CACHE_FAILURE_NOTIFICATIONS,
+                    true
+                )
+            )
+            SessionResult(SessionResult.RESULT_SUCCESS)
+        }
+
+        PlaybackSessionCommands.ACTION_SET_PLAYBACK_PREWARM -> {
+            runtime.setPlaybackPrewarmPreferences(
+                PlaybackPrewarmPreferences(
+                    enabled = args.getBoolean(
+                        PlaybackSessionCommands.EXTRA_PLAYBACK_PREWARM_ENABLED,
+                        true
+                    ),
+                    budgetDurationMs = args.getLong(
+                        PlaybackSessionCommands.EXTRA_PLAYBACK_PREWARM_BUDGET_DURATION_MS,
+                        PlaybackPrewarmPreferences.DEFAULT_BUDGET_DURATION_MS
+                    ),
+                    budgetBytes = args.getLong(
+                        PlaybackSessionCommands.EXTRA_PLAYBACK_PREWARM_BUDGET_BYTES,
+                        PlaybackPrewarmPreferences.DEFAULT_BUDGET_BYTES
+                    ),
+                    readyThresholdDurationMs = args.getLong(
+                        PlaybackSessionCommands.EXTRA_PLAYBACK_PREWARM_READY_THRESHOLD_DURATION_MS,
+                        PlaybackPrewarmPreferences.DEFAULT_READY_THRESHOLD_DURATION_MS
+                    ),
+                    readyThresholdBytes = args.getLong(
+                        PlaybackSessionCommands.EXTRA_PLAYBACK_PREWARM_READY_THRESHOLD_BYTES,
+                        PlaybackPrewarmPreferences.DEFAULT_READY_THRESHOLD_BYTES
+                    )
+                )
+            )
+            SessionResult(SessionResult.RESULT_SUCCESS)
+        }
+
         PlaybackSessionCommands.ACTION_SET_DISPLAY_METADATA -> {
             runtime.setDisplayMetadata(
                 title = args.getString(PlaybackSessionCommands.EXTRA_DISPLAY_TITLE),
@@ -335,6 +387,9 @@ internal fun buildSessionExtras(state: PlaybackProcessState): Bundle {
         }
         state.cacheProgress?.let { cacheProgress ->
             PlaybackMetadataExtras.writeCacheProgress(this, cacheProgress)
+        }
+        state.prewarmSnapshot?.let { prewarmSnapshot ->
+            PlaybackMetadataExtras.writePlaybackPrewarmSnapshot(this, prewarmSnapshot)
         }
         state.playbackOutputInfo?.let { info ->
             PlaybackMetadataExtras.writePlaybackOutputInfo(this, info)

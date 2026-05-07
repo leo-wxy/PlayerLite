@@ -28,6 +28,7 @@ internal class TrackPreparationCoordinator(
     private val sourceRepository: MediaSourceRepository,
     private val playbackCoordinator: PlaybackCoordinator,
     private val onlinePreparationPlanner: OnlinePlaybackPreparationPlanner? = null,
+    private val onCacheFailure: (String) -> Unit = {},
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : TrackPreparer {
     override suspend fun prepare(
@@ -141,21 +142,9 @@ internal class TrackPreparationCoordinator(
                 durationHintMs = plan.durationHintMs,
                 preferActualMetadataWhenHintPresent = shouldValidateActualDuration,
                 createSource = {
-                    val provider = if (plan.useCacheOnlyProvider) {
-                        CacheOnlyRangeDataProvider(contentLengthHint = plan.contentLengthHintBytes ?: 0L)
-                    } else {
-                        HttpRangeDataProvider(
-                            url = plan.playbackUrl.orEmpty(),
-                            requestHeaders = plan.requestHeaders
-                        )
-                    }
-                    CachedNetworkSource(
-                        resourceKey = plan.resourceKey,
-                        provider = provider,
-                        sessionConfig = SessionCacheConfig(),
-                        contentLengthHint = plan.contentLengthHintBytes,
-                        durationMsHint = plan.durationHintMs,
-                        extraMetadata = plan.cacheExtraMetadata
+                    createNetworkPlaybackSource(
+                        plan = plan,
+                        onCacheFailure = onCacheFailure
                     )
                 },
                 createMetadataProbeSource = if (
@@ -223,6 +212,29 @@ internal class TrackPreparationCoordinator(
             .getOrNull()
             ?.let(OnlineCacheMetadata::purgeSnapshot)
     }
+}
+
+internal fun createNetworkPlaybackSource(
+    plan: OnlinePlaybackPlan,
+    onCacheFailure: (String) -> Unit = {}
+): IPlaysource {
+    val provider = if (plan.useCacheOnlyProvider) {
+        CacheOnlyRangeDataProvider(contentLengthHint = plan.contentLengthHintBytes ?: 0L)
+    } else {
+        HttpRangeDataProvider(
+            url = plan.playbackUrl.orEmpty(),
+            requestHeaders = plan.requestHeaders
+        )
+    }
+    return CachedNetworkSource(
+        resourceKey = plan.resourceKey,
+        provider = provider,
+        sessionConfig = SessionCacheConfig(),
+        contentLengthHint = plan.contentLengthHintBytes,
+        durationMsHint = plan.durationHintMs,
+        extraMetadata = plan.cacheExtraMetadata,
+        onCacheFailure = onCacheFailure
+    )
 }
 
 internal suspend fun prepareNetworkSourceInternal(

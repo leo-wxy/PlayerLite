@@ -8,6 +8,7 @@ import com.wxy.playerlite.playback.model.PlaybackPreviewClip
 import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
 import com.wxy.playerlite.playback.model.SongAudioQualityOption
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
@@ -153,6 +154,40 @@ class OnlinePlaybackPreparationPlannerTest {
             assertEquals("song_1969519579_exhigh_full", plan.resourceKey)
             assertEquals(219_893L, plan.durationHintMs)
             assertEquals(8_798_445L, plan.contentLengthHintBytes)
+            assertEquals(0, resolver.calls)
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun buildPlanUsesCompleteCacheWhenResolverFails() {
+        runBlocking {
+            val root = Files.createTempDirectory("online-cache-plan-resolver-fail-").toFile()
+            val snapshot = completeSnapshot(root, "song_1969519579_exhigh_full").also {
+                writeTrustedClipMode(it.extraFilePath, OnlineClipMode.FULL)
+            }
+            val resolver = FakeResolver(
+                Result.failure(IOException("network unavailable"))
+            )
+            val planner = OnlinePlaybackPreparationPlanner(
+                cacheLookup = { Result.success(snapshot.takeIf { key -> key.resourceKey == it }) },
+                resolver = resolver
+            )
+
+            val plan = planner.buildPlan(
+                PlaybackTrack(
+                    playable = MusicInfo(
+                        id = "queue-online-cache-first",
+                        songId = "1969519579",
+                        title = "夜曲",
+                        durationMs = 219_893L,
+                        playbackUri = ""
+                    )
+                )
+            ).getOrThrow()
+
+            assertTrue(plan.useCacheOnlyProvider)
+            assertEquals("song_1969519579_exhigh_full", plan.resourceKey)
             assertEquals(0, resolver.calls)
             root.deleteRecursively()
         }

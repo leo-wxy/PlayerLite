@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.ui.theme.PlayerLiteTheme
@@ -59,11 +60,36 @@ class SettingsScreenRobolectricTest {
         }
 
         composeRule.onNodeWithTag("settings_account_section").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings_account_title").assertTextContains("未登录")
         composeRule.onNodeWithTag("settings_login_button").assertIsDisplayed().assertHasClickAction()
         composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
             matcher = hasTestTag("settings_playback_preferences_section")
         )
         composeRule.onNodeWithTag("settings_playback_preferences_section").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
+            matcher = hasTestTag("settings_cache_failure_notice_switch")
+        )
+        composeRule.onAllNodesWithTag("settings_cache_failure_notice_switch")
+            .assertCountEquals(1)
+        composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
+            matcher = hasTestTag("settings_playback_prewarm_switch")
+        )
+        composeRule.onAllNodesWithTag("settings_playback_prewarm_switch")
+            .assertCountEquals(1)
+        composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
+            matcher = hasTestTag("settings_playback_prewarm_budget_summary")
+        )
+        composeRule.onNodeWithTag("settings_playback_prewarm_budget_summary")
+            .assertTextContains("60 秒 / 8 MB")
+        composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
+            matcher = hasTestTag("settings_cache_cleanup_policy")
+        )
+        composeRule.onAllNodesWithTag("settings_cache_cleanup_policy")
+            .assertCountEquals(1)
+        composeRule.onNodeWithTag(
+            testTag = "settings_cache_cleanup_policy_value",
+            useUnmergedTree = true
+        ).assertTextContains("最近使用优先保留")
         composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
             matcher = hasTestTag("settings_cache_section")
         )
@@ -72,7 +98,12 @@ class SettingsScreenRobolectricTest {
             matcher = hasTestTag("settings_audio_sources_section")
         )
         composeRule.onNodeWithTag("settings_audio_sources_section").assertIsDisplayed()
-        composeRule.onNodeWithTag("settings_audio_source_empty_state").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings_audio_source_current_summary")
+            .performScrollTo()
+            .assertTextContains("未设置")
+        composeRule.onNodeWithTag("settings_audio_source_empty_state")
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     @Test
@@ -140,6 +171,8 @@ class SettingsScreenRobolectricTest {
             }
         }
 
+        composeRule.onNodeWithTag("settings_account_section").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings_account_title").assertTextContains("Codex")
         composeRule.onNodeWithTag("settings_logout_button").assertIsDisplayed().assertHasClickAction()
         composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
             matcher = hasTestTag("settings_cache_total")
@@ -147,20 +180,27 @@ class SettingsScreenRobolectricTest {
         composeRule.onNodeWithTag("settings_cache_total").assertIsDisplayed()
         composeRule.onNodeWithTag("settings_cache_feedback").assertTextContains("缓存已清理")
         composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
-            matcher = hasTestTag("settings_audio_source_item_source-1")
+            matcher = hasTestTag("settings_audio_sources_section")
         )
-        composeRule.onNodeWithTag("settings_audio_source_item_source-1").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings_audio_source_current_summary")
+            .performScrollTo()
+        composeRule.onNodeWithTag("settings_audio_source_current_summary").assertTextContains("LX Mirror")
+        composeRule.onNodeWithTag("settings_audio_source_item_source-1")
+            .performScrollTo()
+            .assertIsDisplayed()
         composeRule.onNodeWithTag(
             testTag = "settings_audio_source_current_source-1",
             useUnmergedTree = true
-        ).assertTextContains("当前音源")
+        ).assertTextContains("当前")
     }
 
     @Test
     fun actionCallbacks_shouldDispatchFromSettingsScreen() {
         var logoutClicks = 0
+        var saveCacheLimitClicks = 0
         var importUrlClicks = 0
         var importLocalClicks = 0
+        var prewarmBudgetChanges = 0
         var isPreferredAudioQualityDialogVisible by mutableStateOf(false)
 
         composeRule.setContent {
@@ -174,6 +214,9 @@ class SettingsScreenRobolectricTest {
                         ),
                         playbackPreferencesState = SettingsPlaybackPreferencesUiState(
                             preferredAudioQuality = PlaybackAudioQuality.EXHIGH,
+                            prewarmPreferences = PlaybackPrewarmBudgetPreset.EXTENDED.toPreferences(
+                                enabled = true
+                            ),
                             isPreferredAudioQualityDialogVisible =
                                 isPreferredAudioQualityDialogVisible
                         ),
@@ -201,7 +244,7 @@ class SettingsScreenRobolectricTest {
                     onRefreshCache = {},
                     onClearCache = {},
                     onPlaybackCacheLimitChange = {},
-                    onSavePlaybackCacheLimit = {},
+                    onSavePlaybackCacheLimit = { saveCacheLimitClicks += 1 },
                     onShowPreferredAudioQualityDialog = {
                         isPreferredAudioQualityDialogVisible = true
                     },
@@ -211,6 +254,11 @@ class SettingsScreenRobolectricTest {
                     onPreferredAudioQualityChange = {
                         isPreferredAudioQualityDialogVisible = false
                     },
+                    onRestoreLastPlaybackOnStartupChange = {},
+                    onResumeFromLastPositionChange = {},
+                    onWeakNetworkAutoRetryChange = {},
+                    onPlaybackPrewarmEnabledChange = {},
+                    onPlaybackPrewarmBudgetChange = { prewarmBudgetChanges += 1 },
                     onPendingImportUrlChange = {},
                     onImportAudioSourceFromUrl = { importUrlClicks += 1 },
                     onImportAudioSourceFromLocal = { importLocalClicks += 1 },
@@ -220,6 +268,9 @@ class SettingsScreenRobolectricTest {
             }
         }
 
+        composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
+            matcher = hasTestTag("settings_account_section")
+        )
         composeRule.onNodeWithTag("settings_logout_button").performClick()
         composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
             matcher = hasTestTag("settings_playback_quality_trigger")
@@ -236,11 +287,57 @@ class SettingsScreenRobolectricTest {
         }
         composeRule.onNodeWithTag("settings_playback_cache_limit_save")
             .assertHasClickAction()
+            .performClick()
         composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
-            matcher = hasTestTag("settings_audio_source_import_url_input")
+            matcher = hasTestTag("settings_restore_last_playback_switch")
         )
-        composeRule.onNodeWithTag("settings_audio_source_import_url_submit").performClick()
-        composeRule.onNodeWithTag("settings_audio_source_import_local").performClick()
+        composeRule.onNodeWithTag(
+            testTag = "settings_restore_last_playback_switch",
+            useUnmergedTree = true
+        )
+            .assertHasClickAction()
+        composeRule.onNodeWithTag(
+            testTag = "settings_resume_from_last_position_switch",
+            useUnmergedTree = true
+        )
+            .assertHasClickAction()
+        composeRule.onNodeWithTag(
+            testTag = "settings_weak_network_retry_switch",
+            useUnmergedTree = true
+        )
+            .assertHasClickAction()
+        composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
+            matcher = hasTestTag("settings_playback_prewarm_switch_control")
+        )
+        composeRule.onNodeWithTag(
+            testTag = "settings_playback_prewarm_switch_control",
+            useUnmergedTree = true
+        )
+            .assertHasClickAction()
+            .performClick()
+        composeRule.onNodeWithTag(
+            testTag = "settings_playback_prewarm_budget_light",
+            useUnmergedTree = true
+        )
+            .performScrollTo()
+            .assertHasClickAction()
+            .performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
+            matcher = hasTestTag("settings_audio_sources_section")
+        )
+        composeRule.onNodeWithTag("settings_audio_source_import_url_submit")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("settings_audio_source_import_local")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("settings_scroll_content").performScrollToNode(
             matcher = hasTestTag("settings_audio_source_activate_source-1")
         )
@@ -251,8 +348,10 @@ class SettingsScreenRobolectricTest {
 
         composeRule.runOnIdle {
             assertEquals(1, logoutClicks)
+            assertEquals(1, saveCacheLimitClicks)
             assertEquals(1, importUrlClicks)
             assertEquals(1, importLocalClicks)
+            assertEquals(1, prewarmBudgetChanges)
         }
     }
 

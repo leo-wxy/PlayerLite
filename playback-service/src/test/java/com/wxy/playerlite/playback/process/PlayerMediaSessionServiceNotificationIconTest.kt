@@ -10,6 +10,9 @@ import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.PlaybackPrewarmSnapshot
+import com.wxy.playerlite.playback.model.PlaybackPrewarmState
+import com.wxy.playerlite.playback.model.PlaybackPrewarmTargetType
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
 import com.wxy.playerlite.player.AudioEffectPreset
 import com.wxy.playerlite.player.AudioMeta
@@ -129,6 +132,18 @@ class PlayerMediaSessionServiceNotificationIconTest {
                     displayRatio = 0.5f,
                     isFullyCached = false,
                     isEstimated = false
+                ),
+                prewarmSnapshot = PlaybackPrewarmSnapshot(
+                    targetId = "track-2",
+                    targetType = PlaybackPrewarmTargetType.NEXT_TRACK,
+                    state = PlaybackPrewarmState.READY,
+                    cachedBytes = 512L * 1024L,
+                    targetBytes = 8L * 1024L * 1024L,
+                    cachedDurationMs = 5_000L,
+                    targetDurationMs = 60_000L,
+                    isReady = true,
+                    isCompleted = false,
+                    reason = "达到快速起播阈值"
                 )
             )
         )
@@ -141,6 +156,10 @@ class PlayerMediaSessionServiceNotificationIconTest {
         assertEquals(PlaybackAudioQuality.HIRES, PlaybackMetadataExtras.readPreferredAudioQuality(extras))
         assertEquals(PlaybackAudioQuality.LOSSLESS, PlaybackMetadataExtras.readAppliedAudioQuality(extras))
         assertEquals(0.5f, PlaybackMetadataExtras.readCacheProgress(extras)?.displayRatio ?: 0f, 0f)
+        val prewarmSnapshot = PlaybackMetadataExtras.readPlaybackPrewarmSnapshot(extras)
+        assertEquals("track-2", prewarmSnapshot?.targetId)
+        assertEquals(PlaybackPrewarmState.READY, prewarmSnapshot?.state)
+        assertEquals(true, prewarmSnapshot?.isReady)
     }
 
     @Test
@@ -177,6 +196,22 @@ class PlayerMediaSessionServiceNotificationIconTest {
             commands.contains(
                 SessionCommand(
                     PlaybackSessionCommands.ACTION_SET_ACTIVE_AUDIO_SOURCE_CONFIG,
+                    Bundle.EMPTY
+                )
+            )
+        )
+    }
+
+    @Test
+    fun appendSupportedPlaybackSessionCommands_shouldIncludePlaybackPrewarmAction() {
+        val commands = appendSupportedPlaybackSessionCommands(
+            SessionCommands.Builder().build()
+        )
+
+        assertTrue(
+            commands.contains(
+                SessionCommand(
+                    PlaybackSessionCommands.ACTION_SET_PLAYBACK_PREWARM,
                     Bundle.EMPTY
                 )
             )
@@ -297,6 +332,122 @@ class PlayerMediaSessionServiceNotificationIconTest {
 
         assertEquals(SessionResult.RESULT_SUCCESS, result?.resultCode)
         assertEquals(1024L * 1024L * 1024L, runtime.state.value.playbackCacheLimitBytes)
+    }
+
+    @Test
+    fun handlePlaybackCustomCommand_shouldForwardWeakNetworkRetryToRuntime() {
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        val runtime = PlaybackProcessRuntime(
+            appContext = appContext,
+            serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            nativePlayerFactory = {
+                object : INativePlayer {
+                    override fun setAudioEffectPreset(audioEffectPreset: AudioEffectPreset): Int = 0
+                    override fun setProgressListener(listener: ((Long) -> Unit)?) = Unit
+                    override fun setPlaybackOutputInfoListener(listener: ((PlaybackOutputInfo) -> Unit)?) = Unit
+                    override fun setPlaybackSpeed(speed: Float): Int = 0
+                    override fun playFromSource(source: IPlaysource): Int = 0
+                    override fun pause(): Int = 0
+                    override fun resume(): Int = 0
+                    override fun seek(positionMs: Long): Int = 0
+                    override fun getDurationFromSource(source: IPlaysource): Long = 0L
+                    override fun loadAudioMetaFromSource(source: IPlaysource): AudioMeta {
+                        return AudioMeta(
+                            codec = "aac",
+                            sampleRateHz = 44_100,
+                            channels = 2,
+                            bitRate = 128_000L,
+                            durationMs = 0L
+                        )
+                    }
+                    override fun loadAudioMetaDisplayFromSource(source: IPlaysource): AudioMetaDisplay {
+                        return AudioMetaDisplay(
+                            codec = "aac",
+                            sampleRate = "44100 Hz",
+                            channels = "2",
+                            bitRate = "128 kbps",
+                            durationMs = 0L
+                        )
+                    }
+                    override fun playbackState(): Int = PLAYBACK_STATE_STOPPED
+                    override fun stop() = Unit
+                    override fun close() = Unit
+                    override fun lastError(): String = "ok"
+                }
+            }
+        )
+
+        val result = handlePlaybackCustomCommand(
+            runtime = runtime,
+            customAction = PlaybackSessionCommands.ACTION_SET_WEAK_NETWORK_AUTO_RETRY,
+            args = Bundle().apply {
+                putBoolean(
+                    PlaybackSessionCommands.EXTRA_WEAK_NETWORK_AUTO_RETRY_ENABLED,
+                    false
+                )
+            }
+        )
+
+        assertEquals(SessionResult.RESULT_SUCCESS, result?.resultCode)
+        assertTrue(runtime.state.value.statusText.contains("弱网自动重试已关闭"))
+    }
+
+    @Test
+    fun handlePlaybackCustomCommand_shouldForwardCachePolicyToRuntime() {
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        val runtime = PlaybackProcessRuntime(
+            appContext = appContext,
+            serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            nativePlayerFactory = {
+                object : INativePlayer {
+                    override fun setAudioEffectPreset(audioEffectPreset: AudioEffectPreset): Int = 0
+                    override fun setProgressListener(listener: ((Long) -> Unit)?) = Unit
+                    override fun setPlaybackOutputInfoListener(listener: ((PlaybackOutputInfo) -> Unit)?) = Unit
+                    override fun setPlaybackSpeed(speed: Float): Int = 0
+                    override fun playFromSource(source: IPlaysource): Int = 0
+                    override fun pause(): Int = 0
+                    override fun resume(): Int = 0
+                    override fun seek(positionMs: Long): Int = 0
+                    override fun getDurationFromSource(source: IPlaysource): Long = 0L
+                    override fun loadAudioMetaFromSource(source: IPlaysource): AudioMeta {
+                        return AudioMeta(
+                            codec = "aac",
+                            sampleRateHz = 44_100,
+                            channels = 2,
+                            bitRate = 128_000L,
+                            durationMs = 0L
+                        )
+                    }
+                    override fun loadAudioMetaDisplayFromSource(source: IPlaysource): AudioMetaDisplay {
+                        return AudioMetaDisplay(
+                            codec = "aac",
+                            sampleRate = "44100 Hz",
+                            channels = "2",
+                            bitRate = "128 kbps",
+                            durationMs = 0L
+                        )
+                    }
+                    override fun playbackState(): Int = PLAYBACK_STATE_STOPPED
+                    override fun stop() = Unit
+                    override fun close() = Unit
+                    override fun lastError(): String = "ok"
+                }
+            }
+        )
+
+        val result = handlePlaybackCustomCommand(
+            runtime = runtime,
+            customAction = PlaybackSessionCommands.ACTION_SET_CACHE_POLICY,
+            args = Bundle().apply {
+                putBoolean(
+                    PlaybackSessionCommands.EXTRA_SHOW_CACHE_FAILURE_NOTIFICATIONS,
+                    false
+                )
+            }
+        )
+
+        assertEquals(SessionResult.RESULT_SUCCESS, result?.resultCode)
+        assertEquals("缓存策略已更新", runtime.state.value.statusText)
     }
 
     @Test

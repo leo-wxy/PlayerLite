@@ -77,7 +77,9 @@ internal object RemotePlaybackSnapshotMapper {
                 currentMetadataExtras = currentMetadataExtras,
                 sessionExtras = sessionExtras,
                 rootMetadataExtras = rootMetadataExtras
-            )
+            ),
+            prewarmSnapshot = PlaybackMetadataExtras.readPlaybackPrewarmSnapshot(sessionExtras)
+                ?: PlaybackMetadataExtras.readPlaybackPrewarmSnapshot(rootMetadataExtras)
         )
     }
 }

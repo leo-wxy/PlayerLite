@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.wxy.playerlite.core.AppContainer
 import com.wxy.playerlite.feature.user.model.toUserSessionUiState
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
 import com.wxy.playerlite.user.UserRepository
 import com.wxy.playerlite.user.model.LoginState
 import kotlinx.coroutines.delay
@@ -225,6 +226,42 @@ internal class SettingsViewModel(
                     )
                 )
             }
+        }
+    }
+
+    fun updateRestoreLastPlaybackOnStartup(enabled: Boolean) {
+        updatePlaybackBehaviorPreferences { current ->
+            current.copy(restoreLastPlaybackOnStartup = enabled)
+        }
+    }
+
+    fun updateResumeFromLastPosition(enabled: Boolean) {
+        updatePlaybackBehaviorPreferences { current ->
+            current.copy(resumeFromLastPosition = enabled)
+        }
+    }
+
+    fun updateWeakNetworkAutoRetry(enabled: Boolean) {
+        updatePlaybackBehaviorPreferences { current ->
+            current.copy(weakNetworkAutoRetry = enabled)
+        }
+    }
+
+    fun updateShowCacheFailureNotifications(enabled: Boolean) {
+        updateCachePolicyPreferences { current ->
+            current.copy(showCacheFailureNotifications = enabled)
+        }
+    }
+
+    fun updatePlaybackPrewarmEnabled(enabled: Boolean) {
+        updatePlaybackPrewarmPreferences { current ->
+            current.copy(enabled = enabled)
+        }
+    }
+
+    fun updatePlaybackPrewarmBudget(preset: PlaybackPrewarmBudgetPreset) {
+        updatePlaybackPrewarmPreferences { current ->
+            preset.toPreferences(enabled = current.enabled)
         }
     }
 
@@ -581,18 +618,120 @@ internal class SettingsViewModel(
             val preferredAudioQuality = runCatching {
                 playbackPreferencesRepository.readPreferredAudioQuality()
             }.getOrDefault(PlaybackAudioQuality.EXHIGH)
+            val behaviorPreferences = runCatching {
+                playbackPreferencesRepository.readPlaybackBehaviorPreferences()
+            }.getOrDefault(PlaybackBehaviorPreferences())
+            val cachePolicyPreferences = runCatching {
+                playbackPreferencesRepository.readCachePolicyPreferences()
+            }.getOrDefault(CachePolicyPreferences())
+            val prewarmPreferences = runCatching {
+                playbackPreferencesRepository.readPlaybackPrewarmPreferences()
+            }.getOrDefault(PlaybackPrewarmPreferences())
             val playbackCacheLimitBytes = runCatching {
                 playbackPreferencesRepository.readPlaybackCacheLimitBytes()
             }.getOrDefault(DEFAULT_PLAYBACK_CACHE_LIMIT_BYTES)
             _uiState.update { current ->
                 current.copy(
                     playbackPreferencesState = current.playbackPreferencesState.copy(
-                        preferredAudioQuality = preferredAudioQuality
+                        preferredAudioQuality = preferredAudioQuality,
+                        behaviorPreferences = behaviorPreferences,
+                        cachePolicyPreferences = cachePolicyPreferences,
+                        prewarmPreferences = prewarmPreferences.sanitized()
                     ),
                     cacheState = current.cacheState.copy(
                         playbackCacheLimitBytes = playbackCacheLimitBytes,
                         pendingPlaybackCacheLimitMb =
                             (playbackCacheLimitBytes / BYTES_PER_MB).toString()
+                    )
+                )
+            }
+        }
+    }
+
+    private fun updatePlaybackBehaviorPreferences(
+        reducer: (PlaybackBehaviorPreferences) -> PlaybackBehaviorPreferences
+    ) {
+        viewModelScope.launch {
+            val previous = _uiState.value.playbackPreferencesState.behaviorPreferences
+            val next = reducer(previous)
+            if (next == previous) {
+                return@launch
+            }
+            playbackPreferencesRepository.writePlaybackBehaviorPreferences(next)
+            val retryAppliedImmediately = if (
+                next.weakNetworkAutoRetry != previous.weakNetworkAutoRetry
+            ) {
+                runCatching {
+                    playbackController.setWeakNetworkAutoRetryEnabled(next.weakNetworkAutoRetry)
+                }.getOrDefault(false)
+            } else {
+                true
+            }
+            _uiState.update { current ->
+                current.copy(
+                    playbackPreferencesState = current.playbackPreferencesState.copy(
+                        behaviorPreferences = next,
+                        feedbackMessage = if (retryAppliedImmediately) {
+                            "播放策略已更新"
+                        } else {
+                            "播放策略已保存，播放进程重连后生效"
+                        }
+                    )
+                )
+            }
+        }
+    }
+
+    private fun updateCachePolicyPreferences(
+        reducer: (CachePolicyPreferences) -> CachePolicyPreferences
+    ) {
+        viewModelScope.launch {
+            val previous = _uiState.value.playbackPreferencesState.cachePolicyPreferences
+            val next = reducer(previous)
+            if (next == previous) {
+                return@launch
+            }
+            playbackPreferencesRepository.writeCachePolicyPreferences(next)
+            val appliedImmediately = runCatching {
+                playbackController.setCachePolicyPreferences(next)
+            }.getOrDefault(false)
+            _uiState.update { current ->
+                current.copy(
+                    playbackPreferencesState = current.playbackPreferencesState.copy(
+                        cachePolicyPreferences = next,
+                        feedbackMessage = if (appliedImmediately) {
+                            "缓存策略已更新"
+                        } else {
+                            "缓存策略已保存，播放进程重连后生效"
+                        }
+                    )
+                )
+            }
+        }
+    }
+
+    private fun updatePlaybackPrewarmPreferences(
+        reducer: (PlaybackPrewarmPreferences) -> PlaybackPrewarmPreferences
+    ) {
+        viewModelScope.launch {
+            val previous = _uiState.value.playbackPreferencesState.prewarmPreferences
+            val next = reducer(previous).sanitized()
+            if (next == previous) {
+                return@launch
+            }
+            playbackPreferencesRepository.writePlaybackPrewarmPreferences(next)
+            val appliedImmediately = runCatching {
+                playbackController.setPlaybackPrewarmPreferences(next)
+            }.getOrDefault(false)
+            _uiState.update { current ->
+                current.copy(
+                    playbackPreferencesState = current.playbackPreferencesState.copy(
+                        prewarmPreferences = next,
+                        feedbackMessage = if (appliedImmediately) {
+                            "预热策略已更新"
+                        } else {
+                            "预热策略已保存，播放进程重连后生效"
+                        }
                     )
                 )
             }

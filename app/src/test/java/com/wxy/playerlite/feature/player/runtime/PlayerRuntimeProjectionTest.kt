@@ -412,6 +412,149 @@ class PlayerRuntimeProjectionTest {
     }
 
     @Test
+    fun updateRemotePlaybackState_sameTrackSeekReanchoredCacheProgress_shouldAcceptLowerProgress() {
+        val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 40_000L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            isPreparing = false,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = false,
+            currentPlayable = PlayableItemSnapshot(
+                id = "track-1",
+                title = "本地文件",
+                playbackUri = "file:///storage/emulated/0/test.mp3"
+            ),
+            playbackOutputInfo = null,
+            audioMeta = null,
+            audioEffectPreset = null,
+            preferredAudioQuality = null,
+            appliedAudioQuality = null,
+            cacheProgress = PlaybackCacheProgressSnapshot(
+                cachedBytes = 7_000_000L,
+                totalBytes = 10_000_000L,
+                displayRatio = 0.7f,
+                isFullyCached = false,
+                isEstimated = false
+            )
+        )
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 120_000L,
+            bufferedPositionMs = 120_000L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            isPreparing = false,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = false,
+            currentPlayable = PlayableItemSnapshot(
+                id = "track-1",
+                title = "本地文件",
+                playbackUri = "file:///storage/emulated/0/test.mp3"
+            ),
+            playbackOutputInfo = null,
+            audioMeta = null,
+            audioEffectPreset = null,
+            preferredAudioQuality = null,
+            appliedAudioQuality = null,
+            cacheProgress = PlaybackCacheProgressSnapshot(
+                cachedBytes = 2_000_000L,
+                totalBytes = 10_000_000L,
+                displayStartRatio = 0.6f,
+                displayRatio = 0.62f,
+                isFullyCached = false,
+                isEstimated = false
+            )
+        )
+
+        val state = runtime.uiStateFlow.value
+        assertEquals(2_000_000L, state.cacheProgress?.cachedBytes)
+        assertEquals(0.6f, state.displayedCacheProgressStartRatio ?: 0f, 0f)
+        assertEquals(0.62f, state.displayedCacheProgressRatio ?: 0f, 0f)
+    }
+
+    @Test
+    fun updateRemotePlaybackState_afterLocalSeekDrag_shouldAcceptReanchoredLowerCacheProgress() {
+        val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 40_000L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            isPreparing = false,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = false,
+            currentPlayable = PlayableItemSnapshot(
+                id = "track-1",
+                title = "本地文件",
+                playbackUri = "file:///storage/emulated/0/test.mp3"
+            ),
+            playbackOutputInfo = null,
+            audioMeta = null,
+            audioEffectPreset = null,
+            preferredAudioQuality = null,
+            appliedAudioQuality = null,
+            cacheProgress = PlaybackCacheProgressSnapshot(
+                cachedBytes = 7_000_000L,
+                totalBytes = 10_000_000L,
+                displayRatio = 0.7f,
+                isFullyCached = false,
+                isEstimated = false
+            )
+        )
+
+        runtime.onSeekValueChange(120_000L)
+        runtime.finishSeekDrag()
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 120_000L,
+            bufferedPositionMs = 120_000L,
+            durationMs = 200_000L,
+            isSeekSupported = true,
+            isPreparing = false,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = false,
+            currentPlayable = PlayableItemSnapshot(
+                id = "track-1",
+                title = "本地文件",
+                playbackUri = "file:///storage/emulated/0/test.mp3"
+            ),
+            playbackOutputInfo = null,
+            audioMeta = null,
+            audioEffectPreset = null,
+            preferredAudioQuality = null,
+            appliedAudioQuality = null,
+            cacheProgress = PlaybackCacheProgressSnapshot(
+                cachedBytes = 2_000_000L,
+                totalBytes = 10_000_000L,
+                displayStartRatio = 0.6f,
+                displayRatio = 0.62f,
+                isFullyCached = false,
+                isEstimated = false
+            )
+        )
+
+        val state = runtime.uiStateFlow.value
+        assertEquals(2_000_000L, state.cacheProgress?.cachedBytes)
+        assertEquals(0.6f, state.displayedCacheProgressStartRatio ?: 0f, 0f)
+        assertEquals(0.62f, state.displayedCacheProgressRatio ?: 0f, 0f)
+    }
+
+    @Test
     fun updateRemotePlaybackState_differentTrackNullCacheProgress_shouldNotReusePreviousCacheProgress() {
         val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
 

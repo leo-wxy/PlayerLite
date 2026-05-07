@@ -618,6 +618,98 @@ class PlayerRuntimeInteractionTest {
         assertEquals(AUDIO_TRACK_PLAYSTATE_PAUSED, state.playbackState)
     }
 
+    @Test
+    fun restorePreferenceOff_shouldSkipPersistedQueueAndPlaybackSession() {
+        val appContext = RuntimeEnvironment.getApplication()
+        appContext.getSharedPreferences("playlist_state", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        val preferences = appContext.getSharedPreferences(
+            "player_playback_preferences",
+            Context.MODE_PRIVATE
+        )
+        preferences.edit()
+            .clear()
+            .putBoolean("restore_last_playback_on_startup", false)
+            .commit()
+        val sessionStorage = SharedPreferencesPlaybackSessionStateStorage.fromContext(appContext)
+        sessionStorage.clear()
+        val initialRuntime = PlayerRuntime(appContext = appContext)
+        val queue = listOf(
+            importedItem(index = 0, songId = "song-1", title = "晴天"),
+            importedItem(index = 1, songId = "song-2", title = "七里香")
+        )
+
+        try {
+            initialRuntime.applyExternalQueueSelection(items = queue, activeIndex = 1)
+            initialRuntime.onHostStop()
+            sessionStorage.write(
+                PlaybackSessionState(
+                    activeItemId = queue[1].id,
+                    positionMs = 91_000L,
+                    playWhenReady = true,
+                    savedAtMs = 123L
+                )
+            )
+
+            val restoredRuntime = PlayerRuntime(appContext = appContext)
+
+            assertTrue(restoredRuntime.playbackQueueItemsInOriginalOrder().isEmpty())
+            assertEquals("No audio selected", restoredRuntime.uiStateFlow.value.currentTrackTitle)
+            assertEquals(0L, restoredRuntime.uiStateFlow.value.displayedSeekMs)
+        } finally {
+            preferences.edit().clear().commit()
+        }
+    }
+
+    @Test
+    fun resumePreferenceOff_shouldRestoreTrackAtBeginning() {
+        val appContext = RuntimeEnvironment.getApplication()
+        appContext.getSharedPreferences("playlist_state", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        val preferences = appContext.getSharedPreferences(
+            "player_playback_preferences",
+            Context.MODE_PRIVATE
+        )
+        preferences.edit()
+            .clear()
+            .putBoolean("restore_last_playback_on_startup", true)
+            .putBoolean("resume_from_last_position", false)
+            .commit()
+        val sessionStorage = SharedPreferencesPlaybackSessionStateStorage.fromContext(appContext)
+        sessionStorage.clear()
+        val initialRuntime = PlayerRuntime(appContext = appContext)
+        val queue = listOf(
+            importedItem(index = 0, songId = "song-1", title = "晴天"),
+            importedItem(index = 1, songId = "song-2", title = "七里香")
+        )
+
+        try {
+            initialRuntime.applyExternalQueueSelection(items = queue, activeIndex = 1)
+            initialRuntime.onHostStop()
+            sessionStorage.write(
+                PlaybackSessionState(
+                    activeItemId = queue[1].id,
+                    positionMs = 91_000L,
+                    playWhenReady = true,
+                    savedAtMs = 123L
+                )
+            )
+
+            val restoredRuntime = PlayerRuntime(appContext = appContext)
+            val state = restoredRuntime.uiStateFlow.value
+
+            assertEquals("七里香", state.currentTrackTitle)
+            assertEquals(0L, state.displayedSeekMs)
+            assertEquals(AUDIO_TRACK_PLAYSTATE_PAUSED, state.playbackState)
+        } finally {
+            preferences.edit().clear().commit()
+        }
+    }
+
     private fun onlineItem(
         contextId: String,
         index: Int,

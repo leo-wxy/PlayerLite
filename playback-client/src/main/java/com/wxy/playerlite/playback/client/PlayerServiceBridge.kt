@@ -21,6 +21,7 @@ import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackMetadataExtras
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
 import com.wxy.playerlite.playback.model.PlaybackSessionCommands
 import com.wxy.playerlite.player.AudioEffectPreset
 
@@ -533,6 +534,137 @@ class PlayerServiceBridge(
                         .onFailure { error ->
                             onControllerError(
                                 "Set audio source failed: ${error.message ?: "unknown"}"
+                            )
+                            onResult?.invoke(false)
+                        }
+                },
+                mainExecutor
+            )
+        }
+    }
+
+    fun setWeakNetworkAutoRetryEnabled(
+        enabled: Boolean,
+        onResult: ((Boolean) -> Unit)? = null
+    ): Boolean {
+        val args = Bundle().apply {
+            putBoolean(PlaybackSessionCommands.EXTRA_WEAK_NETWORK_AUTO_RETRY_ENABLED, enabled)
+        }
+        return withController { activeController ->
+            val future = activeController.sendCustomCommand(
+                SessionCommand(
+                    PlaybackSessionCommands.ACTION_SET_WEAK_NETWORK_AUTO_RETRY,
+                    Bundle.EMPTY
+                ),
+                args
+            )
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess { result ->
+                            if (result.resultCode != SessionResult.RESULT_SUCCESS) {
+                                onControllerError("Set weak network retry rejected: ${result.resultCode}")
+                                onResult?.invoke(false)
+                            } else {
+                                onResult?.invoke(true)
+                            }
+                        }
+                        .onFailure { error ->
+                            onControllerError(
+                                "Set weak network retry failed: ${error.message ?: "unknown"}"
+                            )
+                            onResult?.invoke(false)
+                        }
+                },
+                mainExecutor
+            )
+        }
+    }
+
+    fun setCachePolicyPreferences(
+        showCacheFailureNotifications: Boolean,
+        onResult: ((Boolean) -> Unit)? = null
+    ): Boolean {
+        val args = Bundle().apply {
+            putBoolean(
+                PlaybackSessionCommands.EXTRA_SHOW_CACHE_FAILURE_NOTIFICATIONS,
+                showCacheFailureNotifications
+            )
+        }
+        return withController { activeController ->
+            val future = activeController.sendCustomCommand(
+                SessionCommand(PlaybackSessionCommands.ACTION_SET_CACHE_POLICY, Bundle.EMPTY),
+                args
+            )
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess { result ->
+                            if (result.resultCode != SessionResult.RESULT_SUCCESS) {
+                                onControllerError("Set cache policy rejected: ${result.resultCode}")
+                                onResult?.invoke(false)
+                            } else {
+                                onResult?.invoke(true)
+                            }
+                        }
+                        .onFailure { error ->
+                            onControllerError(
+                                "Set cache policy failed: ${error.message ?: "unknown"}"
+                            )
+                            onResult?.invoke(false)
+                        }
+                },
+                mainExecutor
+            )
+        }
+    }
+
+    fun setPlaybackPrewarmPreferences(
+        preferences: PlaybackPrewarmPreferences,
+        onResult: ((Boolean) -> Unit)? = null
+    ): Boolean {
+        val sanitized = preferences.sanitized()
+        val args = Bundle().apply {
+            putBoolean(
+                PlaybackSessionCommands.EXTRA_PLAYBACK_PREWARM_ENABLED,
+                sanitized.enabled
+            )
+            putLong(
+                PlaybackSessionCommands.EXTRA_PLAYBACK_PREWARM_BUDGET_DURATION_MS,
+                sanitized.budgetDurationMs
+            )
+            putLong(
+                PlaybackSessionCommands.EXTRA_PLAYBACK_PREWARM_BUDGET_BYTES,
+                sanitized.budgetBytes
+            )
+            putLong(
+                PlaybackSessionCommands.EXTRA_PLAYBACK_PREWARM_READY_THRESHOLD_DURATION_MS,
+                sanitized.readyThresholdDurationMs
+            )
+            putLong(
+                PlaybackSessionCommands.EXTRA_PLAYBACK_PREWARM_READY_THRESHOLD_BYTES,
+                sanitized.readyThresholdBytes
+            )
+        }
+        return withController { activeController ->
+            val future = activeController.sendCustomCommand(
+                SessionCommand(PlaybackSessionCommands.ACTION_SET_PLAYBACK_PREWARM, Bundle.EMPTY),
+                args
+            )
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess { result ->
+                            if (result.resultCode != SessionResult.RESULT_SUCCESS) {
+                                onControllerError("Set playback prewarm rejected: ${result.resultCode}")
+                                onResult?.invoke(false)
+                            } else {
+                                onResult?.invoke(true)
+                            }
+                        }
+                        .onFailure { error ->
+                            onControllerError(
+                                "Set playback prewarm failed: ${error.message ?: "unknown"}"
                             )
                             onResult?.invoke(false)
                         }

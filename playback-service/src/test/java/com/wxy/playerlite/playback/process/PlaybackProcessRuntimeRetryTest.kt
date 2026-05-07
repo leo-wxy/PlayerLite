@@ -134,6 +134,37 @@ class PlaybackProcessRuntimeRetryTest {
         assertTrue("state=$recovered", recovered.currentTrack?.id == "queue:test:0:track-1")
     }
 
+    @Test
+    fun playCurrent_whenWeakNetworkRetryDisabled_shouldFailWithoutRetryingState() = runBlocking {
+        val appContext = RuntimeEnvironment.getApplication() as Context
+        val runtime = PlaybackProcessRuntime(
+            appContext = appContext,
+            serviceScope = serviceScope,
+            nativePlayerFactory = {
+                RetryingNativePlayer(
+                    playCodes = ArrayDeque(listOf(-1234, 0)),
+                    delayPerAttemptMs = 20L,
+                    lastError = "transient network"
+                )
+            },
+            trackPreparer = ReadyTrackPreparer()
+        )
+        runtime.setWeakNetworkAutoRetryEnabled(false)
+
+        runtime.setQueue(mediaItems = listOf(onlineItem().toMediaItem()), startIndex = 0)
+        runtime.setPlayWhenReady(true)
+
+        runtime.playCurrent()
+
+        val failed = waitForState(runtime) { state ->
+            !state.isPreparing && !state.playWhenReady && state.statusText.contains("Playback failed(-1234)")
+        }
+
+        assertFalse("state=$failed", failed.statusText.startsWith("重试中"))
+        assertFalse("state=$failed", failed.playWhenReady)
+        assertTrue("state=$failed", failed.statusText.contains("transient network"))
+    }
+
     private suspend fun waitForState(
         runtime: PlaybackProcessRuntime,
         predicate: (PlaybackProcessState) -> Boolean

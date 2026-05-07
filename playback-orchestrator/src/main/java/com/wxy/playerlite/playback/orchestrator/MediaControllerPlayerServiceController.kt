@@ -6,6 +6,7 @@ import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
 import com.wxy.playerlite.player.AudioEffectPreset
 
 class MediaControllerPlayerServiceController(
@@ -68,6 +69,30 @@ class MediaControllerPlayerServiceController(
         onResult: ((Boolean) -> Unit)?
     ): Boolean {
         return delegate.setPreferredAudioQuality(audioQuality, onResult)
+    }
+
+    override fun setWeakNetworkAutoRetryEnabled(
+        enabled: Boolean,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean {
+        return delegate.setWeakNetworkAutoRetryEnabled(enabled, onResult)
+    }
+
+    override fun setCachePolicyPreferences(
+        showCacheFailureNotifications: Boolean,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean {
+        return delegate.setCachePolicyPreferences(
+            showCacheFailureNotifications = showCacheFailureNotifications,
+            onResult = onResult
+        )
+    }
+
+    override fun setPlaybackPrewarmPreferences(
+        preferences: PlaybackPrewarmPreferences,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean {
+        return delegate.setPlaybackPrewarmPreferences(preferences, onResult)
     }
 
     override fun setActiveAudioSourceConfigJson(

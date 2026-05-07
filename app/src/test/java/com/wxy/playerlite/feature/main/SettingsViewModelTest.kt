@@ -7,6 +7,7 @@ import com.wxy.playerlite.user.model.LoginState
 import com.wxy.playerlite.user.model.UserInfo
 import com.wxy.playerlite.user.model.UserSession
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -219,9 +220,20 @@ class SettingsViewModelTest {
 
     @Test
     fun init_shouldLoadPlaybackPreferences() = runTest {
+        val behaviorPreferences = PlaybackBehaviorPreferences(
+            restoreLastPlaybackOnStartup = false,
+            resumeFromLastPosition = false,
+            weakNetworkAutoRetry = false
+        )
         val preferencesRepository = FakeSettingsPlaybackPreferencesRepository(
             preferredAudioQuality = PlaybackAudioQuality.HIRES,
-            playbackCacheLimitBytes = 1024L * BYTES_PER_MB
+            playbackCacheLimitBytes = 1024L * BYTES_PER_MB,
+            behaviorPreferences = behaviorPreferences,
+            prewarmPreferences = PlaybackPrewarmPreferences(
+                enabled = false,
+                budgetDurationMs = 30_000L,
+                budgetBytes = 4L * BYTES_PER_MB
+            )
         )
         val viewModel = SettingsViewModel(
             application = Application(),
@@ -245,6 +257,18 @@ class SettingsViewModelTest {
         assertEquals(
             "1024",
             viewModel.uiStateFlow.value.cacheState.pendingPlaybackCacheLimitMb
+        )
+        assertEquals(
+            behaviorPreferences,
+            viewModel.uiStateFlow.value.playbackPreferencesState.behaviorPreferences
+        )
+        assertEquals(
+            false,
+            viewModel.uiStateFlow.value.playbackPreferencesState.prewarmPreferences.enabled
+        )
+        assertEquals(
+            4L * BYTES_PER_MB,
+            viewModel.uiStateFlow.value.playbackPreferencesState.prewarmPreferences.budgetBytes
         )
     }
 
@@ -344,6 +368,94 @@ class SettingsViewModelTest {
         assertEquals(
             1024L * BYTES_PER_MB,
             viewModel.uiStateFlow.value.cacheState.playbackCacheLimitBytes
+        )
+    }
+
+    @Test
+    fun updatePlaybackBehavior_shouldPersistAndDispatchWeakRetryCommand() = runTest {
+        val preferencesRepository = FakeSettingsPlaybackPreferencesRepository()
+        val playbackController = FakeSettingsPlaybackController()
+        val viewModel = SettingsViewModel(
+            application = Application(),
+            userRepository = FakeSettingsUserRepository(initialState = LoginState.LoggedOut),
+            cacheRepository = FakeSettingsCacheRepository(),
+            cacheController = FakeSettingsCacheController(),
+            audioSourceRepository = FakeAudioSourceRepository(),
+            playbackPreferencesRepository = preferencesRepository,
+            playbackController = playbackController
+        )
+        advanceUntilIdle()
+
+        viewModel.updateWeakNetworkAutoRetry(false)
+        advanceUntilIdle()
+
+        assertFalse(preferencesRepository.behaviorPreferences.weakNetworkAutoRetry)
+        assertEquals(listOf(false), playbackController.requestedWeakNetworkRetries)
+        assertFalse(
+            viewModel.uiStateFlow.value.playbackPreferencesState
+                .behaviorPreferences.weakNetworkAutoRetry
+        )
+    }
+
+    @Test
+    fun updateCachePolicy_shouldPersistAndDispatchPlaybackCommand() = runTest {
+        val preferencesRepository = FakeSettingsPlaybackPreferencesRepository()
+        val playbackController = FakeSettingsPlaybackController()
+        val viewModel = SettingsViewModel(
+            application = Application(),
+            userRepository = FakeSettingsUserRepository(initialState = LoginState.LoggedOut),
+            cacheRepository = FakeSettingsCacheRepository(),
+            cacheController = FakeSettingsCacheController(),
+            audioSourceRepository = FakeAudioSourceRepository(),
+            playbackPreferencesRepository = preferencesRepository,
+            playbackController = playbackController
+        )
+        advanceUntilIdle()
+
+        viewModel.updateShowCacheFailureNotifications(false)
+        advanceUntilIdle()
+
+        val expected = CachePolicyPreferences(
+            showCacheFailureNotifications = false
+        )
+        assertEquals(expected, preferencesRepository.cachePolicyPreferences)
+        assertEquals(listOf(expected), playbackController.requestedCachePolicyPreferences)
+        assertEquals(
+            expected,
+            viewModel.uiStateFlow.value.playbackPreferencesState.cachePolicyPreferences
+        )
+    }
+
+    @Test
+    fun updatePlaybackPrewarm_shouldPersistAndDispatchPlaybackCommand() = runTest {
+        val preferencesRepository = FakeSettingsPlaybackPreferencesRepository()
+        val playbackController = FakeSettingsPlaybackController()
+        val viewModel = SettingsViewModel(
+            application = Application(),
+            userRepository = FakeSettingsUserRepository(initialState = LoginState.LoggedOut),
+            cacheRepository = FakeSettingsCacheRepository(),
+            cacheController = FakeSettingsCacheController(),
+            audioSourceRepository = FakeAudioSourceRepository(),
+            playbackPreferencesRepository = preferencesRepository,
+            playbackController = playbackController
+        )
+        advanceUntilIdle()
+
+        viewModel.updatePlaybackPrewarmEnabled(false)
+        advanceUntilIdle()
+        viewModel.updatePlaybackPrewarmBudget(PlaybackPrewarmBudgetPreset.LIGHT)
+        advanceUntilIdle()
+
+        assertEquals(false, preferencesRepository.prewarmPreferences.enabled)
+        assertEquals(30_000L, preferencesRepository.prewarmPreferences.budgetDurationMs)
+        assertEquals(4L * BYTES_PER_MB, preferencesRepository.prewarmPreferences.budgetBytes)
+        assertEquals(
+            listOf(false, false),
+            playbackController.requestedPrewarmPreferences.map { it.enabled }
+        )
+        assertEquals(
+            4L * BYTES_PER_MB,
+            playbackController.requestedPrewarmPreferences.last().budgetBytes
         )
     }
 
@@ -674,12 +786,43 @@ private class FakeAudioSourceRepository : AudioSourceRepositoryContract {
 private class FakeSettingsPlaybackPreferencesRepository(
     var preferredAudioQuality: PlaybackAudioQuality = PlaybackAudioQuality.EXHIGH,
     var playbackCacheLimitBytes: Long = DEFAULT_PLAYBACK_CACHE_LIMIT_BYTES,
+    var behaviorPreferences: PlaybackBehaviorPreferences = PlaybackBehaviorPreferences(),
+    var cachePolicyPreferences: CachePolicyPreferences = CachePolicyPreferences(),
+    var prewarmPreferences: PlaybackPrewarmPreferences = PlaybackPrewarmPreferences(),
     var activeAudioSourceConfigJson: String? = null
 ) : SettingsPlaybackPreferencesRepositoryContract {
     override suspend fun readPreferredAudioQuality(): PlaybackAudioQuality = preferredAudioQuality
 
     override suspend fun writePreferredAudioQuality(audioQuality: PlaybackAudioQuality) {
         preferredAudioQuality = audioQuality
+    }
+
+    override suspend fun readPlaybackBehaviorPreferences(): PlaybackBehaviorPreferences {
+        return behaviorPreferences
+    }
+
+    override suspend fun writePlaybackBehaviorPreferences(
+        preferences: PlaybackBehaviorPreferences
+    ) {
+        behaviorPreferences = preferences
+    }
+
+    override suspend fun readCachePolicyPreferences(): CachePolicyPreferences {
+        return cachePolicyPreferences
+    }
+
+    override suspend fun writeCachePolicyPreferences(preferences: CachePolicyPreferences) {
+        cachePolicyPreferences = preferences
+    }
+
+    override suspend fun readPlaybackPrewarmPreferences(): PlaybackPrewarmPreferences {
+        return prewarmPreferences
+    }
+
+    override suspend fun writePlaybackPrewarmPreferences(
+        preferences: PlaybackPrewarmPreferences
+    ) {
+        prewarmPreferences = preferences
     }
 
     override suspend fun readPlaybackCacheLimitBytes(): Long = playbackCacheLimitBytes
@@ -698,10 +841,32 @@ private class FakeSettingsPlaybackPreferencesRepository(
 private class FakeSettingsPlaybackController : SettingsPlaybackControllerContract {
     val requestedQualities = mutableListOf<PlaybackAudioQuality>()
     val requestedCacheLimits = mutableListOf<Long>()
+    val requestedWeakNetworkRetries = mutableListOf<Boolean>()
+    val requestedCachePolicyPreferences = mutableListOf<CachePolicyPreferences>()
+    val requestedPrewarmPreferences = mutableListOf<PlaybackPrewarmPreferences>()
     val requestedSourceConfigJsons = mutableListOf<String?>()
 
     override suspend fun setPreferredAudioQuality(audioQuality: PlaybackAudioQuality): Boolean {
         requestedQualities += audioQuality
+        return true
+    }
+
+    override suspend fun setWeakNetworkAutoRetryEnabled(enabled: Boolean): Boolean {
+        requestedWeakNetworkRetries += enabled
+        return true
+    }
+
+    override suspend fun setCachePolicyPreferences(
+        preferences: CachePolicyPreferences
+    ): Boolean {
+        requestedCachePolicyPreferences += preferences
+        return true
+    }
+
+    override suspend fun setPlaybackPrewarmPreferences(
+        preferences: PlaybackPrewarmPreferences
+    ): Boolean {
+        requestedPrewarmPreferences += preferences
         return true
     }
 

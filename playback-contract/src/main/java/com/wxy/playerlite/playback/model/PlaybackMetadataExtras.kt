@@ -31,6 +31,16 @@ object PlaybackMetadataExtras {
     private const val KEY_CACHE_PROGRESS_DISPLAY_RATIO = "cache_progress_display_ratio"
     private const val KEY_CACHE_PROGRESS_IS_FULLY_CACHED = "cache_progress_is_fully_cached"
     private const val KEY_CACHE_PROGRESS_IS_ESTIMATED = "cache_progress_is_estimated"
+    private const val KEY_PREWARM_TARGET_ID = "prewarm_target_id"
+    private const val KEY_PREWARM_TARGET_TYPE = "prewarm_target_type"
+    private const val KEY_PREWARM_STATE = "prewarm_state"
+    private const val KEY_PREWARM_CACHED_BYTES = "prewarm_cached_bytes"
+    private const val KEY_PREWARM_TARGET_BYTES = "prewarm_target_bytes"
+    private const val KEY_PREWARM_CACHED_DURATION_MS = "prewarm_cached_duration_ms"
+    private const val KEY_PREWARM_TARGET_DURATION_MS = "prewarm_target_duration_ms"
+    private const val KEY_PREWARM_IS_READY = "prewarm_is_ready"
+    private const val KEY_PREWARM_IS_COMPLETED = "prewarm_is_completed"
+    private const val KEY_PREWARM_REASON = "prewarm_reason"
 
     fun writePlaybackOutputInfo(extras: Bundle, info: PlaybackOutputInfo) {
         extras.putInt(KEY_OUTPUT_INPUT_SAMPLE_RATE, info.inputSampleRateHz)
@@ -89,6 +99,34 @@ object PlaybackMetadataExtras {
         extras.putFloat(KEY_CACHE_PROGRESS_DISPLAY_RATIO, cacheProgress.normalizedDisplayRatio)
         extras.putBoolean(KEY_CACHE_PROGRESS_IS_FULLY_CACHED, cacheProgress.isFullyCached)
         extras.putBoolean(KEY_CACHE_PROGRESS_IS_ESTIMATED, cacheProgress.isEstimated)
+    }
+
+    fun writePlaybackPrewarmSnapshot(
+        extras: Bundle,
+        snapshot: PlaybackPrewarmSnapshot
+    ) {
+        extras.putString(KEY_PREWARM_TARGET_ID, snapshot.targetId)
+        extras.putString(KEY_PREWARM_TARGET_TYPE, snapshot.targetType.wireValue)
+        extras.putString(KEY_PREWARM_STATE, snapshot.state.wireValue)
+        extras.putLong(KEY_PREWARM_CACHED_BYTES, snapshot.cachedBytes.coerceAtLeast(0L))
+        if (snapshot.targetBytes != null && snapshot.targetBytes > 0L) {
+            extras.putLong(KEY_PREWARM_TARGET_BYTES, snapshot.targetBytes)
+        } else {
+            extras.remove(KEY_PREWARM_TARGET_BYTES)
+        }
+        if (snapshot.cachedDurationMs != null && snapshot.cachedDurationMs > 0L) {
+            extras.putLong(KEY_PREWARM_CACHED_DURATION_MS, snapshot.cachedDurationMs)
+        } else {
+            extras.remove(KEY_PREWARM_CACHED_DURATION_MS)
+        }
+        if (snapshot.targetDurationMs != null && snapshot.targetDurationMs > 0L) {
+            extras.putLong(KEY_PREWARM_TARGET_DURATION_MS, snapshot.targetDurationMs)
+        } else {
+            extras.remove(KEY_PREWARM_TARGET_DURATION_MS)
+        }
+        extras.putBoolean(KEY_PREWARM_IS_READY, snapshot.isReady)
+        extras.putBoolean(KEY_PREWARM_IS_COMPLETED, snapshot.isCompleted)
+        extras.putString(KEY_PREWARM_REASON, snapshot.reason)
     }
 
     fun readStatusText(extras: Bundle?): String? {
@@ -175,6 +213,41 @@ object PlaybackMetadataExtras {
             },
             isFullyCached = isFullyCached,
             isEstimated = extras.getBoolean(KEY_CACHE_PROGRESS_IS_ESTIMATED, false)
+        )
+    }
+
+    fun readPlaybackPrewarmSnapshot(extras: Bundle?): PlaybackPrewarmSnapshot? {
+        if (extras == null || !extras.containsKey(KEY_PREWARM_STATE)) {
+            return null
+        }
+        val targetBytes = if (extras.containsKey(KEY_PREWARM_TARGET_BYTES)) {
+            extras.getLong(KEY_PREWARM_TARGET_BYTES).takeIf { it > 0L }
+        } else {
+            null
+        }
+        val cachedDurationMs = if (extras.containsKey(KEY_PREWARM_CACHED_DURATION_MS)) {
+            extras.getLong(KEY_PREWARM_CACHED_DURATION_MS).takeIf { it > 0L }
+        } else {
+            null
+        }
+        val targetDurationMs = if (extras.containsKey(KEY_PREWARM_TARGET_DURATION_MS)) {
+            extras.getLong(KEY_PREWARM_TARGET_DURATION_MS).takeIf { it > 0L }
+        } else {
+            null
+        }
+        return PlaybackPrewarmSnapshot(
+            targetId = extras.getString(KEY_PREWARM_TARGET_ID),
+            targetType = PlaybackPrewarmTargetType.fromWireValue(
+                extras.getString(KEY_PREWARM_TARGET_TYPE)
+            ),
+            state = PlaybackPrewarmState.fromWireValue(extras.getString(KEY_PREWARM_STATE)),
+            cachedBytes = extras.getLong(KEY_PREWARM_CACHED_BYTES, 0L).coerceAtLeast(0L),
+            targetBytes = targetBytes,
+            cachedDurationMs = cachedDurationMs,
+            targetDurationMs = targetDurationMs,
+            isReady = extras.getBoolean(KEY_PREWARM_IS_READY, false),
+            isCompleted = extras.getBoolean(KEY_PREWARM_IS_COMPLETED, false),
+            reason = extras.getString(KEY_PREWARM_REASON)
         )
     }
 

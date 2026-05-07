@@ -7,6 +7,7 @@ import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.PlaybackPrewarmSnapshot
 
 data class RemotePlaybackSnapshot(
     val playbackState: Int,
@@ -26,5 +27,6 @@ data class RemotePlaybackSnapshot(
     val currentMediaId: String?,
     val playbackOutputInfo: PlaybackOutputInfo?,
     val audioMeta: AudioMetaDisplay?,
-    val cacheProgress: PlaybackCacheProgressSnapshot? = null
+    val cacheProgress: PlaybackCacheProgressSnapshot? = null,
+    val prewarmSnapshot: PlaybackPrewarmSnapshot? = null
 )

@@ -1,6 +1,7 @@
 package com.wxy.playerlite.feature.main
 
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
 
 internal enum class ManagedCacheKind(
     val displayName: String
@@ -35,6 +36,18 @@ internal interface SettingsPlaybackPreferencesRepositoryContract {
 
     suspend fun writePreferredAudioQuality(audioQuality: PlaybackAudioQuality)
 
+    suspend fun readPlaybackBehaviorPreferences(): PlaybackBehaviorPreferences
+
+    suspend fun writePlaybackBehaviorPreferences(preferences: PlaybackBehaviorPreferences)
+
+    suspend fun readCachePolicyPreferences(): CachePolicyPreferences
+
+    suspend fun writeCachePolicyPreferences(preferences: CachePolicyPreferences)
+
+    suspend fun readPlaybackPrewarmPreferences(): PlaybackPrewarmPreferences
+
+    suspend fun writePlaybackPrewarmPreferences(preferences: PlaybackPrewarmPreferences)
+
     suspend fun readPlaybackCacheLimitBytes(): Long
 
     suspend fun writePlaybackCacheLimitBytes(maxBytes: Long)
@@ -47,10 +60,26 @@ internal interface SettingsPlaybackPreferencesRepositoryContract {
 internal interface SettingsPlaybackControllerContract {
     suspend fun setPreferredAudioQuality(audioQuality: PlaybackAudioQuality): Boolean
 
+    suspend fun setWeakNetworkAutoRetryEnabled(enabled: Boolean): Boolean
+
+    suspend fun setCachePolicyPreferences(preferences: CachePolicyPreferences): Boolean
+
+    suspend fun setPlaybackPrewarmPreferences(preferences: PlaybackPrewarmPreferences): Boolean
+
     suspend fun setPlaybackCacheLimitBytes(maxBytes: Long): Boolean
 
     suspend fun setActiveAudioSourceConfigJson(configJson: String?): Boolean
 }
+
+internal data class PlaybackBehaviorPreferences(
+    val restoreLastPlaybackOnStartup: Boolean = true,
+    val resumeFromLastPosition: Boolean = true,
+    val weakNetworkAutoRetry: Boolean = true
+)
+
+internal data class CachePolicyPreferences(
+    val showCacheFailureNotifications: Boolean = true
+)
 
 internal enum class ManagedAudioSourceKind(
     val displayName: String
@@ -143,10 +172,54 @@ internal data class SettingsCacheUiState(
 
 internal data class SettingsPlaybackPreferencesUiState(
     val preferredAudioQuality: PlaybackAudioQuality = PlaybackAudioQuality.EXHIGH,
+    val behaviorPreferences: PlaybackBehaviorPreferences = PlaybackBehaviorPreferences(),
+    val cachePolicyPreferences: CachePolicyPreferences = CachePolicyPreferences(),
+    val prewarmPreferences: PlaybackPrewarmPreferences = PlaybackPrewarmPreferences(),
     val isSavingPreferredAudioQuality: Boolean = false,
     val isPreferredAudioQualityDialogVisible: Boolean = false,
     val feedbackMessage: String? = null
 )
+
+internal enum class PlaybackPrewarmBudgetPreset(
+    val displayName: String,
+    val budgetDurationMs: Long,
+    val budgetBytes: Long
+) {
+    LIGHT(
+        displayName = "轻量",
+        budgetDurationMs = 30_000L,
+        budgetBytes = 4L * BYTES_PER_MB
+    ),
+    BALANCED(
+        displayName = "均衡",
+        budgetDurationMs = PlaybackPrewarmPreferences.DEFAULT_BUDGET_DURATION_MS,
+        budgetBytes = PlaybackPrewarmPreferences.DEFAULT_BUDGET_BYTES
+    ),
+    EXTENDED(
+        displayName = "扩展",
+        budgetDurationMs = 120_000L,
+        budgetBytes = 16L * BYTES_PER_MB
+    );
+
+    fun toPreferences(enabled: Boolean): PlaybackPrewarmPreferences {
+        return PlaybackPrewarmPreferences(
+            enabled = enabled,
+            budgetDurationMs = budgetDurationMs,
+            budgetBytes = budgetBytes
+        ).sanitized()
+    }
+
+    companion object {
+        fun fromPreferences(
+            preferences: PlaybackPrewarmPreferences
+        ): PlaybackPrewarmBudgetPreset {
+            return entries.firstOrNull {
+                it.budgetDurationMs == preferences.budgetDurationMs &&
+                    it.budgetBytes == preferences.budgetBytes
+            } ?: BALANCED
+        }
+    }
+}
 
 internal data class SettingsSourcesUiState(
     val items: List<ManagedAudioSource> = emptyList(),

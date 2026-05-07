@@ -5,6 +5,7 @@ import com.wxy.playerlite.playback.client.RemotePlaybackSnapshot
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
 import com.wxy.playerlite.player.AudioEffectPreset
 
 interface PlayerServiceController {
@@ -34,6 +35,18 @@ interface PlayerServiceController {
     ): Boolean
     fun setPreferredAudioQuality(
         audioQuality: PlaybackAudioQuality,
+        onResult: ((Boolean) -> Unit)? = null
+    ): Boolean
+    fun setWeakNetworkAutoRetryEnabled(
+        enabled: Boolean,
+        onResult: ((Boolean) -> Unit)? = null
+    ): Boolean
+    fun setCachePolicyPreferences(
+        showCacheFailureNotifications: Boolean,
+        onResult: ((Boolean) -> Unit)? = null
+    ): Boolean
+    fun setPlaybackPrewarmPreferences(
+        preferences: PlaybackPrewarmPreferences,
         onResult: ((Boolean) -> Unit)? = null
     ): Boolean
     fun setActiveAudioSourceConfigJson(

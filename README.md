@@ -1,6 +1,6 @@
 # PlayerLite
 
-一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、歌曲详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要、系统 `MediaSession` 动态展示链路，以及当前音源管理、在线音质切换、默认音效 preset、横屏播放器独立沉浸布局、首页每日推荐站内入口与每日推荐歌曲页、首页横向歌曲推荐区块、搜索页共享主题统一和网页歌单导入等较完整的播放能力。在线播放链路已补充当前播放项缓存进度投影，`minibar` 与播放页可在同一进度条上展示已播放、已缓存未播放和未缓存状态，并支持 seek 后基于缓存 range 展示新的缓存段。近期进一步完成了项目结构重构：播放器展示层拆到 `:feature-player`，首页发现流拆到 `:feature-home`，播放列表域拆到 `:playlist-core`，应用侧播放编排拆到 `:playback-orchestrator`，`app` 退回到宿主、装配与入口适配职责。
+一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、歌曲详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要、系统 `MediaSession` 动态展示链路，以及当前音源管理、在线音质切换、默认音效 preset、横屏播放器独立沉浸布局、首页每日推荐站内入口与每日推荐歌曲页、首页横向歌曲推荐区块、搜索页共享主题统一和网页歌单导入等较完整的播放能力。在线播放链路已补充当前播放项缓存进度投影、完整缓存本地优先起播、有限 current-ahead / next-track 预热和预热状态隔离，`minibar` 与播放页可在同一进度条上展示已播放、已缓存未播放和未缓存状态，并支持 seek 后基于缓存 range 展示新的缓存段。近期进一步完成了项目结构重构：播放器展示层拆到 `:feature-player`，首页发现流拆到 `:feature-home`，播放列表域拆到 `:playlist-core`，应用侧播放编排拆到 `:playback-orchestrator`，`app` 退回到宿主、装配与入口适配职责。
 
 ## 主要能力
 
@@ -10,11 +10,17 @@
 - 播放模式：列表循环、单曲循环、随机播放
 - 网络音源 Range 播放、边播边缓存、缓存清理，以及当前播放项缓存进度展示
 - 在线缓存进度由播放服务权威投影到前台，`minibar` 与播放页在同一进度条上展示缓存段；完整缓存时直接拉满，seek 后按新的 offset / length range 展示缓存区间
+- 完整在线播放缓存优先作为本地缓存源使用，完整命中时不再等待在线 URL 解析或重新下载同一完整资源
 - 在线读取链路提供有限 ahead 预读窗口和默认内存缓存预算，避免缓存条长期贴着播放进度移动，同时不把预读等同于整首下载
+- 在线播放预热支持 `current-ahead` 和 `next-track` 两类目标，当前项未完整缓存时优先推进当前项有限 ahead window，当前项完整或无需继续写入后再评估下一首首段预热
+- 预热状态通过独立 `PlaybackPrewarmSnapshot` 发布，区分 `Ready` 和 `Completed`，并隔离旧队列、旧音源或旧音质下的晚到结果
+- 在线缓存与预热诊断日志收敛为状态边界日志，覆盖 resource key、缓存字节、目标字节、上下文签名和原因，减少正常读取循环的长期噪声
 - 在线受保护播放登录前置卡口、当前音源管理与最近一次成功音源配置恢复
 - 支持内置与自定义 JSON 音源配置，当前 native runtime 支持 `netease-compatible` 与 `http-mapping`
 - 在线歌曲真实可用音质目录、偏好音质与当前实际生效音质分离、切换音质时按当前位置重准备
 - 播放页“更多操作”半屏浮层，统一承载倍速设置、音效设置与当前播放器上下文内的设置入口
+- 设置页集中管理播放与缓存偏好，包括启动恢复、断点续播、弱网自动重试、缓存失败提示、缓存容量上限、默认音质和在线播放预热预算
+- 在线播放缓存不再受“仅 Wi-Fi 自动缓存”或“移动网络只播放不缓存”限制，移动网络下主动播放和预热仍写入受管磁盘缓存
 - 默认音效预设：`原声`、`低音增强`、`人声增强`、`清亮高频`、`温暖柔和`
 - 倍速与音效共用同一条 FFmpeg native 音频滤镜链路，支持同时生效与失败安全回退
 - 共享 `design-system` 主题 token，统一首页、搜索、播放器展开页、播放列表与 `minibar` 的主强调色、次级信息和容器层级
@@ -75,13 +81,13 @@
 - `:playback-client`
   - 前台到播放服务的 `MediaController` 桥接与稳定播放客户端边界
 - `:playback-contract`
-  - 跨模块共享的播放协议、DTO、Session command、队列与播放域共享模型
+  - 跨模块共享的播放协议、DTO、Session command、队列与播放域共享模型，包括缓存进度和预热快照等 MediaSession extras contract
 - `:playback-service`
-  - 独立播放进程、`MediaSessionService`、播放运行时与后台播放宿主实现
+  - 独立播放进程、`MediaSessionService`、播放运行时、在线缓存进度解析、完整缓存本地优先起播、预热调度与后台播放宿主实现
 - `:player`
   - Kotlin 播放器 API 与 JNI 桥接，驱动 Native C++ + FFmpeg
 - `:cache-core`
-  - Native-first 缓存核心，提供 Range 缓存、会话能力、缓存进度事件与有限 ahead 预读窗口
+  - Native-first 缓存核心，提供 Range 缓存、会话能力、缓存进度事件、完整缓存 lookup 与有限 ahead 预读窗口
 
 ## 支持的数据源
 
@@ -154,6 +160,17 @@ CacheCore / CacheProgressEvents
   -> SharedMiniPlayerBar / PlayerScreen
 ```
 
+在线播放预热链路：
+
+```text
+PlaybackProcessRuntime
+  -> PlaybackPrewarmCoordinator
+  -> OnlinePlaybackPreparationPlanner
+  -> CacheCore / CacheSession
+  -> PlaybackPrewarmSnapshot
+  -> PlaybackMetadataExtras / RemotePlaybackSnapshot
+```
+
 ## 构建环境
 
 - Android Studio（AGP 9.1.x）
@@ -196,10 +213,10 @@ bash scripts/build_ffmpeg_android.sh
 ./gradlew :app:assembleDebug
 ```
 
-OpenSpec 主 spec 校验：
+OpenSpec 全量校验：
 
 ```bash
-PATH=/Users/wxy/.nvm/versions/node/v20.20.0/bin:$PATH openspec validate --specs
+PATH=/Users/wxy/.nvm/versions/node/v20.20.0/bin:$PATH openspec validate --all
 ```
 
 ## 架构说明
@@ -210,7 +227,7 @@ PATH=/Users/wxy/.nvm/versions/node/v20.20.0/bin:$PATH openspec validate --specs
 - `playback-orchestrator` 负责应用侧播放编排，不把队列同步、transport、settings 和 detail 播放协同继续堆在页面层。
 - `feature-player` 负责播放器页的 presentation 层、入口 contract 与宿主 callbacks，不再把播放器 UI 主体留在 `app/feature/player/ui`。
 - 歌单 / 专辑 / 艺人详情页已拆分到各自独立模块，共享的 detail shell 能力收敛到 `:feature-detail-support`。
-- 播放服务实现细节收口在播放层，宿主通过 `:playback-client` / `:playback-contract` 接入；`playback-contract` 当前也承担播放域共享模型层，而不仅是轻量常量层。
+- 播放服务实现细节收口在播放层，宿主通过 `:playback-client` / `:playback-contract` 接入；`playback-contract` 当前也承担播放域共享模型层，而不仅是轻量常量层，并承载缓存进度与预热快照的跨进程 extras 协议。
 - 共享 Android 构建约束由 `build-logic` 提供，模块脚本主要保留命名空间、依赖和 native 等差异配置。
 
 ## GitHub 发布

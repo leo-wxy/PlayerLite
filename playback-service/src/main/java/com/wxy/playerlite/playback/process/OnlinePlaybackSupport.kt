@@ -516,7 +516,7 @@ internal class OnlinePlaybackPreparationPlanner(
         )
         if (initialSnapshot.isCompleteCachedContent()) {
             logOnlinePlaybackSupport(
-                "buildPlan initial cache hit: key=$initialKey useCacheOnly=true contentLength=${initialSnapshot?.contentLength ?: -1L}"
+                "complete cache hit: phase=initial, trackId=${track.id}, songId=$songId, key=$initialKey, quality=$appliedLevel, mode=${requestedMode.wireValue}, contentLength=${initialSnapshot?.contentLength ?: -1L}, duration=${firstPositive(track.durationHintMs, initialSnapshot?.durationMs)}, useCacheOnly=true, reason=complete_initial_snapshot"
             )
             return Result.success(
                 OnlinePlaybackPlan(
@@ -565,6 +565,11 @@ internal class OnlinePlaybackPreparationPlanner(
         logOnlinePlaybackSupport(
             "buildPlan final: initialKey=$initialKey finalKey=$finalKey complete=${completeSnapshot != null} finalSnapshot=${describeOnlineCacheSnapshot(finalSnapshot)} resolvedContentLength=${resolvedMusicUrl.contentLengthBytes ?: -1L} useCacheOnly=${completeSnapshot != null}"
         )
+        if (completeSnapshot != null) {
+            logOnlinePlaybackSupport(
+                "complete cache hit: phase=final, trackId=${track.id}, songId=$songId, key=$finalKey, quality=${resolvedMusicUrl.appliedAudioQuality.wireValue}, mode=${actualMode.wireValue}, contentLength=${completeSnapshot.contentLength}, duration=${firstPositive(track.durationHintMs, resolvedMusicUrl.durationMs, completeSnapshot.durationMs)}, useCacheOnly=true, reason=complete_final_snapshot"
+            )
+        }
 
         return Result.success(
             OnlinePlaybackPlan(

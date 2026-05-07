@@ -5,6 +5,7 @@ import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.playback.model.MusicInfo
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
+import com.wxy.playerlite.playback.model.PlaybackPrewarmTargetType
 import com.wxy.playerlite.player.AudioMeta
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.AudioEffectPreset
@@ -523,6 +524,160 @@ class PlaybackProcessRuntimeCacheProgressTest {
     }
 
     @Test
+    fun cacheProgressCallback_whenSeekReanchorsToLowerRange_shouldAcceptLowerProgress() = runBlocking {
+        val source = FakeCacheProgressObservableSource(emitSeekCacheProgress = false)
+        val runtime = PlaybackProcessRuntime(
+            appContext = RuntimeEnvironment.getApplication() as Context,
+            serviceScope = serviceScope,
+            nativePlayerFactory = { FakeCacheProgressNativePlayer() },
+            trackPreparer = FakeCacheProgressTrackPreparer(
+                initialCacheProgress = PlaybackCacheProgressSnapshot(
+                    cachedBytes = 700L,
+                    totalBytes = 1_000L,
+                    displayRatio = 0.7f,
+                    isFullyCached = false,
+                    isEstimated = false
+                ),
+                source = source,
+                cacheResourceKey = "queue-cache-progress-reanchor",
+                cacheContentLengthHintBytes = 1_000L,
+                durationMs = 200_000L
+            )
+        )
+
+        runtime.setQueue(
+            mediaItems = listOf(
+                MusicInfo(
+                    id = "queue-cache-progress-reanchor",
+                    songId = "1969519579",
+                    title = "夜曲",
+                    durationMs = 200_000L,
+                    playbackUri = "https://example.com/night.mp3"
+                ).toMediaItem()
+            ),
+            startIndex = 0
+        )
+        runtime.prepareCurrent()
+
+        runtime.seekTo(120_000L)
+
+        source.dispatchCacheProgress(
+            PlaybackCacheProgressSnapshot(
+                cachedBytes = 200L,
+                totalBytes = 1_000L,
+                displayStartRatio = 0.6f,
+                displayRatio = 0.62f,
+                isFullyCached = false,
+                isEstimated = false
+            )
+        )
+
+        val cacheProgress = requireNotNull(runtime.state.value.cacheProgress)
+        assertEquals(200L, cacheProgress.cachedBytes)
+        assertEquals(0.6f, cacheProgress.displayStartRatio, 0.0001f)
+        assertEquals(0.62f, cacheProgress.displayRatio, 0.0001f)
+    }
+
+    @Test
+    fun seekTo_whenReanchoredSnapshotMissing_shouldNotLeavePreviousCacheProgressStuck() = runBlocking {
+        val source = FakeCacheProgressObservableSource(emitSeekCacheProgress = false)
+        val runtime = PlaybackProcessRuntime(
+            appContext = RuntimeEnvironment.getApplication() as Context,
+            serviceScope = serviceScope,
+            nativePlayerFactory = { FakeCacheProgressNativePlayer() },
+            trackPreparer = FakeCacheProgressTrackPreparer(
+                initialCacheProgress = PlaybackCacheProgressSnapshot(
+                    cachedBytes = 700L,
+                    totalBytes = 1_000L,
+                    displayRatio = 0.7f,
+                    isFullyCached = false,
+                    isEstimated = false
+                ),
+                source = source,
+                cacheResourceKey = "queue-cache-progress-seek-null",
+                cacheContentLengthHintBytes = 1_000L,
+                durationMs = 200_000L
+            )
+        )
+
+        runtime.setQueue(
+            mediaItems = listOf(
+                MusicInfo(
+                    id = "queue-cache-progress-seek-null",
+                    songId = "1969519579",
+                    title = "夜曲",
+                    durationMs = 200_000L,
+                    playbackUri = "https://example.com/night.mp3"
+                ).toMediaItem()
+            ),
+            startIndex = 0
+        )
+        runtime.prepareCurrent()
+
+        runtime.seekTo(120_000L)
+
+        assertEquals(null, runtime.state.value.cacheProgress)
+    }
+
+    @Test
+    fun cacheProgressCallback_whenCurrentTrackBecomesFullyCached_shouldScheduleNextPrewarm() = runBlocking {
+        val source = FakeCacheProgressObservableSource()
+        val runtime = PlaybackProcessRuntime(
+            appContext = RuntimeEnvironment.getApplication() as Context,
+            serviceScope = serviceScope,
+            nativePlayerFactory = { FakeCacheProgressNativePlayer() },
+            trackPreparer = FakeCacheProgressTrackPreparer(
+                initialCacheProgress = PlaybackCacheProgressSnapshot(
+                    cachedBytes = 700L,
+                    totalBytes = 1_000L,
+                    displayRatio = 0.7f,
+                    isFullyCached = false,
+                    isEstimated = false
+                ),
+                source = source,
+                cacheResourceKey = "queue-cache-progress-prewarm-current",
+                cacheContentLengthHintBytes = 1_000L,
+                durationMs = 200_000L
+            )
+        )
+
+        runtime.setQueue(
+            mediaItems = listOf(
+                MusicInfo(
+                    id = "queue-cache-progress-prewarm-current",
+                    songId = "1969519579",
+                    title = "夜曲",
+                    durationMs = 200_000L,
+                    playbackUri = "https://example.com/night.mp3"
+                ).toMediaItem(),
+                MusicInfo(
+                    id = "queue-cache-progress-prewarm-next",
+                    songId = "1969519580",
+                    title = "晴天",
+                    durationMs = 200_000L,
+                    playbackUri = "https://example.com/sunny.mp3"
+                ).toMediaItem()
+            ),
+            startIndex = 0
+        )
+        runtime.prepareCurrent()
+
+        source.dispatchCacheProgress(
+            PlaybackCacheProgressSnapshot(
+                cachedBytes = 1_000L,
+                totalBytes = 1_000L,
+                displayRatio = 1f,
+                isFullyCached = true,
+                isEstimated = false
+            )
+        )
+
+        val prewarmSnapshot = requireNotNull(runtime.state.value.prewarmSnapshot)
+        assertEquals("queue-cache-progress-prewarm-next", prewarmSnapshot.targetId)
+        assertEquals(PlaybackPrewarmTargetType.NEXT_TRACK, prewarmSnapshot.targetType)
+    }
+
+    @Test
     fun clearCache_shouldDetachCacheProgressListenerFromPreparedSource() = runBlocking {
         val source = FakeCacheProgressObservableSource()
         val runtime = PlaybackProcessRuntime(
@@ -609,6 +764,60 @@ class PlaybackProcessRuntimeCacheProgressTest {
         assertEquals(null, runtime.state.value.cacheProgress)
     }
 
+    @Test
+    fun restorePreparedPositionWithoutPlayback_whenReanchoredToLowerRange_shouldAcceptLowerProgress() = runBlocking {
+        val source = FakeCacheProgressObservableSource(emitSeekCacheProgress = false)
+        val runtime = PlaybackProcessRuntime(
+            appContext = RuntimeEnvironment.getApplication() as Context,
+            serviceScope = serviceScope,
+            nativePlayerFactory = { FakeCacheProgressNativePlayer() },
+            trackPreparer = FakeCacheProgressTrackPreparer(
+                initialCacheProgress = PlaybackCacheProgressSnapshot(
+                    cachedBytes = 700L,
+                    totalBytes = 1_000L,
+                    displayRatio = 0.7f,
+                    isFullyCached = false,
+                    isEstimated = false
+                ),
+                source = source,
+                cacheResourceKey = "queue-cache-progress-restore-reanchor",
+                cacheContentLengthHintBytes = 1_000L,
+                durationMs = 200_000L
+            )
+        )
+
+        runtime.setQueue(
+            mediaItems = listOf(
+                MusicInfo(
+                    id = "queue-cache-progress-restore-reanchor",
+                    songId = "1969519579",
+                    title = "夜曲",
+                    durationMs = 200_000L,
+                    playbackUri = "https://example.com/night.mp3"
+                ).toMediaItem()
+            ),
+            startIndex = 0
+        )
+        runtime.prepareCurrent()
+
+        runtime.restorePreparedPositionWithoutPlayback(120_000L)
+        source.dispatchCacheProgress(
+            PlaybackCacheProgressSnapshot(
+                cachedBytes = 200L,
+                totalBytes = 1_000L,
+                displayStartRatio = 0.6f,
+                displayRatio = 0.62f,
+                isFullyCached = false,
+                isEstimated = false
+            )
+        )
+
+        val cacheProgress = requireNotNull(runtime.state.value.cacheProgress)
+        assertEquals(200L, cacheProgress.cachedBytes)
+        assertEquals(0.6f, cacheProgress.displayStartRatio, 0.0001f)
+        assertEquals(0.62f, cacheProgress.displayRatio, 0.0001f)
+    }
+
     private fun seedCacheSnapshot(
         resourceKey: String,
         contentLength: Long,
@@ -671,7 +880,16 @@ private class FakeCacheProgressTrackPreparer(
     }
 }
 
-private class FakeCacheProgressObservableSource : FakeCacheProgressPlaySource(), PlaybackCacheProgressEmitter {
+private class FakeCacheProgressObservableSource(
+    private val seekCacheProgress: PlaybackCacheProgressSnapshot? = PlaybackCacheProgressSnapshot(
+        cachedBytes = 300L,
+        totalBytes = 1_000L,
+        displayRatio = 0.5f,
+        isFullyCached = false,
+        isEstimated = false
+    ),
+    private val emitSeekCacheProgress: Boolean = true
+) : FakeCacheProgressPlaySource(), PlaybackCacheProgressEmitter {
     private var listener: ((PlaybackCacheProgressSnapshot?) -> Unit)? = null
     var lastSeekAnchorRequest: Pair<Long, Long>? = null
         private set
@@ -685,15 +903,9 @@ private class FakeCacheProgressObservableSource : FakeCacheProgressPlaySource(),
 
     override fun onPlaybackSeekPositionChanged(positionMs: Long, durationMs: Long) {
         lastSeekAnchorRequest = positionMs to durationMs
-        listener?.invoke(
-            PlaybackCacheProgressSnapshot(
-                cachedBytes = 300L,
-                totalBytes = 1_000L,
-                displayRatio = 0.5f,
-                isFullyCached = false,
-                isEstimated = false
-            )
-        )
+        if (emitSeekCacheProgress) {
+            listener?.invoke(seekCacheProgress)
+        }
     }
 
     fun dispatchCacheProgress(progress: PlaybackCacheProgressSnapshot?) {

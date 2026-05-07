@@ -8,6 +8,8 @@ import android.util.Log
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
+import com.wxy.playerlite.playback.model.PlaybackPrewarmSnapshot
 import com.wxy.playerlite.playback.model.PlaybackSourceContext
 import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.config.CacheCoreConfig
@@ -52,6 +54,8 @@ internal data class PlaybackProcessState(
     val durationMs: Long = 0L,
     val audioMeta: AudioMetaDisplay? = null,
     val cacheProgress: PlaybackCacheProgressSnapshot? = null,
+    val playbackPrewarmPreferences: PlaybackPrewarmPreferences = PlaybackPrewarmPreferences(),
+    val prewarmSnapshot: PlaybackPrewarmSnapshot? = null,
     val isPreparing: Boolean = false,
     val statusText: String = "Idle",
     val displayTitleOverride: String? = null,
@@ -84,6 +88,14 @@ internal class PlaybackProcessRuntime(
     private var activeAudioSourceRuntime: ActivePlaybackSourceRuntime = readPersistedActiveAudioSourceRuntime()
     @Volatile
     private var playbackCacheLimitBytes: Long = readPersistedPlaybackCacheLimitBytes()
+    @Volatile
+    private var weakNetworkAutoRetryEnabled: Boolean = readPersistedWeakNetworkAutoRetryEnabled()
+    @Volatile
+    private var showCacheFailureNotifications: Boolean =
+        readPersistedShowCacheFailureNotifications()
+    @Volatile
+    private var playbackPrewarmPreferences: PlaybackPrewarmPreferences =
+        readPersistedPlaybackPrewarmPreferences()
     private val onlinePlaybackPlanner = OnlinePlaybackPreparationPlanner(
         cacheRootDirPath = cacheRootDirPath,
         sourceAdapterProvider = ::currentSourceAdapter
@@ -96,7 +108,8 @@ internal class PlaybackProcessRuntime(
     private val trackPreparationCoordinator: TrackPreparer = trackPreparer ?: TrackPreparationCoordinator(
         sourceRepository = mediaSourceRepository,
         playbackCoordinator = playbackCoordinator,
-        onlinePreparationPlanner = onlinePlaybackPlanner
+        onlinePreparationPlanner = onlinePlaybackPlanner,
+        onCacheFailure = ::publishCacheFailureStatus
     )
     private val sourceSession = PreparedSourceSession()
     @Volatile
@@ -107,6 +120,8 @@ internal class PlaybackProcessRuntime(
     private var retryAttemptCount: Int = 0
     @Volatile
     private var pendingSeekPositionMs: Long? = null
+    @Volatile
+    private var pendingCacheProgressSeekReanchorPositionMs: Long? = null
     @Volatile
     private var activePlaybackTrackId: String? = null
     @Volatile
@@ -123,10 +138,21 @@ internal class PlaybackProcessRuntime(
             audioEffectPreset = readPersistedAudioEffectPreset(),
             preferredAudioQuality = readPersistedPreferredAudioQuality(),
             activeAudioSourceConfigJson = activeAudioSourceRuntime.configJson,
-            playbackCacheLimitBytes = playbackCacheLimitBytes
+            playbackCacheLimitBytes = playbackCacheLimitBytes,
+            playbackPrewarmPreferences = playbackPrewarmPreferences
         )
     )
     val state: StateFlow<PlaybackProcessState> = _state.asStateFlow()
+    private val playbackPrewarmCoordinator: PlaybackPrewarmCoordinator? = PlaybackPrewarmCoordinator(
+        scope = serviceScope,
+        planner = onlinePlaybackPlanner,
+        onSnapshot = { snapshot ->
+            _state.update { current ->
+                current.copy(prewarmSnapshot = snapshot)
+            }
+        },
+        onFinished = ::schedulePlaybackPrewarmFromCurrentState
+    )
 
     init {
         ensureCacheCoreReady()
@@ -179,6 +205,11 @@ internal class PlaybackProcessRuntime(
             }
             resetPlaybackRetryState(base.currentTrack?.id)
             _state.value = base.copy(positionMs = bounded)
+            if (bounded / PREWARM_PROGRESS_SCHEDULE_BUCKET_MS !=
+                base.positionMs / PREWARM_PROGRESS_SCHEDULE_BUCKET_MS
+            ) {
+                schedulePlaybackPrewarmFromCurrentState()
+            }
             persistPlaybackSessionState()
         }
 
@@ -324,6 +355,7 @@ internal class PlaybackProcessRuntime(
 
     fun setPlaybackMode(playbackMode: PlaybackMode) {
         _state.value = _state.value.copy(playbackMode = playbackMode)
+        schedulePlaybackPrewarmFromCurrentState()
     }
 
     fun setAudioEffectPreset(audioEffectPreset: AudioEffectPreset): Boolean {
@@ -350,9 +382,11 @@ internal class PlaybackProcessRuntime(
         }
         _state.value = currentState.copy(
             preferredAudioQuality = sanitizedAudioQuality,
-            appliedAudioQuality = nextAppliedQuality
+            appliedAudioQuality = nextAppliedQuality,
+            prewarmSnapshot = null
         )
         persistPreferredAudioQuality(sanitizedAudioQuality)
+        playbackPrewarmCoordinator?.cancel("默认音质变化")
         if (
             currentState.preferredAudioQuality != sanitizedAudioQuality &&
             currentTrack != null &&
@@ -388,6 +422,45 @@ internal class PlaybackProcessRuntime(
         return reconfigured
     }
 
+    fun setWeakNetworkAutoRetryEnabled(enabled: Boolean): Boolean {
+        weakNetworkAutoRetryEnabled = enabled
+        persistWeakNetworkAutoRetryEnabled(enabled)
+        _state.value = _state.value.copy(
+            statusText = if (enabled) {
+                "弱网自动重试已开启"
+            } else {
+                "弱网自动重试已关闭"
+            }
+        )
+        return true
+    }
+
+    fun setCachePolicyPreferences(showCacheFailureNotifications: Boolean): Boolean {
+        this.showCacheFailureNotifications = showCacheFailureNotifications
+        persistCachePolicyPreferences(showCacheFailureNotifications)
+        _state.value = _state.value.copy(statusText = "缓存策略已更新")
+        return true
+    }
+
+    fun setPlaybackPrewarmPreferences(
+        preferences: PlaybackPrewarmPreferences
+    ): Boolean {
+        val sanitized = preferences.sanitized()
+        playbackPrewarmPreferences = sanitized
+        persistPlaybackPrewarmPreferences(sanitized)
+        _state.value = _state.value.copy(
+            playbackPrewarmPreferences = sanitized,
+            prewarmSnapshot = null,
+            statusText = if (sanitized.enabled) {
+                "预热策略已更新"
+            } else {
+                "在线播放预热已关闭"
+            }
+        )
+        schedulePlaybackPrewarmFromCurrentState()
+        return true
+    }
+
     fun setActiveAudioSourceConfigJson(configJson: String?): Boolean {
         val nextRuntime = createInitializedSourceRuntime(configJson)
             .getOrElse { return false }
@@ -403,8 +476,10 @@ internal class PlaybackProcessRuntime(
         activeAudioSourceRuntime = nextRuntime
         persistActiveAudioSourceRuntime(nextRuntime)
         invalidateOnlinePreparationCaches(previousRuntime.adapter)
+        playbackPrewarmCoordinator?.cancel("音源变化")
         _state.value = currentState.copy(
             activeAudioSourceConfigJson = normalizedConfigJson,
+            prewarmSnapshot = null,
             statusText = if (sourceChanged) {
                 "当前音源已更新"
             } else {
@@ -525,6 +600,7 @@ internal class PlaybackProcessRuntime(
                     )
                 }
             }
+            schedulePlaybackPrewarmFromCurrentState()
         }
     }
 
@@ -542,6 +618,7 @@ internal class PlaybackProcessRuntime(
             _state.value = nextState.copy(
                 cacheProgress = resolvedCacheProgress
             )
+            schedulePlaybackPrewarmFromCurrentState()
             return
         }
         val audioQualityStatus = consumePendingAudioQualitySwitchStatus(
@@ -553,16 +630,19 @@ internal class PlaybackProcessRuntime(
             isPreparing = false,
             statusText = audioQualityStatus ?: "Paused"
         )
+        pendingCacheProgressSeekReanchorPositionMs = positionMs
         _state.value = nextState.copy(
-            cacheProgress = preserveStableCacheProgress(
+            cacheProgress = preserveStableCacheProgressAfterSeek(
                 previous = _state.value.cacheProgress,
-                next = resolveCurrentCacheProgress(nextState)
+                next = resolveCurrentCacheProgress(nextState),
+                allowReanchor = true
             )
         )
         (source as? PlaybackCacheProgressEmitter)?.onPlaybackSeekPositionChanged(
             positionMs = positionMs,
             durationMs = nextState.durationMs
         )
+        schedulePlaybackPrewarmFromCurrentState()
         persistPlaybackSessionState(force = true)
     }
 
@@ -862,6 +942,7 @@ internal class PlaybackProcessRuntime(
             val current = _state.value
             val shouldBuffer = current.playWhenReady || current.playbackState == PLAYBACK_STATE_PLAYING
             pendingSeekPositionMs = if (shouldBuffer) bounded else null
+            pendingCacheProgressSeekReanchorPositionMs = bounded
             val nextState = current.copy(
                 positionMs = bounded,
                 isPreparing = shouldBuffer,
@@ -878,15 +959,17 @@ internal class PlaybackProcessRuntime(
             )
             val resolvedCacheProgress = resolveCurrentCacheProgress(nextState)
             _state.value = nextState.copy(
-                cacheProgress = preserveStableCacheProgress(
+                cacheProgress = preserveStableCacheProgressAfterSeek(
                     previous = current.cacheProgress,
-                    next = resolvedCacheProgress
+                    next = resolvedCacheProgress,
+                    allowReanchor = true
                 )
             )
             (currentPreparedSourceOrNull() as? PlaybackCacheProgressEmitter)?.onPlaybackSeekPositionChanged(
                 positionMs = bounded,
                 durationMs = nextState.durationMs
             )
+            schedulePlaybackPrewarmFromCurrentState()
             persistPlaybackSessionState(force = true)
         } else {
             safeLogE("seekTo failed: targetPositionMs=$bounded, code=$code, error=${playbackCoordinator.lastError()}")
@@ -895,6 +978,7 @@ internal class PlaybackProcessRuntime(
     }
 
     fun stop() {
+        playbackPrewarmCoordinator?.cancel("播放停止")
         activePlaybackTrackId = null
         invalidatePlaybackGeneration()
         resetPlaybackRetryState()
@@ -907,6 +991,7 @@ internal class PlaybackProcessRuntime(
             playWhenReady = false,
             playbackState = PLAYBACK_STATE_STOPPED,
             positionMs = 0L,
+            prewarmSnapshot = null,
             statusText = "Stopped"
         )
         persistPlaybackSessionState(force = true)
@@ -917,6 +1002,7 @@ internal class PlaybackProcessRuntime(
     }
 
     fun clearCache(): Boolean {
+        playbackPrewarmCoordinator?.cancel("缓存清理")
         stop()
         releasePreparedSourceSession()
         invalidateOnlinePreparationCaches()
@@ -930,6 +1016,7 @@ internal class PlaybackProcessRuntime(
             positionMs = 0L,
             audioMeta = null,
             cacheProgress = null,
+            prewarmSnapshot = null,
             currentCacheResourceKey = null,
             currentCacheContentLengthHintBytes = null,
             statusText = if (success) {
@@ -942,6 +1029,7 @@ internal class PlaybackProcessRuntime(
     }
 
     fun release() {
+        playbackPrewarmCoordinator?.cancel("播放进程释放")
         releasePreparedSourceSession()
         playbackCoordinator.close()
         CacheCore.shutdown()
@@ -970,6 +1058,7 @@ internal class PlaybackProcessRuntime(
                         isSeekSupported = false,
                         audioMeta = null,
                         cacheProgress = null,
+                        prewarmSnapshot = null,
                         currentCacheResourceKey = null,
                         currentCacheContentLengthHintBytes = null,
                         statusText = preparation.message
@@ -1004,6 +1093,7 @@ internal class PlaybackProcessRuntime(
                         cacheProgress = preparation.initialCacheProgress
                             ?: resolveCurrentCacheProgress(nextState)
                     )
+                    schedulePlaybackPrewarmFromCurrentState()
                     true
                 }
             }
@@ -1019,6 +1109,7 @@ internal class PlaybackProcessRuntime(
                 isSeekSupported = false,
                 audioMeta = null,
                 cacheProgress = null,
+                prewarmSnapshot = null,
                 currentCacheResourceKey = null,
                 currentCacheContentLengthHintBytes = null,
                 statusText = "Failed to prepare media"
@@ -1033,6 +1124,7 @@ internal class PlaybackProcessRuntime(
         val currentPreferredAudioQuality = _state.value.preferredAudioQuality
         val currentActiveAudioSourceConfigJson = _state.value.activeAudioSourceConfigJson
         val currentPlaybackCacheLimitBytes = _state.value.playbackCacheLimitBytes
+        val currentPlaybackPrewarmPreferences = _state.value.playbackPrewarmPreferences
         stop()
         releasePreparedSourceSession()
         _state.value = PlaybackProcessState(
@@ -1041,6 +1133,7 @@ internal class PlaybackProcessRuntime(
             preferredAudioQuality = currentPreferredAudioQuality,
             activeAudioSourceConfigJson = currentActiveAudioSourceConfigJson,
             playbackCacheLimitBytes = currentPlaybackCacheLimitBytes,
+            playbackPrewarmPreferences = currentPlaybackPrewarmPreferences,
             statusText = statusText
         )
         persistPlaybackSessionState(force = true)
@@ -1126,6 +1219,112 @@ internal class PlaybackProcessRuntime(
                 maxBytes.coerceAtLeast(MIN_PLAYBACK_CACHE_LIMIT_BYTES)
             )
             ?.apply()
+    }
+
+    private fun readPersistedWeakNetworkAutoRetryEnabled(): Boolean {
+        return audioEffectPreferences?.getBoolean(KEY_WEAK_NETWORK_AUTO_RETRY, true) ?: true
+    }
+
+    private fun persistWeakNetworkAutoRetryEnabled(enabled: Boolean) {
+        audioEffectPreferences?.edit()
+            ?.putBoolean(KEY_WEAK_NETWORK_AUTO_RETRY, enabled)
+            ?.apply()
+    }
+
+    private fun readPersistedShowCacheFailureNotifications(): Boolean {
+        return audioEffectPreferences?.getBoolean(
+            KEY_SHOW_CACHE_FAILURE_NOTIFICATIONS,
+            true
+        ) ?: true
+    }
+
+    private fun persistCachePolicyPreferences(showCacheFailureNotifications: Boolean) {
+        audioEffectPreferences?.edit()
+            ?.putBoolean(KEY_SHOW_CACHE_FAILURE_NOTIFICATIONS, showCacheFailureNotifications)
+            ?.apply()
+    }
+
+    private fun readPersistedPlaybackPrewarmPreferences(): PlaybackPrewarmPreferences {
+        return PlaybackPrewarmPreferences(
+            enabled = audioEffectPreferences?.getBoolean(
+                KEY_PLAYBACK_PREWARM_ENABLED,
+                true
+            ) ?: true,
+            budgetDurationMs = audioEffectPreferences?.getLong(
+                KEY_PLAYBACK_PREWARM_BUDGET_DURATION_MS,
+                PlaybackPrewarmPreferences.DEFAULT_BUDGET_DURATION_MS
+            ) ?: PlaybackPrewarmPreferences.DEFAULT_BUDGET_DURATION_MS,
+            budgetBytes = audioEffectPreferences?.getLong(
+                KEY_PLAYBACK_PREWARM_BUDGET_BYTES,
+                PlaybackPrewarmPreferences.DEFAULT_BUDGET_BYTES
+            ) ?: PlaybackPrewarmPreferences.DEFAULT_BUDGET_BYTES,
+            readyThresholdDurationMs = audioEffectPreferences?.getLong(
+                KEY_PLAYBACK_PREWARM_READY_THRESHOLD_DURATION_MS,
+                PlaybackPrewarmPreferences.DEFAULT_READY_THRESHOLD_DURATION_MS
+            ) ?: PlaybackPrewarmPreferences.DEFAULT_READY_THRESHOLD_DURATION_MS,
+            readyThresholdBytes = audioEffectPreferences?.getLong(
+                KEY_PLAYBACK_PREWARM_READY_THRESHOLD_BYTES,
+                PlaybackPrewarmPreferences.DEFAULT_READY_THRESHOLD_BYTES
+            ) ?: PlaybackPrewarmPreferences.DEFAULT_READY_THRESHOLD_BYTES
+        ).sanitized()
+    }
+
+    private fun persistPlaybackPrewarmPreferences(
+        preferences: PlaybackPrewarmPreferences
+    ) {
+        val sanitized = preferences.sanitized()
+        audioEffectPreferences?.edit()
+            ?.putBoolean(KEY_PLAYBACK_PREWARM_ENABLED, sanitized.enabled)
+            ?.putLong(KEY_PLAYBACK_PREWARM_BUDGET_DURATION_MS, sanitized.budgetDurationMs)
+            ?.putLong(KEY_PLAYBACK_PREWARM_BUDGET_BYTES, sanitized.budgetBytes)
+            ?.putLong(
+                KEY_PLAYBACK_PREWARM_READY_THRESHOLD_DURATION_MS,
+                sanitized.readyThresholdDurationMs
+            )
+            ?.putLong(KEY_PLAYBACK_PREWARM_READY_THRESHOLD_BYTES, sanitized.readyThresholdBytes)
+            ?.apply()
+    }
+
+    private fun schedulePlaybackPrewarmFromCurrentState() {
+        val coordinator = playbackPrewarmCoordinator ?: return
+        val current = _state.value
+        coordinator.schedule(
+            PlaybackPrewarmContext(
+                tracks = current.tracks,
+                activeIndex = current.activeIndex,
+                playbackMode = current.playbackMode,
+                currentPositionMs = current.positionMs,
+                currentDurationMs = current.durationMs,
+                currentCacheResourceKey = current.currentCacheResourceKey,
+                currentCacheContentLengthHintBytes = current.currentCacheContentLengthHintBytes,
+                currentItemCacheCompleteOrNoWrite =
+                    isCurrentItemCacheCompleteOrNoLongerNeedsWrites(current),
+                preferredAudioQuality = current.preferredAudioQuality,
+                preferences = playbackPrewarmPreferences
+            )
+        )
+    }
+
+    private fun isCurrentItemCacheCompleteOrNoLongerNeedsWrites(
+        state: PlaybackProcessState
+    ): Boolean {
+        val track = state.currentTrack ?: return true
+        if (!track.isOnlineTrackForPrewarm()) {
+            return true
+        }
+        if (state.cacheProgress?.isFullyCached == true) {
+            return true
+        }
+        val resourceKey = state.currentCacheResourceKey?.takeIf { it.isNotBlank() }
+            ?: return false
+        return isCompleteCachedContent(CacheCore.lookup(resourceKey).getOrNull())
+    }
+
+    private fun publishCacheFailureStatus(message: String) {
+        if (!showCacheFailureNotifications) {
+            return
+        }
+        _state.value = _state.value.copy(statusText = "缓存失败: $message")
     }
 
     private fun buildNeteaseCompatibleConfigJson(baseUrl: String): String {
@@ -1372,6 +1571,7 @@ internal class PlaybackProcessRuntime(
         val changedTrack = previousTrackId != nextTrackId
 
         if (changedTrack) {
+            playbackPrewarmCoordinator?.cancel("播放目标变化")
             activePlaybackTrackId = null
             invalidatePlaybackGeneration()
             resetPlaybackRetryState()
@@ -1393,6 +1593,7 @@ internal class PlaybackProcessRuntime(
             appliedAudioQuality = if (changedTrack) null else previous.appliedAudioQuality,
             audioMeta = if (changedTrack) null else previous.audioMeta,
             cacheProgress = if (changedTrack) null else previous.cacheProgress,
+            prewarmSnapshot = if (changedTrack) null else previous.prewarmSnapshot,
             isPreparing = false,
             playbackState = if (changedTrack) PLAYBACK_STATE_STOPPED else previous.playbackState,
             statusText = statusText,
@@ -1405,6 +1606,7 @@ internal class PlaybackProcessRuntime(
                 previous.currentCacheContentLengthHintBytes
             }
         )
+        schedulePlaybackPrewarmFromCurrentState()
         persistPlaybackSessionState(force = true)
     }
 
@@ -1448,6 +1650,7 @@ internal class PlaybackProcessRuntime(
     ) {
         val normalizedResourceKey = resourceKey?.takeIf { it.isNotBlank() } ?: return
         (source as? PlaybackCacheProgressEmitter)?.setCacheProgressListener { emitted ->
+            var shouldSchedulePrewarmAfterUpdate = false
             _state.update { current ->
                 if (current.currentCacheResourceKey != normalizedResourceKey) {
                     return@update current
@@ -1458,9 +1661,10 @@ internal class PlaybackProcessRuntime(
                     emitted = resolved,
                     diskResolved = diskResolved
                 )
-                val monotonic = preserveStableCacheProgress(
+                val monotonic = preserveStableCacheProgressAfterSeek(
                     previous = current.cacheProgress,
-                    next = authoritative
+                    next = authoritative,
+                    allowReanchor = shouldAllowCacheProgressSeekReanchor(current)
                 )
                 if (monotonic == current.cacheProgress) {
                     return@update current
@@ -1473,6 +1677,9 @@ internal class PlaybackProcessRuntime(
                 if (stabilized == current.cacheProgress) {
                     current
                 } else {
+                    val shouldSchedulePrewarm = current.currentTrack?.isOnlineTrackForPrewarm() == true &&
+                        current.cacheProgress?.isFullyCached != true &&
+                        stabilized?.isFullyCached == true
                     emitCacheProgressDebugLog(
                         buildString {
                             append("cacheProgress callback: key=")
@@ -1483,8 +1690,13 @@ internal class PlaybackProcessRuntime(
                             append(describeCacheProgress(stabilized))
                         }
                     )
+                    pendingCacheProgressSeekReanchorPositionMs = null
+                    shouldSchedulePrewarmAfterUpdate = shouldSchedulePrewarm
                     current.copy(cacheProgress = stabilized)
                 }
+            }
+            if (shouldSchedulePrewarmAfterUpdate) {
+                schedulePlaybackPrewarmFromCurrentState()
             }
         }
     }
@@ -1519,6 +1731,43 @@ internal class PlaybackProcessRuntime(
             return previous
         }
         return next
+    }
+
+    private fun preserveStableCacheProgressAfterSeek(
+        previous: PlaybackCacheProgressSnapshot?,
+        next: PlaybackCacheProgressSnapshot?,
+        allowReanchor: Boolean
+    ): PlaybackCacheProgressSnapshot? {
+        if (!allowReanchor) {
+            return preserveStableCacheProgress(previous, next)
+        }
+        if (previous == null || next == null) {
+            return if (previous?.isFullyCached == true) {
+                previous
+            } else {
+                next
+            }
+        }
+        if (previous.isFullyCached || next.isFullyCached) {
+            return preserveStableCacheProgress(previous, next)
+        }
+        if (
+            next.normalizedDisplayStartRatio != previous.normalizedDisplayStartRatio ||
+            next.normalizedDisplayRatio < previous.normalizedDisplayRatio ||
+            (
+                next.normalizedDisplayRatio == previous.normalizedDisplayRatio &&
+                    next.cachedBytes < previous.cachedBytes
+                )
+        ) {
+            return next
+        }
+        return preserveStableCacheProgress(previous, next)
+    }
+
+    private fun shouldAllowCacheProgressSeekReanchor(state: PlaybackProcessState): Boolean {
+        val pendingSeekPositionMs = pendingCacheProgressSeekReanchorPositionMs ?: return false
+        return kotlin.math.abs(pendingSeekPositionMs - state.positionMs) <=
+            SEEK_COMPLETION_PROGRESS_TOLERANCE_MS
     }
 
     private fun selectAuthoritativeCacheProgress(
@@ -1602,9 +1851,7 @@ internal class PlaybackProcessRuntime(
         if (initResult.isSuccess) {
             return true
         }
-        _state.value = _state.value.copy(
-            statusText = "缓存初始化失败: ${initResult.exceptionOrNull()?.message ?: "unknown"}"
-        )
+        publishCacheFailureStatus("初始化失败: ${initResult.exceptionOrNull()?.message ?: "unknown"}")
         return false
     }
 
@@ -1619,12 +1866,23 @@ internal class PlaybackProcessRuntime(
         private const val DEFAULT_PLAYBACK_CACHE_LIMIT_BYTES = 500L * 1024L * 1024L
         private const val MIN_PLAYBACK_CACHE_LIMIT_BYTES = 64L * 1024L * 1024L
         private const val PLAYBACK_SESSION_POSITION_PERSISTENCE_THRESHOLD_MS = 5_000L
+        private const val PREWARM_PROGRESS_SCHEDULE_BUCKET_MS = 5_000L
         private const val AUDIO_EFFECT_PREFERENCES_NAME = "player_playback_preferences"
         private const val KEY_AUDIO_EFFECT_PRESET = "audio_effect_preset"
         private const val KEY_PREFERRED_AUDIO_QUALITY = "preferred_audio_quality"
         private const val KEY_ACTIVE_AUDIO_SOURCE_CONFIG_JSON = "active_audio_source_config_json"
         private const val KEY_PREFERRED_AUDIO_SOURCE_BASE_URL = "preferred_audio_source_base_url"
         private const val KEY_PLAYBACK_CACHE_LIMIT_BYTES = "playback_cache_limit_bytes"
+        private const val KEY_WEAK_NETWORK_AUTO_RETRY = "weak_network_auto_retry"
+        private const val KEY_SHOW_CACHE_FAILURE_NOTIFICATIONS = "show_cache_failure_notifications"
+        private const val KEY_PLAYBACK_PREWARM_ENABLED = "playback_prewarm_enabled"
+        private const val KEY_PLAYBACK_PREWARM_BUDGET_DURATION_MS =
+            "playback_prewarm_budget_duration_ms"
+        private const val KEY_PLAYBACK_PREWARM_BUDGET_BYTES = "playback_prewarm_budget_bytes"
+        private const val KEY_PLAYBACK_PREWARM_READY_THRESHOLD_DURATION_MS =
+            "playback_prewarm_ready_threshold_duration_ms"
+        private const val KEY_PLAYBACK_PREWARM_READY_THRESHOLD_BYTES =
+            "playback_prewarm_ready_threshold_bytes"
         private val fallbackEligibleFailureKinds = setOf(
             OnlinePlaybackFailureKind.RESOURCE_UNAVAILABLE,
             OnlinePlaybackFailureKind.URL_EXPIRED
@@ -1779,7 +2037,7 @@ internal class PlaybackProcessRuntime(
         playCode: Int,
         playWhenReady: Boolean
     ): Boolean {
-        if (!playWhenReady || playCode == 0 || playCode == -2001) {
+        if (!weakNetworkAutoRetryEnabled || !playWhenReady || playCode == 0 || playCode == -2001) {
             return false
         }
         return !track.songId.isNullOrBlank() ||
@@ -1818,6 +2076,12 @@ internal class PlaybackProcessRuntime(
         }
         return AtomicLong(0L).also { playbackGeneration = it }
     }
+}
+
+private fun PlaybackTrack.isOnlineTrackForPrewarm(): Boolean {
+    return !songId.isNullOrBlank() ||
+        uri.startsWith("http://", ignoreCase = true) ||
+        uri.startsWith("https://", ignoreCase = true)
 }
 
 private data class ActivePlaybackSourceRuntime(

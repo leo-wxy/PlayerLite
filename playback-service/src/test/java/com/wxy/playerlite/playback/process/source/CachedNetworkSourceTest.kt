@@ -221,11 +221,13 @@ class CachedNetworkSourceTest {
         val root = createRoot()
         CacheCore.init(CacheCoreConfig(cacheRootDirPath = root.absolutePath)).getOrThrow()
 
+        val failures = mutableListOf<String>()
         val source = CachedNetworkSource(
             resourceKey = "song_cached_source_known_length_empty",
             provider = AlwaysEmptyKnownLengthProvider(contentLength = 32L),
             sessionConfig = SessionCacheConfig(blockSizeBytes = 8),
-            contentLengthHint = 32L
+            contentLengthHint = 32L,
+            onCacheFailure = failures::add
         )
 
         assertEquals(IPlaysource.AudioSourceCode.ASC_SUCCESS, source.open())
@@ -234,6 +236,23 @@ class CachedNetworkSourceTest {
         val read = source.read(buffer, buffer.size)
 
         assertEquals(-1, read)
+        assertEquals(1, failures.size)
+        assertTrue(failures.single().startsWith("读取缓存数据为空:"))
+    }
+
+    @Test
+    fun openFailureShouldEmitCacheFailureCallback() {
+        val failures = mutableListOf<String>()
+        val source = CachedNetworkSource(
+            resourceKey = "song_cached_source_open_failure",
+            provider = RecordingProvider("hello-native-cache".encodeToByteArray()),
+            sessionConfig = SessionCacheConfig(blockSizeBytes = 8),
+            onCacheFailure = failures::add
+        )
+
+        assertEquals(IPlaysource.AudioSourceCode.ASC_IO_EXCEPTION, source.open())
+        assertEquals(1, failures.size)
+        assertTrue(failures.single().startsWith("打开缓存会话失败:"))
     }
 
     private fun createRoot(): File {

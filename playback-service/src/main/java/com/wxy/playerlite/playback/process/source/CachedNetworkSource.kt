@@ -22,7 +22,8 @@ internal class CachedNetworkSource(
     private val sessionConfig: SessionCacheConfig,
     private val contentLengthHint: Long? = null,
     private val durationMsHint: Long? = null,
-    private val extraMetadata: Map<String, String> = emptyMap()
+    private val extraMetadata: Map<String, String> = emptyMap(),
+    private val onCacheFailure: (String) -> Unit = {}
 ) : IPlaysource, IDirectReadableSource, PlaybackCacheProgressEmitter {
     private var sourceMode: IPlaysource.SourceMode = IPlaysource.SourceMode.NORMAL
     private var opened = false
@@ -85,7 +86,9 @@ internal class CachedNetworkSource(
                 }
             }
             if (openResult.isFailure) {
-                safeLogE("openSession failed: key=$resourceKey, error=${openResult.exceptionOrNull()?.message}")
+                val errorMessage = openResult.exceptionOrNull()?.message ?: "unknown"
+                safeLogE("openSession failed: key=$resourceKey, error=$errorMessage")
+                onCacheFailure("打开缓存会话失败: $errorMessage")
                 return IPlaysource.AudioSourceCode.ASC_IO_EXCEPTION
             }
 
@@ -160,8 +163,6 @@ internal class CachedNetworkSource(
                     refreshContentLength()
                 }
             }
-            safeLogI("read begin: key=$resourceKey, offset=$readOffset, request=$maxRead")
-
             val result = currentSession.readAt(readOffset, maxRead)
             if (result.isFailure) {
                 val retry = synchronized(this) {
@@ -172,6 +173,9 @@ internal class CachedNetworkSource(
                 }
                 safeLogE(
                     "readAt failed: key=$resourceKey, pos=$readOffset, size=$maxRead, error=${result.exceptionOrNull()?.message}"
+                )
+                onCacheFailure(
+                    "读取缓存数据失败: ${result.exceptionOrNull()?.message ?: "unknown"}"
                 )
                 return -1
             }
@@ -191,6 +195,7 @@ internal class CachedNetworkSource(
                     safeLogE(
                         "read empty before eof: key=$resourceKey, offset=$readOffset, request=$maxRead, contentLength=$resolvedLength"
                     )
+                    onCacheFailure("读取缓存数据为空: offset=$readOffset")
                     return -1
                 }
                 safeLogI("read empty: key=$resourceKey, offset=$readOffset, request=$maxRead")
@@ -217,9 +222,6 @@ internal class CachedNetworkSource(
             }
 
             emitCacheProgress()
-            safeLogI(
-                "read success: key=$resourceKey, offset=$readOffset, request=$maxRead, read=$copySize, next=$nextOffset"
-            )
             return copySize
         }
     }

@@ -22,6 +22,7 @@ import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlayableItem
 import com.wxy.playerlite.playback.model.PlaybackMode
+import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
 import com.wxy.playerlite.playback.model.SongAudioQualityCatalog
 import com.wxy.playerlite.playback.model.SongAudioQualityOption
 import com.wxy.playerlite.playback.orchestrator.PlayerServiceController
@@ -1242,6 +1243,21 @@ private class FakePlayerControlBridge(
         actions += "setPreferredAudioQuality(${audioQuality.wireValue})"
         return true
     }
+
+    override fun setWeakNetworkAutoRetryEnabled(
+        enabled: Boolean,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean = true
+
+    override fun setCachePolicyPreferences(
+        showCacheFailureNotifications: Boolean,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean = true
+
+    override fun setPlaybackPrewarmPreferences(
+        preferences: PlaybackPrewarmPreferences,
+        onResult: ((Boolean) -> Unit)?
+    ): Boolean = true
 
     override fun setActiveAudioSourceConfigJson(
         configJson: String?,

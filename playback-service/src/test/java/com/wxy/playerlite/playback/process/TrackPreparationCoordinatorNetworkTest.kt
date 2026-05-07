@@ -2,12 +2,51 @@ package com.wxy.playerlite.playback.process
 
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.source.IPlaysource
+import com.wxy.playerlite.playback.process.source.CachedNetworkSource
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TrackPreparationCoordinatorNetworkTest {
+    @Test
+    fun createNetworkPlaybackSource_shouldUseCacheSourceForNetworkPlayback() {
+        val source = createNetworkPlaybackSource(
+            plan = OnlinePlaybackPlan(
+                resourceKey = "mobile-disk-cache",
+                playbackUrl = "https://example.com/mobile.mp3",
+                requestHeaders = mapOf("Authorization" to "Bearer test"),
+                preferredAudioQuality = com.wxy.playerlite.playback.model.PlaybackAudioQuality.EXHIGH,
+                appliedAudioQuality = com.wxy.playerlite.playback.model.PlaybackAudioQuality.EXHIGH,
+                durationHintMs = 123_000L,
+                contentLengthHintBytes = 456_000L,
+                previewClip = null,
+                useCacheOnlyProvider = false
+            )
+        )
+
+        assertTrue(source is CachedNetworkSource)
+    }
+
+    @Test
+    fun createNetworkPlaybackSource_shouldKeepCacheSourceForCompleteCachedPlayback() {
+        val source = createNetworkPlaybackSource(
+            plan = OnlinePlaybackPlan(
+                resourceKey = "full-cache-hit",
+                playbackUrl = "https://example.com/full-cache.mp3",
+                requestHeaders = emptyMap(),
+                preferredAudioQuality = com.wxy.playerlite.playback.model.PlaybackAudioQuality.EXHIGH,
+                appliedAudioQuality = com.wxy.playerlite.playback.model.PlaybackAudioQuality.EXHIGH,
+                durationHintMs = 123_000L,
+                contentLengthHintBytes = 456_000L,
+                previewClip = null,
+                useCacheOnlyProvider = true
+            )
+        )
+
+        assertTrue(source is CachedNetworkSource)
+    }
+
     @Test
     fun prepareNetworkSourceReturnsLoadedDuration() = runBlocking {
         val source = FakePlaySource()
