@@ -38,11 +38,11 @@ class PlaybackControlsMetricsTest {
         val ratio = metrics.centerButtonSize.value / metrics.sideButtonSize.value
         assertTrue(
             "Expected center-to-side ratio to stay clearly larger but still restrained, but ratio was $ratio for $metrics",
-            ratio in 1.14f..1.24f
+            ratio in 1.30f..1.42f
         )
         assertTrue(
             "Expected regular center button to stay under an oversized look, but was ${metrics.centerButtonSize}",
-            metrics.centerButtonSize <= 70.dp
+            metrics.centerButtonSize <= 72.dp
         )
     }
 }

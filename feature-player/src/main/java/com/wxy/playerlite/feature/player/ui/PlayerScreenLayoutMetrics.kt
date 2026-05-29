@@ -10,6 +10,9 @@ data class PlayerScreenLayoutMetrics(
     val sectionSpacing: Dp,
     val coverSideInset: Dp,
     val coverTopSpacing: Dp,
+    val songInfoHeight: Dp,
+    val titleTopSpacing: Dp,
+    val coverHostTopSpacing: Dp,
     val coverSize: Dp,
     val titleFontSizeSp: Float,
     val artistFontSizeSp: Float,
@@ -23,6 +26,8 @@ data class PlayerScreenLayoutMetrics(
     val toolButtonSize: Dp,
     val toolIconSize: Dp,
     val progressSectionSpacing: Dp,
+    val lyricBelowCoverSpacing: Dp,
+    val qualityBottomSpacing: Dp,
     val progressTimeFontSizeSp: Float,
     val lyricsTopInset: Dp,
     val lyricsBottomInset: Dp,
@@ -55,14 +60,19 @@ fun resolvePlayerScreenLayoutMetrics(
         max = 6f
     )
     val coverTopSpacing = clampDp(
-        value = viewportHeightDp * 0.013f,
-        min = 10f,
-        max = 16f
+        value = viewportHeightDp * 0.021f,
+        min = 14f,
+        max = 28f
+    )
+    val topInfoReservedHeight = clampDp(
+        value = viewportHeightDp * 0.088f,
+        min = 64f,
+        max = 88f
     )
     val bottomSectionReservedHeight = clampDp(
-        value = viewportHeightDp * 0.36f,
-        min = 228f,
-        max = 320f
+        value = viewportHeightDp * 0.33f,
+        min = 256f,
+        max = 304f
     )
     val topBarHeight = clampDp(
         value = viewportHeightDp * 0.06f,
@@ -74,29 +84,41 @@ fun resolvePlayerScreenLayoutMetrics(
         min = 2f,
         max = 6f
     )
+    val titleTopSpacing = clampDp(
+        value = viewportHeightDp * 0.011f,
+        min = 8f,
+        max = 12f
+    )
+    val coverHostTopSpacing = topInfoReservedHeight + coverTopSpacing
     val maxCoverWidth = viewportWidthDp - ((horizontalPadding.value + coverSideInset.value) * 2f)
+    val minimumCoverSize = when {
+        viewportHeightDp < 600f -> 96f
+        viewportHeightDp < 720f -> 132f
+        else -> 148f
+    }
     val safeCoverHeight = (
         viewportHeightDp -
             topBarHeight.value -
-            coverTopSpacing.value -
+            coverHostTopSpacing.value -
             bottomSectionReservedHeight.value -
             sectionSpacing.value -
             summaryTopPadding.value -
-            24f
-        ).coerceAtLeast(148f)
+            titleTopSpacing.value -
+            8f
+        ).coerceAtLeast(minimumCoverSize)
     val coverSize = min(
-        viewportWidthDp * 0.84f,
-        min(viewportHeightDp * 0.40f, min(maxCoverWidth, safeCoverHeight))
-    ).coerceAtMost(352f).dp
+        viewportWidthDp * 0.76f,
+        min(viewportHeightDp * 0.345f, min(maxCoverWidth, safeCoverHeight))
+    ).coerceIn(minimumCoverSize, 320f).dp
     val titleFontSizeSp = clampSp(
-        value = viewportWidthDp * 0.082f,
-        min = 28f,
-        max = 40f
+        value = viewportWidthDp * 0.059f,
+        min = 21f,
+        max = 25f
     )
     val artistFontSizeSp = clampSp(
-        value = viewportWidthDp * 0.053f,
-        min = 18f,
-        max = 24f
+        value = viewportWidthDp * 0.037f,
+        min = 14f,
+        max = 16f
     )
     val lyricFontSizeSp = clampSp(
         value = viewportWidthDp * 0.041f,
@@ -119,19 +141,29 @@ fun resolvePlayerScreenLayoutMetrics(
         max = 14f
     )
     val toolButtonSize = clampDp(
-        value = shortestSide * 0.118f,
-        min = 42f,
-        max = 52f
+        value = shortestSide * 0.126f,
+        min = 48f,
+        max = 54f
     )
     val toolIconSize = clampDp(
         value = toolButtonSize.value * 0.48f,
-        min = 20f,
-        max = 24f
+        min = 23f,
+        max = 26f
     )
     val progressSectionSpacing = clampDp(
         value = viewportHeightDp * 0.0065f,
         min = 4f,
         max = 8f
+    )
+    val lyricBelowCoverSpacing = clampDp(
+        value = viewportHeightDp * 0.024f,
+        min = if (viewportHeightDp < 600f) 8f else 14f,
+        max = 24f
+    )
+    val qualityBottomSpacing = clampDp(
+        value = viewportHeightDp * 0.017f,
+        min = 10f,
+        max = 16f
     )
     val progressTimeFontSizeSp = clampSp(
         value = viewportWidthDp * 0.034f,
@@ -144,6 +176,9 @@ fun resolvePlayerScreenLayoutMetrics(
         sectionSpacing = sectionSpacing,
         coverSideInset = coverSideInset,
         coverTopSpacing = coverTopSpacing,
+        songInfoHeight = topInfoReservedHeight,
+        titleTopSpacing = titleTopSpacing,
+        coverHostTopSpacing = coverHostTopSpacing,
         coverSize = coverSize,
         titleFontSizeSp = titleFontSizeSp,
         artistFontSizeSp = artistFontSizeSp,
@@ -157,8 +192,10 @@ fun resolvePlayerScreenLayoutMetrics(
         toolButtonSize = toolButtonSize,
         toolIconSize = toolIconSize,
         progressSectionSpacing = progressSectionSpacing,
+        lyricBelowCoverSpacing = lyricBelowCoverSpacing,
+        qualityBottomSpacing = qualityBottomSpacing,
         progressTimeFontSizeSp = progressTimeFontSizeSp,
-        lyricsTopInset = coverTopSpacing,
+        lyricsTopInset = titleTopSpacing,
         lyricsBottomInset = verticalPadding,
         summaryTopPadding = summaryTopPadding
     )

@@ -2,7 +2,6 @@ package com.wxy.playerlite.feature.player.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
@@ -15,32 +14,25 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
-import com.wxy.playerlite.playback.model.PlaybackMode
 
 data class PlaybackControlsMetrics(
     val stripHeight: Dp,
@@ -61,23 +53,23 @@ fun resolvePlaybackControlsMetrics(
     denseMode: Boolean = false
 ): PlaybackControlsMetrics {
     val shortestSide = minOf(viewportWidthDp, viewportHeightDp)
-    val sideButtonScale = if (denseMode) 0.142f else 0.16f
-    val sideButtonMin = if (denseMode) 42f else 48f
-    val sideButtonMax = if (denseMode) 50f else 58f
-    val sideButtonInnerMin = if (denseMode) 38f else 44f
+    val sideButtonScale = if (denseMode) 0.142f else 0.15f
+    val sideButtonMin = if (denseMode) 48f else 50f
+    val sideButtonMax = if (denseMode) 50f else 54f
+    val sideButtonInnerMin = if (denseMode) 40f else 44f
     val sideButtonInnerMax = if (denseMode) 46f else 52f
-    val sideIconMin = if (denseMode) 22f else 24f
+    val sideIconMin = if (denseMode) 23f else 27f
     val sideIconMax = if (denseMode) 27f else 30f
-    val centerButtonScale = if (denseMode) 1.14f else 1.19f
-    val centerButtonMin = if (denseMode) 50f else 58f
-    val centerButtonMax = if (denseMode) 58f else 69f
-    val centerHaloPadding = if (denseMode) 8f else 12f
-    val centerHaloMin = if (denseMode) 60f else 72f
-    val centerHaloMax = if (denseMode) 68f else 82f
+    val centerButtonScale = if (denseMode) 1.34f else 1.36f
+    val centerButtonMin = if (denseMode) 60f else 68f
+    val centerButtonMax = if (denseMode) 66f else 72f
+    val centerHaloPadding = if (denseMode) 6f else 6f
+    val centerHaloMin = if (denseMode) 66f else 74f
+    val centerHaloMax = if (denseMode) 72f else 78f
     val centerIconMin = if (denseMode) 23f else 26f
     val centerIconMax = if (denseMode) 28f else 31f
-    val stripMaxHeight = if (denseMode) 72f else 92f
-    val stripHeightFactor = if (denseMode) 0.006f else 0.012f
+    val stripMaxHeight = if (denseMode) 76f else 86f
+    val stripHeightFactor = if (denseMode) 0.004f else 0.006f
     val stripPaddingMin = if (denseMode) 0f else 2f
     val stripPaddingMax = if (denseMode) 6f else 8f
     val sideButtonSize = clampDp(
@@ -143,14 +135,10 @@ internal fun PlaybackControls(
     hasSelection: Boolean,
     hasPreviousTrack: Boolean,
     hasNextTrack: Boolean,
-    playlistItemCount: Int,
     isPreparing: Boolean,
     isPlaying: Boolean,
     isPaused: Boolean,
-    playbackMode: PlaybackMode,
     onPlay: () -> Unit,
-    onPlaylistClick: () -> Unit,
-    onPlaybackModeClick: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onPause: () -> Unit,
@@ -162,8 +150,6 @@ internal fun PlaybackControls(
     val toggleEnabled = hasSelection || isPlaying || isPaused || isPreparing
     val previousEnabled = hasPreviousTrack
     val nextEnabled = hasNextTrack
-    val modeEnabled = hasSelection
-    val playlistEnabled = hasSelection || playlistItemCount > 0
     val showingPause = isPlaying
     val haloAlpha by animateFloatAsState(
         targetValue = if (isPlaying) 0.16f else 0f,
@@ -194,24 +180,12 @@ internal fun PlaybackControls(
                 .height(metrics.stripHeight)
                 .padding(horizontal = metrics.stripHorizontalPadding)
                 .offset(y = metrics.controlsOffsetY),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(
+                space = if (denseMode) 28.dp else 38.dp,
+                alignment = Alignment.CenterHorizontally
+            ),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            SideControlButton(
-                icon = playbackMode.modeIcon(),
-                contentDescription = playbackMode.modeContentDescription(),
-                badgeText = null,
-                buttonTag = "player_screen_playback_mode_button",
-                enabled = modeEnabled,
-                palette = playbackMode.modePalette(),
-                motionSpec = playbackMode.modeMotionSpec(),
-                motionKey = playbackMode,
-                buttonSize = metrics.sideButtonSize,
-                innerButtonSize = metrics.sideButtonInnerSize,
-                iconSize = metrics.sideIconSize,
-                onClick = onPlaybackModeClick
-            )
-
             Surface(
                 modifier = Modifier
                     .size(metrics.sideButtonSize)
@@ -219,7 +193,7 @@ internal fun PlaybackControls(
                 onClick = onPrevious,
                 enabled = previousEnabled,
                 shape = CircleShape,
-                color = Color.White.copy(alpha = 0.10f),
+                color = Color.Transparent,
                 contentColor = Color.White.copy(alpha = 0.92f)
             ) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -286,7 +260,7 @@ internal fun PlaybackControls(
                 onClick = onNext,
                 enabled = nextEnabled,
                 shape = CircleShape,
-                color = Color.White.copy(alpha = 0.10f),
+                color = Color.Transparent,
                 contentColor = Color.White.copy(alpha = 0.92f)
             ) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -296,135 +270,6 @@ internal fun PlaybackControls(
                         modifier = Modifier.size(metrics.sideIconSize)
                     )
                 }
-            }
-
-            SideControlButton(
-                icon = Icons.AutoMirrored.Rounded.QueueMusic,
-                contentDescription = "打开播放列表",
-                badgeText = playlistItemCount
-                    .takeIf { it > 0 }
-                    ?.coerceAtMost(99)
-                    ?.toString(),
-                buttonTag = "player_screen_playlist_button",
-                enabled = playlistEnabled,
-                palette = defaultSideControlPalette(),
-                motionSpec = SideControlMotionSpec(),
-                motionKey = "playlist",
-                buttonSize = metrics.sideButtonSize,
-                innerButtonSize = metrics.sideButtonInnerSize,
-                iconSize = metrics.sideIconSize,
-                onClick = onPlaylistClick
-            )
-        }
-    }
-}
-
-@Composable
-private fun SideControlButton(
-    icon: ImageVector,
-    contentDescription: String,
-    badgeText: String?,
-    buttonTag: String,
-    enabled: Boolean,
-    palette: SideControlPalette,
-    motionSpec: SideControlMotionSpec,
-    motionKey: Any,
-    buttonSize: androidx.compose.ui.unit.Dp,
-    innerButtonSize: androidx.compose.ui.unit.Dp,
-    iconSize: androidx.compose.ui.unit.Dp,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val pulseProgress = remember(motionKey) { Animatable(0f) }
-    LaunchedEffect(motionKey, motionSpec) {
-        pulseProgress.snapTo(0f)
-        if (motionSpec.animated) {
-            pulseProgress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = motionSpec.durationMs)
-            )
-            if (!motionSpec.repeat) {
-                pulseProgress.snapTo(0f)
-            }
-        }
-    }
-    val pulsePhase = when {
-        !motionSpec.animated -> 0f
-        pulseProgress.value <= 0.5f -> pulseProgress.value * 2f
-        else -> (1f - pulseProgress.value) * 2f
-    }
-    val animatedScale = lerp(
-        start = motionSpec.minScale,
-        stop = motionSpec.maxScale,
-        fraction = pulsePhase
-    )
-    val animatedIconRotation = lerp(
-        start = motionSpec.minIconRotationDeg,
-        stop = motionSpec.maxIconRotationDeg,
-        fraction = pulsePhase
-    )
-    val animatedHaloAlpha = lerp(
-        start = motionSpec.minHaloAlpha,
-        stop = motionSpec.maxHaloAlpha,
-        fraction = pulsePhase
-    )
-
-    Box(
-        modifier = modifier
-            .size(buttonSize),
-        contentAlignment = Alignment.Center
-    ) {
-        if (animatedHaloAlpha > 0f) {
-            Box(
-                modifier = Modifier
-                    .size(buttonSize)
-                    .clip(CircleShape)
-                    .background(palette.contentColor.copy(alpha = animatedHaloAlpha))
-            )
-        }
-
-        Surface(
-            onClick = onClick,
-            enabled = enabled,
-            modifier = Modifier
-                .size(innerButtonSize)
-                .testTag(buttonTag)
-                .graphicsLayer {
-                    scaleX = animatedScale
-                    scaleY = animatedScale
-                },
-            shape = CircleShape,
-            color = if (enabled) palette.containerColor else palette.disabledContainerColor,
-            contentColor = if (enabled) palette.contentColor else palette.disabledContentColor
-        ) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = contentDescription,
-                    modifier = Modifier
-                        .size(iconSize)
-                        .graphicsLayer {
-                            rotationZ = animatedIconRotation
-                        }
-                )
-            }
-        }
-
-        if (!badgeText.isNullOrBlank()) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = 2.dp, y = (-2).dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                tonalElevation = 2.dp
-            ) {
-                Text(
-                    text = badgeText,
-                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
             }
         }
     }

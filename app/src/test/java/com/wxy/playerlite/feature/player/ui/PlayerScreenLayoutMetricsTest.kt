@@ -30,12 +30,15 @@ class PlayerScreenLayoutMetricsTest {
             viewportHeightDp = 915f
         )
 
-        assertTrue(metrics.coverSize >= 340.dp)
-        assertTrue(metrics.coverSize <= 352.dp)
-        assertTrue(metrics.coverTopSpacing <= 12.dp)
-        assertTrue(metrics.titleFontSizeSp <= 40f)
+        assertTrue(metrics.coverSize >= 300.dp)
+        assertTrue(metrics.coverSize <= 320.dp)
+        assertTrue(metrics.coverTopSpacing <= 28.dp)
+        assertTrue(metrics.coverHostTopSpacing > metrics.coverTopSpacing)
+        assertTrue(metrics.titleFontSizeSp <= 25f)
+        assertTrue(metrics.artistFontSizeSp <= 16f)
         assertTrue(metrics.topBarActionButtonSize <= 40.dp)
-        assertTrue(metrics.toolButtonSize <= 52.dp)
+        assertTrue(metrics.toolButtonSize <= 54.dp)
+        assertTrue(metrics.toolIconSize >= 23.dp)
     }
 
     @Test
@@ -45,7 +48,7 @@ class PlayerScreenLayoutMetricsTest {
             viewportHeightDp = 891f
         )
 
-        assertEquals(metrics.coverTopSpacing, metrics.lyricsTopInset)
+        assertEquals(metrics.titleTopSpacing, metrics.lyricsTopInset)
         assertEquals(metrics.verticalPadding, metrics.lyricsBottomInset)
     }
 }

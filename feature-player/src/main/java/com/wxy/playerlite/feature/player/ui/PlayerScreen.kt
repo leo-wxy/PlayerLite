@@ -48,7 +48,9 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreHoriz
@@ -130,6 +132,8 @@ import com.wxy.playerlite.feature.player.model.resolvePlayerOrientationToggleTar
 import com.wxy.playerlite.feature.player.ui.components.PlaybackControls
 import com.wxy.playerlite.feature.player.ui.components.PlayerMoreActionsSheet
 import com.wxy.playerlite.feature.player.ui.components.PlaylistBottomSheet
+import com.wxy.playerlite.feature.player.ui.components.modeContentDescription
+import com.wxy.playerlite.feature.player.ui.components.modeIcon
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.player.AudioEffectPreset
@@ -1217,41 +1221,18 @@ private tailrec fun Context.findActivity(): Activity? {
 
 @Composable
 private fun PlayerScreenTopBar(
-    selectedTopTab: PlayerTopTab,
-    orientationMode: PlayerOrientationMode,
-    isCurrentlyLandscape: Boolean,
-    showTabs: Boolean,
-    onSelectTopTab: (PlayerTopTab) -> Unit,
-    onCycleOrientationMode: (PlayerOrientationMode) -> Unit,
     onBackClick: () -> Unit,
-    onShareClick: () -> Unit,
+    onMoreClick: () -> Unit,
     layoutMetrics: PlayerScreenLayoutMetrics,
     modifier: Modifier = Modifier
 ) {
-    BoxWithConstraints(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .statusBarsPadding()
             .height(layoutMetrics.topBarHeight)
             .testTag("player_screen_top_bar")
     ) {
-        val orientationTarget = remember(orientationMode, isCurrentlyLandscape) {
-            resolvePlayerOrientationToggleTarget(
-                currentMode = orientationMode,
-                isCurrentlyLandscape = isCurrentlyLandscape
-            )
-        }
-        val orientationAction = remember(orientationTarget) {
-            resolvePlayerOrientationModeAction(orientationTarget)
-        }
-        val compactTopTabs = maxWidth < 340.dp
-        val topTabsSpacing = if (compactTopTabs) 10.dp else 12.dp
-        val topTabHorizontalPadding = layoutMetrics.topTabHorizontalPadding
-        val topTabMinWidth = if (compactTopTabs) 44.dp else 48.dp
-        val topTabTextSizeSp = layoutMetrics.topTabTextSizeSp
-        val topTabIndicatorWidth = if (compactTopTabs) 28.dp else 32.dp
-        val topTabIndicatorHeight = 2.dp
-
         Box(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier.align(Alignment.CenterStart)
@@ -1264,40 +1245,6 @@ private fun PlayerScreenTopBar(
                     onClick = onBackClick
                 )
             }
-            if (showTabs) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .testTag("player_screen_top_tabs"),
-                    horizontalArrangement = Arrangement.spacedBy(topTabsSpacing),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    PlayerTopBarTab(
-                        text = "歌曲",
-                        selected = selectedTopTab == PlayerTopTab.SONG,
-                        tag = "player_screen_top_tab_song",
-                        indicatorTag = "player_screen_top_tab_indicator_song",
-                        textSizeSp = topTabTextSizeSp,
-                        horizontalPadding = topTabHorizontalPadding,
-                        minWidth = topTabMinWidth,
-                        indicatorWidth = topTabIndicatorWidth,
-                        indicatorHeight = topTabIndicatorHeight,
-                        onClick = { onSelectTopTab(PlayerTopTab.SONG) }
-                    )
-                    PlayerTopBarTab(
-                        text = "歌词",
-                        selected = selectedTopTab == PlayerTopTab.LYRICS,
-                        tag = "player_screen_top_tab_lyrics",
-                        indicatorTag = "player_screen_top_tab_indicator_lyrics",
-                        textSizeSp = topTabTextSizeSp,
-                        horizontalPadding = topTabHorizontalPadding,
-                        minWidth = topTabMinWidth,
-                        indicatorWidth = topTabIndicatorWidth,
-                        indicatorHeight = topTabIndicatorHeight,
-                        onClick = { onSelectTopTab(PlayerTopTab.LYRICS) }
-                    )
-                }
-            }
             Row(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -1306,18 +1253,11 @@ private fun PlayerScreenTopBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 PlayerTopBarActionButton(
-                    icon = orientationAction.icon,
-                    contentDescription = orientationAction.contentDescription,
-                    tag = "player_screen_orientation_mode_button",
+                    icon = Icons.Rounded.MoreHoriz,
+                    contentDescription = "更多操作",
+                    tag = "player_screen_top_more_button",
                     buttonSize = layoutMetrics.topBarActionButtonSize,
-                    onClick = { onCycleOrientationMode(orientationTarget) }
-                )
-                PlayerTopBarActionButton(
-                    icon = Icons.Rounded.Share,
-                    contentDescription = "分享当前歌曲",
-                    tag = "player_screen_top_share_button",
-                    buttonSize = layoutMetrics.topBarActionButtonSize,
-                    onClick = onShareClick
+                    onClick = onMoreClick
                 )
             }
         }
@@ -1521,9 +1461,13 @@ private fun PlayerTopBarActionButton(
 @Composable
 private fun PlayerToolActionRow(
     showSongDetailAction: Boolean,
+    playbackMode: PlaybackMode,
     showFavoriteAction: Boolean = false,
     onOpenSongDetail: () -> Unit,
     onFavoriteClick: (() -> Unit)? = null,
+    onPlaybackModeClick: () -> Unit,
+    onPlaylistClick: () -> Unit,
+    onAudioEffectClick: () -> Unit,
     onMoreClick: () -> Unit,
     layoutMetrics: PlayerScreenLayoutMetrics,
     compact: Boolean = false,
@@ -1535,23 +1479,34 @@ private fun PlayerToolActionRow(
     } else {
         layoutMetrics.toolButtonSize
     }
-    val iconSize = if (compact) {
-        (layoutMetrics.toolIconSize * 0.78f).coerceIn(16.dp, 20.dp)
-    } else {
-        layoutMetrics.toolIconSize
-    }
-    val itemSpacing = if (compact) 8.dp else 12.dp
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("player_screen_tool_row"),
-        horizontalArrangement = if (alignToEnd) {
-            Arrangement.spacedBy(itemSpacing, Alignment.End)
-        } else {
-            Arrangement.spacedBy(itemSpacing, Alignment.CenterHorizontally)
-        },
+	    val iconSize = if (compact) {
+	        (layoutMetrics.toolIconSize * 0.88f).coerceIn(20.dp, 23.dp)
+	    } else {
+	        layoutMetrics.toolIconSize
+	    }
+	    val itemSpacing = if (compact) 8.dp else 12.dp
+	    Row(
+	        modifier = modifier
+	            .fillMaxWidth()
+	            .padding(horizontal = if (compact) 10.dp else 8.dp)
+	            .testTag("player_screen_tool_row"),
+	        horizontalArrangement = if (alignToEnd) {
+	            Arrangement.spacedBy(itemSpacing, Alignment.End)
+	        } else {
+	            Arrangement.SpaceBetween
+	        },
         verticalAlignment = Alignment.CenterVertically
     ) {
+        PlayerToolActionButton(
+            tag = "player_screen_playback_mode_button",
+            icon = playbackMode.modeIcon(),
+            contentDescription = playbackMode.modeContentDescription(),
+            buttonSize = buttonSize,
+            iconSize = iconSize,
+            transparent = true,
+            onClick = onPlaybackModeClick
+        )
+
         if (showSongDetailAction) {
             PlayerToolActionButton(
                 tag = "player_screen_song_detail_tool_button",
@@ -1559,6 +1514,7 @@ private fun PlayerToolActionRow(
                 contentDescription = "打开歌曲详情",
                 buttonSize = buttonSize,
                 iconSize = iconSize,
+                transparent = true,
                 onClick = onOpenSongDetail
             )
         }
@@ -1570,9 +1526,30 @@ private fun PlayerToolActionRow(
                 contentDescription = "收藏当前歌曲",
                 buttonSize = buttonSize,
                 iconSize = iconSize,
+                transparent = true,
                 onClick = onFavoriteClick
             )
         }
+
+	    PlayerToolActionButton(
+	        tag = "player_screen_audio_effect_button",
+	        icon = Icons.Rounded.GraphicEq,
+	        contentDescription = "音效设置",
+            buttonSize = buttonSize,
+            iconSize = iconSize,
+            transparent = true,
+            onClick = onAudioEffectClick
+        )
+
+        PlayerToolActionButton(
+            tag = "player_screen_playlist_button",
+            icon = Icons.AutoMirrored.Rounded.QueueMusic,
+            contentDescription = "打开播放列表",
+            buttonSize = buttonSize,
+            iconSize = iconSize,
+            transparent = true,
+            onClick = onPlaylistClick
+        )
 
         PlayerToolActionButton(
             tag = "player_screen_more_button",
@@ -1580,6 +1557,7 @@ private fun PlayerToolActionRow(
             contentDescription = "更多操作",
             buttonSize = buttonSize,
             iconSize = iconSize,
+            transparent = true,
             onClick = onMoreClick
         )
     }
@@ -1592,13 +1570,18 @@ private fun PlayerToolActionButton(
     contentDescription: String,
     buttonSize: Dp,
     iconSize: Dp,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    transparent: Boolean = false
 ) {
     val visualTokens = PlayerLiteVisualTheme.colors
     Surface(
         modifier = Modifier.testTag(tag),
         shape = RoundedCornerShape(buttonSize / 2),
-        color = visualTokens.surfacePrimary.copy(alpha = 0.12f)
+        color = if (transparent) {
+            Color.Transparent
+        } else {
+            visualTokens.surfacePrimary.copy(alpha = 0.12f)
+        }
     ) {
         IconButton(
             onClick = onClick,
@@ -1808,7 +1791,17 @@ private fun PlayerScreenContent(
             lyricUiState = lyricUiState,
             currentPositionMs = currentPositionMs
         )
-        val compactControls = maxHeight.value < 760f || maxWidth.value < 360f
+        val compactControls = maxHeight.value < 600f || maxWidth.value < 340f
+        val bottomLeadSpacerWeight = when {
+            compactControls -> 1f
+            maxHeight.value >= 840f -> 0.94f
+            else -> 1f
+        }
+        val bottomTailSpacerWeight = when {
+            compactControls -> 0f
+            maxHeight.value >= 840f -> 0.06f
+            else -> 0f
+        }
         val isLandscapeLayout = resolvePlayerScreenLandscapeLayout(
             viewportWidthDp = maxWidth.value,
             viewportHeightDp = maxHeight.value,
@@ -1893,158 +1886,135 @@ private fun PlayerScreenContent(
                                 onTogglePlaylistSheet = onTogglePlaylistSheet,
                                 onBackdropColorChange = onBackdropColorChange
                             )
-                        } else {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = layoutMetrics.horizontalPadding)
-                                    .padding(top = layoutMetrics.coverTopSpacing)
-                            ) {
-                                Spacer(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(1.dp)
-                                        .testTag("player_screen_song_content_top_anchor")
-                                )
+	                        } else {
+	                            Column(
+	                                modifier = Modifier
+	                                    .fillMaxSize()
+	                                    .padding(horizontal = layoutMetrics.horizontalPadding)
+	                                    .navigationBarsPadding()
+	                                    .padding(bottom = layoutMetrics.verticalPadding),
+	                                horizontalAlignment = Alignment.CenterHorizontally
+	                            ) {
+	                                Column(
+	                                    modifier = Modifier
+	                                        .fillMaxWidth()
+	                                        .height(layoutMetrics.songInfoHeight)
+	                                        .padding(
+	                                            horizontal = layoutMetrics.topBarActionButtonSize +
+	                                                16.dp
+	                                        )
+	                                        .padding(top = layoutMetrics.titleTopSpacing)
+	                                        .testTag("player_screen_info_section"),
+	                                    horizontalAlignment = Alignment.CenterHorizontally
+	                                ) {
+	                                    Spacer(
+	                                        modifier = Modifier
+	                                            .fillMaxWidth()
+	                                            .height(1.dp)
+	                                            .testTag("player_screen_song_content_top_anchor")
+	                                    )
+	                                    Text(
+	                                        text = trackText.title,
+	                                        style = titleTextStyle.copy(textAlign = TextAlign.Center),
+	                                        fontWeight = FontWeight.Bold,
+	                                        color = Color.White,
+	                                        maxLines = 1,
+	                                        overflow = TextOverflow.Clip,
+	                                        modifier = Modifier
+	                                            .playerTitleMarquee()
+	                                            .testTag("player_screen_title")
+	                                    )
+	                                    Text(
+	                                        text = trackText.artist,
+	                                        style = artistTextStyle.copy(textAlign = TextAlign.Center),
+	                                        color = Color.White.copy(alpha = if (currentArtistId.isNullOrBlank()) 0.62f else 0.72f),
+	                                        maxLines = 1,
+	                                        overflow = TextOverflow.Ellipsis,
+	                                        modifier = Modifier
+	                                            .padding(top = layoutMetrics.summaryTopPadding)
+	                                            .then(
+	                                                if (currentArtistId.isNullOrBlank()) {
+	                                                    Modifier
+	                                                } else {
+	                                                    Modifier.clickable(
+	                                                        onClickLabel = "打开歌手详情",
+	                                                        onClick = onArtistClick
+	                                                    )
+	                                                }
+	                                            )
+	                                            .testTag("player_screen_artist")
+	                                    )
+	                                }
 
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth(),
-                                    contentAlignment = Alignment.TopCenter
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(layoutMetrics.coverSize)
-                                            .testTag("player_screen_song_page"),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .testTag("player_screen_visual_section"),
-                                        ) {
-                                            Box(
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                PlayerCoverCard(
-                                                    isPlaying = isPlaying,
-                                                    isPaused = isPaused,
-                                                    coverUrl = coverUrl,
-                                                    onBackdropColorExtracted = onBackdropColorChange,
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-                                                if (isPreparing) {
-                                                    PlayerBufferingIndicator(
-                                                        modifier = Modifier
-                                                            .align(Alignment.BottomEnd)
-                                                            .padding(10.dp)
-                                                    )
-                                                } else if (shouldShowStatusHint) {
-                                                    PlayerCoverStatusChip(
-                                                        text = status,
-                                                        modifier = Modifier
-                                                            .align(Alignment.BottomEnd)
-                                                            .padding(10.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+	                                Column(
+	                                    modifier = Modifier
+	                                        .fillMaxWidth()
+	                                        .padding(top = layoutMetrics.coverTopSpacing),
+	                                    horizontalAlignment = Alignment.CenterHorizontally
+	                                ) {
+	                                    Box(
+	                                        modifier = Modifier
+	                                            .size(layoutMetrics.coverSize)
+	                                            .testTag("player_screen_song_page"),
+	                                        contentAlignment = Alignment.Center
+	                                    ) {
+	                                        Box(
+	                                            modifier = Modifier
+	                                                .fillMaxSize()
+	                                                .testTag("player_screen_visual_section"),
+	                                        ) {
+	                                            Box(
+	                                                modifier = Modifier.fillMaxSize(),
+	                                                contentAlignment = Alignment.Center
+	                                            ) {
+	                                                PlayerCoverCard(
+	                                                    isPlaying = isPlaying,
+	                                                    isPaused = isPaused,
+	                                                    coverUrl = coverUrl,
+	                                                    onBackdropColorExtracted = onBackdropColorChange,
+	                                                    modifier = Modifier.fillMaxSize()
+	                                                )
+	                                                if (isPreparing) {
+	                                                    PlayerBufferingIndicator(
+	                                                        modifier = Modifier
+	                                                            .align(Alignment.BottomEnd)
+	                                                            .padding(10.dp)
+	                                                    )
+	                                                } else if (shouldShowStatusHint) {
+	                                                    PlayerCoverStatusChip(
+	                                                        text = status,
+	                                                        modifier = Modifier
+	                                                            .align(Alignment.BottomEnd)
+	                                                            .padding(10.dp)
+	                                                    )
+	                                                }
+	                                            }
+	                                        }
+	                                    }
+	                                    Text(
+	                                        text = formatLyricSummaryLine(lyricPresentation.summaryText),
+	                                        style = lyricTextStyle.copy(
+	                                            fontStyle = FontStyle.Italic,
+	                                            textAlign = TextAlign.Center
+	                                        ),
+	                                        color = lyricPresentation.summaryColor,
+	                                        maxLines = 1,
+	                                        overflow = TextOverflow.Ellipsis,
+	                                        modifier = Modifier
+	                                            .fillMaxWidth()
+	                                            .padding(top = layoutMetrics.lyricBelowCoverSpacing)
+	                                            .testTag(lyricPresentation.summaryTag)
+	                                    )
+	                                }
 
-                            Column(
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .fillMaxWidth()
-                                    .padding(horizontal = layoutMetrics.horizontalPadding)
-                                    .navigationBarsPadding()
-                                    .padding(bottom = layoutMetrics.verticalPadding)
-                                    .testTag("player_screen_bottom_section"),
-                                verticalArrangement = Arrangement.spacedBy(layoutMetrics.sectionSpacing)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("player_screen_info_section")
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Text(
-                                                text = trackText.title,
-                                                style = titleTextStyle,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Clip,
-                                                modifier = Modifier
-                                                    .playerTitleMarquee()
-                                                    .testTag("player_screen_title")
-                                            )
-                                            Text(
-                                                text = trackText.artist,
-                                                style = artistTextStyle,
-                                                color = Color.White.copy(alpha = if (currentArtistId.isNullOrBlank()) 0.66f else 0.78f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier
-                                                    .padding(top = layoutMetrics.summaryTopPadding)
-                                                    .then(
-                                                        if (currentArtistId.isNullOrBlank()) {
-                                                            Modifier
-                                                        } else {
-                                                            Modifier.clickable(
-                                                                onClickLabel = "打开歌手详情",
-                                                                onClick = onArtistClick
-                                                            )
-                                                        }
-                                                    )
-                                                    .testTag("player_screen_artist")
-                                            )
-                                        }
+	                                Spacer(modifier = Modifier.weight(bottomLeadSpacerWeight))
 
-                                        if (!currentSongId.isNullOrBlank()) {
-                                            PlayerToolActionButton(
-                                                tag = "player_screen_favorite_button",
-                                                icon = Icons.Rounded.FavoriteBorder,
-                                                contentDescription = "收藏当前歌曲",
-                                                buttonSize = layoutMetrics.toolButtonSize,
-                                                iconSize = layoutMetrics.toolIconSize,
-                                                onClick = onFavoriteClick
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        text = formatLyricSummaryLine(lyricPresentation.summaryText),
-                                        style = lyricTextStyle.copy(
-                                            fontStyle = FontStyle.Italic,
-                                            textAlign = TextAlign.Center
-                                        ),
-                                        color = lyricPresentation.summaryColor,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(top = layoutMetrics.sectionSpacing)
-                                            .testTag(lyricPresentation.summaryTag)
-                                    )
-                                }
-
-                                PlayerToolActionRow(
-                                    showSongDetailAction = showSongDetailAction,
-                                    onOpenSongDetail = onOpenSongDetail,
-                                    onMoreClick = onMoreClick,
-                                    layoutMetrics = layoutMetrics
-                                )
-
+	                                Column(
+	                                    modifier = Modifier
+	                                        .fillMaxWidth()
+	                                        .testTag("player_screen_bottom_section"),
+	                                    verticalArrangement = Arrangement.spacedBy(layoutMetrics.sectionSpacing)
+	                                ) {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -2136,23 +2106,30 @@ private fun PlayerScreenContent(
                                     hasSelection = true,
                                     hasPreviousTrack = hasPreviousTrack,
                                     hasNextTrack = hasNextTrack,
-                                    playlistItemCount = playlistItemCount,
                                     isPreparing = isPreparing,
                                     isPlaying = isPlaying,
                                     isPaused = isPaused,
-                                    playbackMode = playbackMode,
                                     onPlay = onPlay,
-                                    onPlaylistClick = onTogglePlaylistSheet,
-                                    onPlaybackModeClick = onCyclePlaybackMode,
                                     onPrevious = onPrevious,
                                     onNext = onNext,
                                     onPause = onPause,
                                     onResume = onResume,
                                     compactMode = compactControls,
-                                    denseMode = false,
+                                    denseMode = compactControls,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .testTag("player_screen_controls_section")
+                                )
+                                PlayerToolActionRow(
+                                    showSongDetailAction = showSongDetailAction,
+                                    playbackMode = playbackMode,
+                                    onOpenSongDetail = onOpenSongDetail,
+                                    onPlaybackModeClick = onCyclePlaybackMode,
+                                    onPlaylistClick = onTogglePlaylistSheet,
+                                    onAudioEffectClick = onShowAudioEffectSettings,
+                                    onMoreClick = onMoreClick,
+                                    layoutMetrics = layoutMetrics,
+                                    compact = compactControls
                                 )
                                 Spacer(
                                     modifier = Modifier
@@ -2160,9 +2137,12 @@ private fun PlayerScreenContent(
                                         .height(1.dp)
                                         .testTag("player_screen_song_controls_bottom_anchor")
                                 )
-                            }
-                        }
-                        }
+	                                }
+	                                if (bottomTailSpacerWeight > 0f) {
+	                                    Spacer(modifier = Modifier.weight(bottomTailSpacerWeight))
+	                                }
+	                            }
+	                        }
                     }
 
                     PlayerTopTab.LYRICS -> {
@@ -2224,19 +2204,17 @@ private fun PlayerScreenContent(
                         .fillMaxWidth()
                         .padding(horizontal = layoutMetrics.horizontalPadding)
                 ) {
-                    PlayerScreenTopBar(
-                        selectedTopTab = selectedTopTab,
-                        orientationMode = orientationMode,
-                        isCurrentlyLandscape = isLandscapeLayout,
-                        showTabs = true,
-                        onSelectTopTab = handleTopTabSelection,
-                        onCycleOrientationMode = onCycleOrientationMode,
-                        onBackClick = onBackClick,
-                        onShareClick = onShareClick,
-                        layoutMetrics = layoutMetrics
-                    )
+	                    PlayerScreenTopBar(
+	                        onBackClick = onBackClick,
+	                        onMoreClick = onMoreClick,
+	                        layoutMetrics = layoutMetrics
+	                    )
                 }
-                pagerContent(Modifier.fillMaxSize())
+                pagerContent(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                )
             }
         }
     }
@@ -2401,14 +2379,10 @@ private fun PlayerLandscapeSongPage(
                         hasSelection = true,
                         hasPreviousTrack = hasPreviousTrack,
                         hasNextTrack = hasNextTrack,
-                        playlistItemCount = playlistItemCount,
                         isPreparing = isPreparing,
                         isPlaying = isPlaying,
                         isPaused = isPaused,
-                        playbackMode = playbackMode,
                         onPlay = onPlay,
-                        onPlaylistClick = onTogglePlaylistSheet,
-                        onPlaybackModeClick = onCyclePlaybackMode,
                         onPrevious = onPrevious,
                         onNext = onNext,
                         onPause = onPause,

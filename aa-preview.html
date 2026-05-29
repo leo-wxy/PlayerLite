@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>播放页合成预览</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet"/>
+    <style>
+        :root {
+            --cover-url: url("https://lh3.googleusercontent.com/aida/ADBb0uh9Rhw4ObdWZG8-vprvQJNb5qxdi-wneSjCrSmSKMBDBOpT45aUcjGmpREQ5mcG1qy0ZPJ8itVBBXQyflsMU8NlUJjearV0BV-hcD3okHx0sfi7omB7RpXa2JqpoUufFZvcZKqSvYbUJ2fKskmE06xc9RYhFVTPLIylM4j-Azj5I2KW1Tx6-P7RmTID_tSmMjYazmdialNcYRwpthd8UfDfUFDFQ3W40x1dXGpXD2jyLOIWr3nrKlzescGTh1kMYT6zeomU1ABIIaY");
+            --text: rgba(255, 255, 255, 0.96);
+            --muted: rgba(255, 255, 255, 0.62);
+            --faint: rgba(255, 255, 255, 0.38);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            display: grid;
+            place-items: center;
+            background: #111114;
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+        }
+
+        button {
+            font: inherit;
+            color: inherit;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .phone {
+            position: relative;
+            width: min(100vw, 430px);
+            height: 100dvh;
+            min-height: 720px;
+            overflow: hidden;
+            background:
+                linear-gradient(180deg, rgba(80, 75, 74, 0.88) 0%, rgba(54, 48, 50, 0.94) 48%, rgba(28, 23, 26, 0.98) 100%),
+                #302b2d;
+        }
+
+        .phone::before {
+            content: "";
+            position: absolute;
+            inset: -42px;
+            background-image: var(--cover-url);
+            background-size: cover;
+            background-position: center 35%;
+            filter: blur(34px);
+            opacity: 0.28;
+            transform: scale(1.08);
+        }
+
+        .phone::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0) 34%),
+                linear-gradient(180deg, rgba(0, 0, 0, 0.08) 0%, rgba(0, 0, 0, 0.28) 100%);
+        }
+
+        .screen {
+            position: relative;
+            z-index: 1;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding-bottom: max(10px, env(safe-area-inset-bottom));
+        }
+
+        .status {
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 26px 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.88);
+        }
+
+        .status-icons {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header {
+            display: grid;
+            grid-template-columns: 42px 1fr 42px;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 22px 0;
+        }
+
+        .circle-btn,
+        .tool-btn,
+        .side-control {
+            border: 0;
+            background: transparent;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .circle-btn {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.88);
+        }
+
+        .meta {
+            min-width: 0;
+            padding: 10px 64px 0;
+            text-align: center;
+        }
+
+        .title {
+            margin: 0;
+            font-size: 24px;
+            line-height: 1.16;
+            font-weight: 720;
+            letter-spacing: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .artist {
+            margin: 5px auto 0;
+            display: inline-flex;
+            border: 0;
+            padding: 0;
+            background: transparent;
+            color: var(--muted);
+            font-size: 15px;
+            line-height: 1.2;
+        }
+
+        .content {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            padding: 0 28px;
+        }
+
+        .cover-wrap {
+            display: flex;
+            justify-content: center;
+            padding-top: 28px;
+        }
+
+        .cover {
+            position: relative;
+            width: min(76vw, 320px);
+            aspect-ratio: 1;
+            overflow: hidden;
+            border-radius: 16px;
+            box-shadow: 0 14px 34px rgba(0, 0, 0, 0.30);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .cover img {
+            width: 100%;
+            height: 100%;
+            display: block;
+            object-fit: cover;
+            object-position: center 35%;
+            transform: scale(1.05);
+        }
+
+        .cover-state {
+            position: absolute;
+            right: 10px;
+            bottom: 10px;
+            min-width: 54px;
+            height: 34px;
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 11px;
+            background: rgba(0, 0, 0, 0.30);
+            color: rgba(255, 255, 255, 0.82);
+            font-size: 13px;
+            font-weight: 650;
+        }
+
+        .below-cover {
+            margin-top: 22px;
+            text-align: center;
+        }
+
+        .lyric {
+            margin: 0;
+            min-height: 24px;
+            color: rgba(255, 255, 255, 0.68);
+            font-size: 16px;
+            line-height: 1.5;
+            font-weight: 560;
+        }
+
+        .bottom {
+            margin-top: auto;
+            padding-bottom: 4px;
+        }
+
+        .quality {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+            color: rgba(255, 255, 255, 0.56);
+            font-size: 13px;
+            line-height: 1;
+        }
+
+        .dot {
+            width: 3px;
+            height: 3px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.34);
+        }
+
+        .progress {
+            height: 4px;
+            position: relative;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.18);
+        }
+
+        .cache {
+            position: absolute;
+            left: 15%;
+            top: 0;
+            width: 32%;
+            height: 100%;
+            border-radius: inherit;
+            background: rgba(255, 255, 255, 0.14);
+        }
+
+        .fill {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 15%;
+            height: 100%;
+            border-radius: inherit;
+            background: rgba(255, 255, 255, 0.92);
+        }
+
+        .thumb {
+            position: absolute;
+            left: 15%;
+            top: 50%;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 2px 7px rgba(0, 0, 0, 0.35);
+            transform: translate(-50%, -50%);
+        }
+
+        .time-row {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 11px;
+            color: var(--faint);
+            font-size: 13px;
+            font-weight: 650;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 78px 1fr;
+            align-items: center;
+            gap: 30px;
+            margin-top: 26px;
+            padding: 0 42px;
+        }
+
+        .side-control {
+            width: 52px;
+            height: 52px;
+            justify-self: center;
+            color: rgba(255, 255, 255, 0.88);
+            font-size: 29px;
+        }
+
+        .play {
+            width: 72px;
+            height: 72px;
+            border: 0;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #fff;
+            color: #191a1f;
+            font-size: 27px;
+            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.25);
+        }
+
+        .tools {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            align-items: center;
+            margin-top: 24px;
+            padding: 0 8px;
+        }
+
+        .tool-btn {
+            width: 52px;
+            height: 52px;
+            justify-self: center;
+            color: rgba(255, 255, 255, 0.72);
+            font-size: 25px;
+        }
+
+        .home-indicator {
+            width: 112px;
+            height: 4px;
+            margin: 10px auto 0;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.82);
+        }
+
+        @media (max-height: 780px) {
+            .status {
+                height: 36px;
+                padding-top: 5px;
+            }
+
+            .header {
+                padding-top: 8px;
+            }
+
+            .meta {
+                padding: 8px 56px 0;
+            }
+
+            .title {
+                font-size: 21px;
+            }
+
+            .artist {
+                margin-top: 4px;
+                font-size: 14px;
+            }
+
+            .cover-wrap {
+                padding-top: 16px;
+            }
+
+            .cover {
+                width: min(66vw, 270px);
+                border-radius: 14px;
+            }
+
+            .below-cover {
+                margin-top: 14px;
+            }
+
+            .quality {
+                margin-bottom: 12px;
+            }
+
+            .controls {
+                margin-top: 18px;
+            }
+
+            .tools {
+                margin-top: 14px;
+                padding: 0 10px;
+            }
+
+            .tool-btn {
+                width: 48px;
+                height: 48px;
+                font-size: 23px;
+            }
+        }
+    </style>
+</head>
+<body>
+<main class="phone" aria-label="播放页合成预览">
+    <section class="screen">
+        <div class="status">
+            <span>22:47</span>
+            <div class="status-icons" aria-hidden="true">
+                <i class="fa-solid fa-signal"></i>
+                <i class="fa-solid fa-wifi"></i>
+                <span>92</span>
+                <i class="fa-solid fa-battery-three-quarters"></i>
+            </div>
+        </div>
+
+        <header class="header">
+            <button class="circle-btn" aria-label="返回">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+
+            <div></div>
+
+            <button class="circle-btn" aria-label="更多">
+                <i class="fa-solid fa-ellipsis"></i>
+            </button>
+        </header>
+
+        <section class="meta" aria-label="当前歌曲">
+            <h1 class="title">你就不要想起我</h1>
+            <button class="artist" aria-label="打开歌手">田馥甄</button>
+        </section>
+
+        <section class="content">
+            <div class="cover-wrap">
+                <div class="cover">
+                    <img alt="Album Art" src="https://lh3.googleusercontent.com/aida/ADBb0uh9Rhw4ObdWZG8-vprvQJNb5qxdi-wneSjCrSmSKMBDBOpT45aUcjGmpREQ5mcG1qy0ZPJ8itVBBXQyflsMU8NlUJjearV0BV-hcD3okHx0sfi7omB7RpXa2JqpoUufFZvcZKqSvYbUJ2fKskmE06xc9RYhFVTPLIylM4j-Azj5I2KW1Tx6-P7RmTID_tSmMjYazmdialNcYRwpthd8UfDfUFDFQ3W40x1dXGpXD2jyLOIWr3nrKlzescGTh1kMYT6zeomU1ABIIaY"/>
+                    <span class="cover-state">Idle</span>
+                </div>
+            </div>
+
+            <div class="below-cover">
+                <p class="lyric">歌词待补充</p>
+            </div>
+
+            <section class="bottom">
+                <div class="quality">
+                    <span>AudioTrack</span>
+                    <span class="dot"></span>
+                    <span>MP3</span>
+                    <span class="dot"></span>
+                    <span>44.1 kHz</span>
+                    <span class="dot"></span>
+                    <span>人声增强</span>
+                </div>
+
+                <div class="progress" aria-label="播放进度">
+                    <div class="cache"></div>
+                    <div class="fill"></div>
+                    <div class="thumb"></div>
+                </div>
+
+                <div class="time-row">
+                    <span>00:16</span>
+                    <span>02:23</span>
+                </div>
+
+                <div class="controls" aria-label="播控区">
+                    <button class="side-control" aria-label="上一首">
+                        <i class="fa-solid fa-backward-step"></i>
+                    </button>
+                    <button class="play" aria-label="播放">
+                        <i class="fa-solid fa-play"></i>
+                    </button>
+                    <button class="side-control" aria-label="下一首">
+                        <i class="fa-solid fa-forward-step"></i>
+                    </button>
+                </div>
+
+                <div class="tools" aria-label="次级操作">
+                    <button class="tool-btn" aria-label="播放模式">
+                        <i class="fa-solid fa-repeat"></i>
+                    </button>
+                    <button class="tool-btn" aria-label="歌曲信息">
+                        <i class="fa-regular fa-rectangle-list"></i>
+                    </button>
+                    <button class="tool-btn" aria-label="音效">
+                        <i class="fa-solid fa-sliders"></i>
+                    </button>
+                    <button class="tool-btn" aria-label="播放列表">
+                        <i class="fa-solid fa-list-ul"></i>
+                    </button>
+                    <button class="tool-btn" aria-label="更多">
+                        <i class="fa-solid fa-ellipsis"></i>
+                    </button>
+                </div>
+
+                <div class="home-indicator" aria-hidden="true"></div>
+            </section>
+        </section>
+    </section>
+</main>
+</body>
+</html>

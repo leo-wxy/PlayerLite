@@ -107,41 +107,31 @@ class PlayerScreenRobolectricTest {
 
         composeRule.onNodeWithTag("player_screen_top_bar").assertIsDisplayed()
         composeRule.onAllNodesWithTag("player_screen_top_bar_surface").assertCountEquals(0)
-        composeRule.onNodeWithTag("player_screen_top_tabs").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_top_tab_song").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_top_tab_lyrics").assertIsDisplayed()
-        composeRule.onAllNodesWithTag("player_screen_top_tab_indicator_song", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodesWithTag("player_screen_top_tabs").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_top_tab_song").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_top_tab_lyrics").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_top_tab_indicator_song", useUnmergedTree = true).assertCountEquals(0)
         composeRule.onAllNodesWithTag("player_screen_top_tab_indicator_lyrics", useUnmergedTree = true).assertCountEquals(0)
         composeRule.onNodeWithTag("player_screen_top_back_button").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_top_share_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_top_more_button").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("返回首页").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("分享当前歌曲").assertIsDisplayed()
         composeRule.onAllNodesWithContentDescription("收起播放器").assertCountEquals(0)
-        composeRule.onAllNodesWithContentDescription("更多操作").assertCountEquals(1)
-        composeRule.onNodeWithText("歌曲").assertIsDisplayed()
-        composeRule.onNodeWithText("歌词").assertIsDisplayed()
-        val songTabTextBounds = composeRule
-            .onNodeWithText("歌曲")
-            .fetchSemanticsNode()
-            .boundsInRoot
-        val lyricsTabTextBounds = composeRule
-            .onNodeWithText("歌词")
-            .fetchSemanticsNode()
-            .boundsInRoot
-        assertTrue(
-            "Expected song and lyrics labels to stay vertically aligned when the selection changes, but got song=${songTabTextBounds.center.y}, lyrics=${lyricsTabTextBounds.center.y}",
-            kotlin.math.abs(songTabTextBounds.center.y - lyricsTabTextBounds.center.y) < 2f
-        )
+        composeRule.onAllNodesWithContentDescription("更多操作").assertCountEquals(2)
+        composeRule.onAllNodesWithContentDescription("分享当前歌曲").assertCountEquals(0)
+        composeRule.onAllNodesWithText("歌曲").assertCountEquals(0)
+        composeRule.onAllNodesWithText("歌词").assertCountEquals(0)
         composeRule.onNodeWithTag("player_screen_song_page").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_visual_section").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_cover_card").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_bottom_section").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_info_section").assertIsDisplayed()
         composeRule.onNodeWithText("歌词待补充").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_favorite_button").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("player_screen_favorite_button").assertCountEquals(0)
         composeRule.onNodeWithTag("player_screen_song_detail_tool_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_playback_mode_button").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_more_button").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_playlist_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_audio_effect_button").assertIsDisplayed()
 
         composeRule.onAllNodesWithText("Audio Info").assertCountEquals(0)
         composeRule.onAllNodesWithText("PLAYER LITE").assertCountEquals(0)
@@ -154,11 +144,15 @@ class PlayerScreenRobolectricTest {
             lowerTag = "player_screen_artist"
         )
         assertVerticalOrder(
-            upperTag = "player_screen_artist",
+            upperTag = "player_screen_info_section",
+            lowerTag = "player_screen_visual_section"
+        )
+        assertVerticalOrder(
+            upperTag = "player_screen_visual_section",
             lowerTag = "player_screen_lyric_placeholder"
         )
         assertVerticalOrder(
-            upperTag = "player_screen_info_section",
+            upperTag = "player_screen_lyric_placeholder",
             lowerTag = "player_screen_progress_section"
         )
         assertVerticalOrder(
@@ -170,31 +164,23 @@ class PlayerScreenRobolectricTest {
             .onNodeWithTag("player_screen_top_back_button")
             .fetchSemanticsNode()
             .boundsInRoot
-        val topBarBounds = composeRule
-            .onNodeWithTag("player_screen_top_bar")
-            .fetchSemanticsNode()
-            .boundsInRoot
         val titleBounds = composeRule
-            .onNodeWithTag("player_screen_top_tabs")
+            .onNodeWithTag("player_screen_title")
             .fetchSemanticsNode()
             .boundsInRoot
-        val shareBounds = composeRule
-            .onNodeWithTag("player_screen_top_share_button")
+        val moreBounds = composeRule
+            .onNodeWithTag("player_screen_top_more_button")
             .fetchSemanticsNode()
             .boundsInRoot
         assertTrue(
-            "Expected title to share the same top-bar baseline with back/share actions, but got title=${titleBounds.center.y}, back=${backBounds.center.y}, share=${shareBounds.center.y}",
-            kotlin.math.abs(titleBounds.center.y - backBounds.center.y) < 4f &&
-                kotlin.math.abs(titleBounds.center.y - shareBounds.center.y) < 4f
-        )
-        assertTrue(
-            "Expected top tabs to stay absolutely centered in the top bar, but got tabs=${titleBounds.center.x}, bar=${topBarBounds.center.x}",
-            kotlin.math.abs(titleBounds.center.x - topBarBounds.center.x) < 1.5f
+            "Expected centered song info to clear edge actions, title=$titleBounds back=$backBounds more=$moreBounds",
+            titleBounds.left > backBounds.right &&
+                titleBounds.right < moreBounds.left
         )
     }
 
     @Test
-    fun activePlayback_narrowWidthTopTabs_shouldStayHorizontal() {
+    fun activePlayback_narrowWidthSongInfo_shouldReplaceTopTabs() {
         composeRule.setContent {
             Box(
                 modifier = Modifier.size(width = 320.dp, height = 720.dp)
@@ -240,28 +226,40 @@ class PlayerScreenRobolectricTest {
             }
         }
 
-        composeRule.onNodeWithTag("player_screen_top_tabs").assertIsDisplayed()
-        val songTabTextBounds = composeRule
-            .onNodeWithText("歌曲")
+        composeRule.onAllNodesWithTag("player_screen_top_tabs").assertCountEquals(0)
+        composeRule.onAllNodesWithText("歌曲").assertCountEquals(0)
+        composeRule.onAllNodesWithText("歌词").assertCountEquals(0)
+
+        val titleBounds = composeRule
+            .onNodeWithTag("player_screen_title")
             .fetchSemanticsNode()
             .boundsInRoot
-        val lyricsTabTextBounds = composeRule
-            .onNodeWithText("歌词")
+        val artistBounds = composeRule
+            .onNodeWithTag("player_screen_artist")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val backBounds = composeRule
+            .onNodeWithTag("player_screen_top_back_button")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val actionsBounds = composeRule
+            .onNodeWithTag("player_screen_top_actions")
             .fetchSemanticsNode()
             .boundsInRoot
 
         assertTrue(
-            "Expected song and lyrics labels to remain on the same row on narrow width, but got song=${songTabTextBounds.center.y}, lyrics=${lyricsTabTextBounds.center.y}",
-            abs(songTabTextBounds.center.y - lyricsTabTextBounds.center.y) < 2f
+            "Expected centered title to clear top edge actions on narrow width, title=$titleBounds back=$backBounds actions=$actionsBounds",
+            titleBounds.left > backBounds.right &&
+                titleBounds.right < actionsBounds.left
         )
         assertTrue(
-            "Expected lyrics tab to stay to the right of song tab on narrow width, but got song=$songTabTextBounds lyrics=$lyricsTabTextBounds",
-            lyricsTabTextBounds.center.x > songTabTextBounds.center.x
+            "Expected artist to stay visually centered under title, title=$titleBounds artist=$artistBounds",
+            abs(titleBounds.center.x - artistBounds.center.x) < 2f
         )
     }
 
     @Test
-    fun activePlayback_topTabs_shouldUseReadableVisualTokens() {
+    fun activePlayback_songInfo_shouldUseConfirmedPreviewRhythm() {
         composeRule.setContent {
             PlayerLiteTheme {
                 PlayerScreen(
@@ -304,67 +302,19 @@ class PlayerScreenRobolectricTest {
             }
         }
 
-        val songTabNode = composeRule
-            .onNodeWithTag("player_screen_top_tab_song")
-            .fetchSemanticsNode()
-        val lyricsTabNode = composeRule
-            .onNodeWithTag("player_screen_top_tab_lyrics")
-            .fetchSemanticsNode()
-        val songTabTextSize = songTabNode.config.getOrNull(PlayerTopTabTextSizeSpKey)
-            ?: error("Missing song tab text size semantics")
-        val lyricsTabTextSize = lyricsTabNode.config.getOrNull(PlayerTopTabTextSizeSpKey)
-            ?: error("Missing lyrics tab text size semantics")
-        val songTabFontWeight = songTabNode.config.getOrNull(PlayerTopTabFontWeightKey)
-            ?: error("Missing song tab font weight semantics")
-        val lyricsTabFontWeight = lyricsTabNode.config.getOrNull(PlayerTopTabFontWeightKey)
-            ?: error("Missing lyrics tab font weight semantics")
-        val songTabHorizontalPadding = songTabNode.config.getOrNull(PlayerTopTabHorizontalPaddingDpKey)
-            ?: error("Missing song tab horizontal padding semantics")
-        val lyricsTabHorizontalPadding = lyricsTabNode.config.getOrNull(PlayerTopTabHorizontalPaddingDpKey)
-            ?: error("Missing lyrics tab horizontal padding semantics")
-        val songTabIndicatorHeight = songTabNode.config.getOrNull(PlayerTopTabIndicatorHeightDpKey)
-            ?: error("Missing song tab indicator height semantics")
-        val lyricsTabIndicatorHeight = lyricsTabNode.config.getOrNull(PlayerTopTabIndicatorHeightDpKey)
-            ?: error("Missing lyrics tab indicator height semantics")
-
-        assertTrue(
-            "Expected song tab text size to remain readable, but got $songTabTextSize",
-            songTabTextSize >= 18f
-        )
-        assertTrue(
-            "Expected lyrics tab text size to remain readable, but got $lyricsTabTextSize",
-            lyricsTabTextSize >= 18f
-        )
-        assertEquals(
-            500,
-            songTabFontWeight
-        )
-        assertEquals(
-            400,
-            lyricsTabFontWeight
-        )
-        assertTrue(
-            "Expected song tab horizontal padding to remain comfortable, but got $songTabHorizontalPadding",
-            songTabHorizontalPadding >= 8f
-        )
-        assertTrue(
-            "Expected lyrics tab horizontal padding to remain comfortable, but got $lyricsTabHorizontalPadding",
-            lyricsTabHorizontalPadding >= 8f
-        )
-        assertEquals(
-            2f,
-            songTabIndicatorHeight,
-            0.01f
-        )
-        assertEquals(
-            2f,
-            lyricsTabIndicatorHeight,
-            0.01f
-        )
+        composeRule.onAllNodesWithTag("player_screen_top_tabs").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_top_tab_song").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("player_screen_top_tab_lyrics").assertCountEquals(0)
+        composeRule.onNodeWithTag("player_screen_title").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_artist").assertIsDisplayed()
+        assertVerticalOrder("player_screen_top_bar", "player_screen_info_section")
+        assertVerticalOrder("player_screen_info_section", "player_screen_visual_section")
+        assertVerticalOrder("player_screen_visual_section", "player_screen_lyric_placeholder")
+        assertVerticalOrder("player_screen_lyric_placeholder", "player_screen_progress_section")
     }
 
     @Test
-    fun activePlayback_narrowWidthTopTabs_shouldStayCenteredAndClearEdgeActions() {
+    fun activePlayback_narrowWidthSongInfo_shouldStayCenteredAndClearEdgeActions() {
         composeRule.setContent {
             Box(
                 modifier = Modifier.size(width = 320.dp, height = 720.dp)
@@ -412,12 +362,10 @@ class PlayerScreenRobolectricTest {
             }
         }
 
-        val topBarBounds = composeRule
-            .onNodeWithTag("player_screen_top_bar")
-            .fetchSemanticsNode()
-            .boundsInRoot
-        val topTabsBounds = composeRule
-            .onNodeWithTag("player_screen_top_tabs")
+        composeRule.onAllNodesWithTag("player_screen_top_tabs").assertCountEquals(0)
+
+        val titleBounds = composeRule
+            .onNodeWithTag("player_screen_title")
             .fetchSemanticsNode()
             .boundsInRoot
         val backBounds = composeRule
@@ -430,16 +378,9 @@ class PlayerScreenRobolectricTest {
             .boundsInRoot
 
         assertTrue(
-            "Expected top tabs overlay to stay centered in the top bar, but got topBar=${topBarBounds.center.x}, tabs=${topTabsBounds.center.x}",
-            abs(topBarBounds.center.x - topTabsBounds.center.x) < 1f
-        )
-        assertTrue(
-            "Expected top tabs overlay to avoid the back button on narrow width, but got backRight=${backBounds.right}, tabsLeft=${topTabsBounds.left}",
-            topTabsBounds.left - backBounds.right >= 4f
-        )
-        assertTrue(
-            "Expected top tabs overlay to avoid trailing actions on narrow width, but got tabsRight=${topTabsBounds.right}, actionsLeft=${actionsBounds.left}",
-            actionsBounds.left - topTabsBounds.right >= 4f
+            "Expected song title to replace the old tab region without colliding with top actions, title=$titleBounds back=$backBounds actions=$actionsBounds",
+            titleBounds.left - backBounds.right >= 4f &&
+                actionsBounds.left - titleBounds.right >= 4f
         )
     }
 
@@ -721,8 +662,9 @@ class PlayerScreenRobolectricTest {
         composeRule.onAllNodesWithTag("player_screen_landscape_root").assertCountEquals(0)
         composeRule.onAllNodesWithTag("player_screen_landscape_visual_reflection").assertCountEquals(0)
         composeRule.onAllNodesWithTag("player_screen_landscape_controls_reflection").assertCountEquals(0)
+        composeRule.onNodeWithTag("player_screen_top_bar").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_song_page").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_bottom_section").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("player_screen_top_tabs").assertCountEquals(0)
     }
 
     @Test
@@ -1267,7 +1209,7 @@ class PlayerScreenRobolectricTest {
         composeRule.onAllNodesWithTag("player_screen_favorite_button").assertCountEquals(0)
         composeRule.onAllNodesWithTag("player_screen_more_button").assertCountEquals(0)
         composeRule.onAllNodesWithTag("player_screen_combined_status_row").assertCountEquals(0)
-        composeRule.onAllNodesWithTag("player_screen_playlist_button", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodesWithTag("player_screen_playlist_button", useUnmergedTree = true).assertCountEquals(0)
     }
 
     @Test
@@ -2083,7 +2025,7 @@ class PlayerScreenRobolectricTest {
     }
 
     @Test
-    fun lyricTopTabClick_shouldSwitchToImmersiveLyricsPageWithoutBottomPlaybackChrome() {
+    fun selectedLyricsTab_shouldSwitchToImmersiveLyricsPageWithoutBottomPlaybackChrome() {
         var selectedTopTab by mutableStateOf(PlayerTopTab.SONG)
 
         composeRule.setContent {
@@ -2132,36 +2074,20 @@ class PlayerScreenRobolectricTest {
 
         composeRule.onNodeWithTag("player_screen_lyric_summary").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_lyric_summary").assertTextEquals("“第一句”")
-        val songTabBoundsBefore = composeRule
-            .onNodeWithText("歌曲")
-            .fetchSemanticsNode()
-            .boundsInRoot
-        val lyricsTabBoundsBefore = composeRule
-            .onNodeWithText("歌词")
-            .fetchSemanticsNode()
-            .boundsInRoot
-        composeRule.onNode(hasText("歌词") and hasClickAction())
-            .performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.onAllNodesWithTag("player_screen_top_tabs").assertCountEquals(0)
+        composeRule.onAllNodesWithText("歌曲").assertCountEquals(0)
+        composeRule.onAllNodesWithText("歌词").assertCountEquals(0)
+
+        composeRule.runOnIdle {
+            selectedTopTab = PlayerTopTab.LYRICS
+        }
+        composeRule.waitUntil(timeoutMillis = 3_000) {
+            selectedTopTab == PlayerTopTab.LYRICS
+        }
         composeRule.runOnIdle {
             assertEquals(PlayerTopTab.LYRICS, selectedTopTab)
         }
-        val songTabBoundsAfter = composeRule
-            .onNodeWithText("歌曲")
-            .fetchSemanticsNode()
-            .boundsInRoot
-        val lyricsTabBoundsAfter = composeRule
-            .onNodeWithText("歌词")
-            .fetchSemanticsNode()
-            .boundsInRoot
-        assertTrue(
-            "Expected song tab label to stay vertically stable when selection changes, but before=${songTabBoundsBefore.center.y}, after=${songTabBoundsAfter.center.y}",
-            kotlin.math.abs(songTabBoundsBefore.center.y - songTabBoundsAfter.center.y) < 2f
-        )
-        assertTrue(
-            "Expected lyrics tab label to stay vertically stable when selection changes, but before=${lyricsTabBoundsBefore.center.y}, after=${lyricsTabBoundsAfter.center.y}",
-            kotlin.math.abs(lyricsTabBoundsBefore.center.y - lyricsTabBoundsAfter.center.y) < 2f
-        )
-        composeRule.onAllNodesWithTag("player_screen_top_tab_indicator_lyrics", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodesWithTag("player_screen_top_tab_indicator_lyrics", useUnmergedTree = true).assertCountEquals(0)
         composeRule.onAllNodesWithTag("player_screen_top_tab_indicator_song", useUnmergedTree = true).assertCountEquals(0)
         composeRule.onNodeWithTag("player_screen_lyrics_page").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_lyrics_viewport").assertIsDisplayed()
@@ -2538,10 +2464,6 @@ class PlayerScreenRobolectricTest {
             .onNodeWithTag("player_screen_song_content_top_anchor")
             .fetchSemanticsNode()
             .boundsInRoot
-        val controlsAnchorBounds = composeRule
-            .onNodeWithTag("player_screen_song_controls_bottom_anchor")
-            .fetchSemanticsNode()
-            .boundsInRoot
 
         composeRule.runOnIdle {
             selectedTopTab = PlayerTopTab.LYRICS
@@ -2554,7 +2476,6 @@ class PlayerScreenRobolectricTest {
             .onNodeWithTag("player_screen_lyrics_viewport")
             .fetchSemanticsNode()
             .boundsInRoot
-        val songBottomInset = rootBounds.bottom - controlsAnchorBounds.bottom
         val lyricsBottomInset = rootBounds.bottom - lyricsViewportBounds.bottom
 
         assertTrue(
@@ -2562,8 +2483,8 @@ class PlayerScreenRobolectricTest {
             kotlin.math.abs(lyricsViewportBounds.top - songTopAnchorBounds.top) <= 4f
         )
         assertTrue(
-            "Expected lyrics viewport bottom inset $lyricsBottomInset to align with song controls inset $songBottomInset",
-            kotlin.math.abs(lyricsBottomInset - songBottomInset) <= 4f
+            "Expected lyrics viewport bottom inset $lyricsBottomInset to keep a compact safe-area margin",
+            lyricsBottomInset in 8f..24f
         )
     }
 
@@ -3030,12 +2951,12 @@ class PlayerScreenRobolectricTest {
             .boundsInRoot
 
         assertTrue(
-            "Expected playback mode and previous controls not to overlap, mode=$modeBounds previous=$previousBounds",
-            modeBounds.right <= previousBounds.left
+            "Expected playback mode and previous controls to occupy different rows, mode=$modeBounds previous=$previousBounds",
+            modeBounds.top >= previousBounds.bottom || modeBounds.bottom <= previousBounds.top
         )
         assertTrue(
-            "Expected next and playlist controls not to overlap, next=$nextBounds playlist=$playlistBounds",
-            nextBounds.right <= playlistBounds.left
+            "Expected next and playlist controls to occupy different rows, next=$nextBounds playlist=$playlistBounds",
+            playlistBounds.top >= nextBounds.bottom || playlistBounds.bottom <= nextBounds.top
         )
     }
 
@@ -3099,7 +3020,7 @@ class PlayerScreenRobolectricTest {
 
         assertTrue(
             "Expected controls section to sit in lower viewport area, controlsTop=${controlsBounds.top}, rootBottom=${rootBounds.bottom}",
-            controlsBounds.top >= rootBounds.bottom * 0.73f
+            controlsBounds.top >= rootBounds.bottom * 0.68f
         )
     }
 
