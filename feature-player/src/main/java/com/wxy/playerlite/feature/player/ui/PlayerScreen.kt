@@ -1792,16 +1792,6 @@ private fun PlayerScreenContent(
             currentPositionMs = currentPositionMs
         )
         val compactControls = maxHeight.value < 600f || maxWidth.value < 340f
-        val bottomLeadSpacerWeight = when {
-            compactControls -> 1f
-            maxHeight.value >= 840f -> 0.94f
-            else -> 1f
-        }
-        val bottomTailSpacerWeight = when {
-            compactControls -> 0f
-            maxHeight.value >= 840f -> 0.06f
-            else -> 0f
-        }
         val isLandscapeLayout = resolvePlayerScreenLandscapeLayout(
             viewportWidthDp = maxWidth.value,
             viewportHeightDp = maxHeight.value,
@@ -2007,13 +1997,12 @@ private fun PlayerScreenContent(
 	                                    )
 	                                }
 
-	                                Spacer(modifier = Modifier.weight(bottomLeadSpacerWeight))
+	                                Spacer(modifier = Modifier.weight(1f))
 
 	                                Column(
 	                                    modifier = Modifier
 	                                        .fillMaxWidth()
-	                                        .testTag("player_screen_bottom_section"),
-	                                    verticalArrangement = Arrangement.spacedBy(layoutMetrics.sectionSpacing)
+	                                        .testTag("player_screen_bottom_section")
 	                                ) {
                                 Column(
                                     modifier = Modifier
@@ -2027,6 +2016,18 @@ private fun PlayerScreenContent(
                                     val combinedStatusTextStyle = MaterialTheme.typography.labelSmall.copy(
                                         fontSize = layoutMetrics.progressTimeFontSizeSp.sp
                                     )
+                                    if (showInlineCombinedStatusRow) {
+                                        PlayerCombinedStatusRow(
+                                            combinedStatusUi = combinedStatusUi,
+                                            onShowAudioQualitySettings = onShowAudioQualitySettings,
+                                            onShowAudioEffectSettings = onShowAudioEffectSettings,
+                                            textStyle = combinedStatusTextStyle,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(bottom = layoutMetrics.qualityBottomSpacing)
+                                                .testTag("player_screen_combined_status_row")
+                                        )
+                                    }
                                     PlayerProgressBarSlider(
                                         value = sliderValue,
                                         max = sliderMax,
@@ -2037,71 +2038,29 @@ private fun PlayerScreenContent(
                                         onValueChangeFinished = onSeekFinished,
                                         modifier = Modifier.fillMaxWidth()
                                     )
-                                    if (showInlineCombinedStatusRow) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = currentDurationText,
-                                                style = progressTimeTextStyle,
-                                                color = Color.White.copy(alpha = 0.62f),
-                                                textAlign = TextAlign.Start,
-                                                maxLines = 1,
-                                                modifier = Modifier
-                                                    .widthIn(min = 48.dp)
-                                                    .testTag("player_screen_current_duration")
-                                            )
-                                            Box(
-                                                modifier = Modifier.weight(1f),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                PlayerCombinedStatusRow(
-                                                    combinedStatusUi = combinedStatusUi,
-                                                    onShowAudioQualitySettings = onShowAudioQualitySettings,
-                                                    onShowAudioEffectSettings = onShowAudioEffectSettings,
-                                                    textStyle = combinedStatusTextStyle,
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .testTag("player_screen_combined_status_row")
-                                                )
-                                            }
-                                            Text(
-                                                text = totalDurationText,
-                                                style = progressTimeTextStyle,
-                                                color = Color.White.copy(alpha = 0.62f),
-                                                textAlign = TextAlign.End,
-                                                maxLines = 1,
-                                                modifier = Modifier
-                                                    .widthIn(min = 48.dp)
-                                                    .testTag("player_screen_total_duration")
-                                            )
-                                        }
-                                    } else {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = currentDurationText,
-                                                style = progressTimeTextStyle,
-                                                color = Color.White.copy(alpha = 0.62f),
-                                                modifier = Modifier
-                                                    .testTag("player_screen_current_duration")
-                                            )
-                                            Text(
-                                                text = totalDurationText,
-                                                style = progressTimeTextStyle,
-                                                color = Color.White.copy(alpha = 0.62f),
-                                                modifier = Modifier
-                                                    .testTag("player_screen_total_duration")
-                                            )
-                                        }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = currentDurationText,
+                                            style = progressTimeTextStyle,
+                                            color = Color.White.copy(alpha = 0.62f),
+                                            modifier = Modifier
+                                                .testTag("player_screen_current_duration")
+                                        )
+                                        Text(
+                                            text = totalDurationText,
+                                            style = progressTimeTextStyle,
+                                            color = Color.White.copy(alpha = 0.62f),
+                                            modifier = Modifier
+                                                .testTag("player_screen_total_duration")
+                                        )
                                     }
                                 }
 
+                                Spacer(modifier = Modifier.height(layoutMetrics.controlsGroupSpacing))
                                 PlaybackControls(
                                     hasSelection = true,
                                     hasPreviousTrack = hasPreviousTrack,
@@ -2120,6 +2079,7 @@ private fun PlayerScreenContent(
                                         .fillMaxWidth()
                                         .testTag("player_screen_controls_section")
                                 )
+                                Spacer(modifier = Modifier.height(layoutMetrics.toolsTopSpacing))
                                 PlayerToolActionRow(
                                     showSongDetailAction = showSongDetailAction,
                                     playbackMode = playbackMode,
@@ -2129,7 +2089,8 @@ private fun PlayerScreenContent(
                                     onAudioEffectClick = onShowAudioEffectSettings,
                                     onMoreClick = onMoreClick,
                                     layoutMetrics = layoutMetrics,
-                                    compact = compactControls
+                                    compact = compactControls,
+                                    modifier = Modifier
                                 )
                                 Spacer(
                                     modifier = Modifier
@@ -2138,9 +2099,7 @@ private fun PlayerScreenContent(
                                         .testTag("player_screen_song_controls_bottom_anchor")
                                 )
 	                                }
-	                                if (bottomTailSpacerWeight > 0f) {
-	                                    Spacer(modifier = Modifier.weight(bottomTailSpacerWeight))
-	                                }
+	                                Spacer(modifier = Modifier.height(layoutMetrics.verticalPadding))
 	                            }
 	                        }
                     }

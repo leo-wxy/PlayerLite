@@ -144,7 +144,7 @@ fun PlaylistBottomSheet(
     val visualTokens = PlayerLiteVisualTheme.colors
     val brandPalette = PlayerLiteThemeContract.DefaultBrandPalettes.light
     val scrimInteraction = remember { MutableInteractionSource() }
-    val reorderStepPx = with(LocalDensity.current) { 64.dp.toPx() }
+    val reorderStepPx = with(LocalDensity.current) { 88.dp.toPx() }
     val navigationBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var draggingIndex by remember { mutableIntStateOf(-1) }
     var draggingOffsetY by remember { mutableFloatStateOf(0f) }
@@ -356,8 +356,8 @@ fun PlaylistBottomSheet(
                                     playlistSheetFirstVisibleIndex = listState.firstVisibleItemIndex
                                 },
                             state = listState,
-                            contentPadding = PaddingValues(bottom = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            contentPadding = PaddingValues(top = 10.dp, bottom = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
                                 val isActive = index == activeIndex
@@ -373,6 +373,7 @@ fun PlaylistBottomSheet(
                                 Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .testTag("playlist_sheet_item_${item.id}")
                                         .animateItem()
                                         .zIndex(if (isDragging) 1f else 0f)
                                         .graphicsLayer {
@@ -428,30 +429,39 @@ fun PlaylistBottomSheet(
                                             }
                                         }
                                         .clickable(enabled = !isDragging) { onSelect(index) },
-                                    shape = RoundedCornerShape(20.dp),
+                                    shape = RoundedCornerShape(16.dp),
                                     color = itemVisuals.containerColor,
                                     tonalElevation = if (itemVisuals.raised) 1.dp else 0.dp,
-                                    shadowElevation = if (itemVisuals.raised) 10.dp else 0.dp,
+                                    shadowElevation = if (itemVisuals.raised) 3.dp else 0.dp,
                                     border = itemVisuals.border
                                 ) {
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .defaultMinSize(minHeight = 78.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                .testTag("playlist_sheet_item_row_${item.id}")
+                                                .defaultMinSize(minHeight = 64.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
+                                            if (isActive) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(width = 3.dp, height = 34.dp)
+                                                        .clip(RoundedCornerShape(999.dp))
+                                                        .background(itemVisuals.titleColor.copy(alpha = 0.86f))
+                                                )
+                                            }
                                             Surface(
                                                 modifier = Modifier
-                                                    .size(if (isActive) 56.dp else 52.dp)
+                                                    .size(if (isActive) 48.dp else 46.dp)
                                                     .testTag("playlist_sheet_artwork_${item.id}"),
-                                                shape = RoundedCornerShape(16.dp),
+                                                shape = RoundedCornerShape(13.dp),
                                                 color = itemVisuals.artworkFallbackContainerColor
                                             ) {
                                                 if (!item.coverUrl.isNullOrBlank()) {
@@ -477,11 +487,7 @@ fun PlaylistBottomSheet(
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
                                                     text = item.effectiveTitle,
-                                                    style = if (isActive) {
-                                                        MaterialTheme.typography.titleMedium
-                                                    } else {
-                                                        MaterialTheme.typography.bodyLarge
-                                                    },
+                                                    style = MaterialTheme.typography.bodyLarge,
                                                     fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
                                                     color = itemVisuals.titleColor,
                                                     maxLines = 1,
@@ -489,7 +495,7 @@ fun PlaylistBottomSheet(
                                                 )
                                                 Text(
                                                     text = resolvePlaylistSheetItemSubtitle(item),
-                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    style = MaterialTheme.typography.bodySmall,
                                                     color = itemVisuals.subtitleColor,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
@@ -497,9 +503,9 @@ fun PlaylistBottomSheet(
                                             }
                                             Box(
                                                 modifier = Modifier
-                                                    .size(40.dp)
+                                                    .size(38.dp)
                                                     .clip(CircleShape)
-                                                    .background(visualTokens.surfaceMuted.copy(alpha = 0.72f))
+                                                    .background(visualTokens.surfaceMuted.copy(alpha = 0.46f))
                                                     .clickable {
                                                         if (expandedMenuItemIdOverride != null) {
                                                             return@clickable
@@ -666,14 +672,17 @@ fun resolvePlaylistSheetItemVisuals(
         )
 
         isActive -> PlaylistSheetItemVisuals(
-            containerColor = visualTokens.surfaceRaised,
+            containerColor = visualTokens.accentStrong.copy(alpha = 0.045f),
             titleColor = visualTokens.accentStrong,
             subtitleColor = visualTokens.accentStrong.copy(alpha = 0.82f),
             dragHandleTint = visualTokens.accentStrong,
-            dragHandleContainerColor = visualTokens.accentStrong.copy(alpha = 0.10f),
+            dragHandleContainerColor = visualTokens.accentStrong.copy(alpha = 0.08f),
             artworkFallbackContainerColor = visualTokens.accentStrong.copy(alpha = 0.10f),
-            border = baseBorder,
-            raised = true
+            border = BorderStroke(
+                width = 1.dp,
+                color = visualTokens.accentStrong.copy(alpha = 0.14f)
+            ),
+            raised = false
         )
 
         else -> PlaylistSheetItemVisuals(
@@ -705,21 +714,21 @@ private fun PlaylistSheetDragHandle(
 ) {
     Box(
         modifier = modifier
-            .size(40.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .size(38.dp)
+            .clip(RoundedCornerShape(10.dp))
             .background(containerColor),
         contentAlignment = Alignment.Center
     ) {
         Column(
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             repeat(3) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     repeat(2) {
                         Box(
                             modifier = Modifier
-                                .size(4.dp)
+                                .size(3.5.dp)
                                 .clip(CircleShape)
                                 .background(
                                     if (enabled) tint else tint.copy(alpha = 0.35f)

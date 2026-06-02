@@ -1,9 +1,12 @@
 package com.wxy.playerlite.feature.player.ui.components
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
@@ -19,6 +22,7 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import com.wxy.playerlite.core.playlist.PlaylistItem
 import com.wxy.playerlite.designsystem.theme.PlayerLiteThemeContract
 import com.wxy.playerlite.playback.model.PlaybackMode
@@ -56,9 +60,9 @@ class PlaylistSheetVisualsTest {
             visualTokens = visualTokens
         )
 
-        assertEquals(visualTokens.surfaceRaised, active.containerColor)
+        assertEquals(visualTokens.accentStrong.copy(alpha = 0.045f), active.containerColor)
         assertEquals(visualTokens.accentStrong, active.titleColor)
-        assertTrue(active.raised)
+        assertTrue(!active.raised)
         assertEquals(Color.Transparent, inactive.containerColor)
         assertEquals(PlayerLiteThemeContract.DefaultBrandPalettes.light.onSurface, inactive.titleColor)
         assertEquals(visualTokens.textMuted, inactive.subtitleColor)
@@ -137,6 +141,60 @@ class PlaylistSheetVisualsTest {
         composeRule
             .onNodeWithTag("playlist_sheet_artwork_opened-30", useUnmergedTree = true)
             .assertIsDisplayed()
+    }
+
+    @Test
+    fun playlistBottomSheet_rows_shouldUseBalancedVerticalDensity() {
+        val items = buildPlaylistItems(prefix = "density")
+
+        composeRule.setContent {
+            PlayerLiteTheme {
+                Box(modifier = Modifier.size(width = 360.dp, height = 760.dp)) {
+                    PlaylistBottomSheet(
+                        visible = true,
+                        items = items,
+                        activeIndex = 0,
+                        playbackMode = PlaybackMode.LIST_LOOP,
+                        showOriginalOrderInShuffle = false,
+                        canReorder = true,
+                        onDismiss = {},
+                        onShowOriginalOrderInShuffleChange = {},
+                        onSelect = {},
+                        onRemove = {},
+                        onMove = { _, _ -> }
+                    )
+                }
+            }
+        }
+
+        composeRule.waitForIdle()
+        val activeRowBounds = composeRule
+            .onNodeWithTag("playlist_sheet_item_row_density-0", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val nextRowBounds = composeRule
+            .onNodeWithTag("playlist_sheet_item_row_density-1", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val activeHeight = with(composeRule.density) { activeRowBounds.height.toDp() }
+        val rowGap = with(composeRule.density) { (nextRowBounds.top - activeRowBounds.bottom).toDp() }
+
+        assertTrue(
+            "Expected active queue row to keep enough breathing room, but height was $activeHeight",
+            activeHeight >= 72.dp
+        )
+        assertTrue(
+            "Expected active queue row to avoid oversized card spacing, but height was $activeHeight",
+            activeHeight <= 88.dp
+        )
+        assertTrue(
+            "Expected queue row gap to avoid cramped rows, but gap was $rowGap",
+            rowGap >= 8.dp
+        )
+        assertTrue(
+            "Expected queue row gap to avoid oversized card spacing, but gap was $rowGap",
+            rowGap <= 20.dp
+        )
     }
 
     @Test

@@ -31,7 +31,10 @@ data class PlayerScreenLayoutMetrics(
     val progressTimeFontSizeSp: Float,
     val lyricsTopInset: Dp,
     val lyricsBottomInset: Dp,
-    val summaryTopPadding: Dp
+    val summaryTopPadding: Dp,
+    val songPageBottomTopSpacing: Dp,
+    val controlsGroupSpacing: Dp,
+    val toolsTopSpacing: Dp
 )
 
 fun resolvePlayerScreenLayoutMetrics(
@@ -70,9 +73,9 @@ fun resolvePlayerScreenLayoutMetrics(
         max = 88f
     )
     val bottomSectionReservedHeight = clampDp(
-        value = viewportHeightDp * 0.33f,
-        min = 256f,
-        max = 304f
+        value = viewportHeightDp * 0.31f,
+        min = 246f,
+        max = 292f
     )
     val topBarHeight = clampDp(
         value = viewportHeightDp * 0.06f,
@@ -107,9 +110,9 @@ fun resolvePlayerScreenLayoutMetrics(
             8f
         ).coerceAtLeast(minimumCoverSize)
     val coverSize = min(
-        viewportWidthDp * 0.76f,
-        min(viewportHeightDp * 0.345f, min(maxCoverWidth, safeCoverHeight))
-    ).coerceIn(minimumCoverSize, 320f).dp
+        viewportWidthDp * 0.72f,
+        min(viewportHeightDp * 0.33f, min(maxCoverWidth, safeCoverHeight))
+    ).coerceIn(minimumCoverSize, 304f).dp
     val titleFontSizeSp = clampSp(
         value = viewportWidthDp * 0.059f,
         min = 21f,
@@ -146,13 +149,13 @@ fun resolvePlayerScreenLayoutMetrics(
         max = 54f
     )
     val toolIconSize = clampDp(
-        value = toolButtonSize.value * 0.48f,
-        min = 23f,
-        max = 26f
+        value = toolButtonSize.value * 0.52f,
+        min = 25f,
+        max = 28f
     )
     val progressSectionSpacing = clampDp(
-        value = viewportHeightDp * 0.0065f,
-        min = 4f,
+        value = viewportHeightDp * 0.008f,
+        min = 6f,
         max = 8f
     )
     val lyricBelowCoverSpacing = clampDp(
@@ -161,14 +164,29 @@ fun resolvePlayerScreenLayoutMetrics(
         max = 24f
     )
     val qualityBottomSpacing = clampDp(
-        value = viewportHeightDp * 0.017f,
-        min = 10f,
-        max = 16f
+        value = viewportHeightDp * 0.021f,
+        min = 16f,
+        max = 22f
     )
     val progressTimeFontSizeSp = clampSp(
         value = viewportWidthDp * 0.034f,
         min = 13f,
         max = 16f
+    )
+    val songPageBottomTopSpacing = clampDp(
+        value = viewportHeightDp * 0.018f,
+        min = 12f,
+        max = 18f
+    )
+    val controlsGroupSpacing = clampDp(
+        value = viewportHeightDp * 0.03f,
+        min = 22f,
+        max = 30f
+    )
+    val toolsTopSpacing = clampDp(
+        value = viewportHeightDp * 0.034f,
+        min = 26f,
+        max = 34f
     )
     return PlayerScreenLayoutMetrics(
         horizontalPadding = horizontalPadding,
@@ -197,7 +215,10 @@ fun resolvePlayerScreenLayoutMetrics(
         progressTimeFontSizeSp = progressTimeFontSizeSp,
         lyricsTopInset = titleTopSpacing,
         lyricsBottomInset = verticalPadding,
-        summaryTopPadding = summaryTopPadding
+        summaryTopPadding = summaryTopPadding,
+        songPageBottomTopSpacing = songPageBottomTopSpacing,
+        controlsGroupSpacing = controlsGroupSpacing,
+        toolsTopSpacing = toolsTopSpacing
     )
 }
 
