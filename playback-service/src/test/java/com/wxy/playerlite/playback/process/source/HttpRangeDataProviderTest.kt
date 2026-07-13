@@ -5,6 +5,10 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.ArrayDeque
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -265,6 +269,61 @@ class HttpRangeDataProviderTest {
         assertEquals(1, factory.requests.size)
     }
 
+    @Test
+    fun cancelOpeningReadShouldLetNextRangeBypassStaleConnection() {
+        val firstResponseStarted = CountDownLatch(1)
+        val releaseFirstResponse = CountDownLatch(1)
+        val connectionIndex = AtomicInteger(0)
+        val provider = HttpRangeDataProvider(
+            url = "https://example.com/audio.mp3",
+            connectionFactory = { url ->
+                if (connectionIndex.getAndIncrement() == 0) {
+                    BlockingResponseHttpURLConnection(
+                        url = url,
+                        responseStarted = firstResponseStarted,
+                        releaseResponse = releaseFirstResponse
+                    )
+                } else {
+                    FakeHttpURLConnection(
+                        url = url,
+                        response = FakeResponse(
+                            code = 206,
+                            headers = mapOf("Content-Range" to "bytes 1024-1025/2048"),
+                            body = "ok".encodeToByteArray()
+                        ),
+                        onRequest = { _, _, _ -> }
+                    )
+                }
+            }
+        )
+        val readers = Executors.newFixedThreadPool(2)
+
+        try {
+            val firstRead = readers.submit<ByteArray> {
+                provider.readAtBytes(offset = 0L, size = 2)
+            }
+            assertTrue(firstResponseStarted.await(1L, TimeUnit.SECONDS))
+
+            val cancelStartedNs = System.nanoTime()
+            provider.cancelInFlightRead()
+            assertTrue(firstRead.get(500L, TimeUnit.MILLISECONDS).isEmpty())
+
+            val secondRead = readers.submit<ByteArray> {
+                provider.readAtBytes(offset = 1024L, size = 2)
+            }
+            assertArrayEquals(
+                "ok".encodeToByteArray(),
+                secondRead.get(500L, TimeUnit.MILLISECONDS)
+            )
+            val elapsedMs = (System.nanoTime() - cancelStartedNs) / 1_000_000L
+            assertTrue("Expected next range within 500ms, elapsed=${elapsedMs}ms", elapsedMs < 500L)
+        } finally {
+            releaseFirstResponse.countDown()
+            provider.close()
+            readers.shutdownNow()
+        }
+    }
+
     private data class FakeResponse(
         val code: Int,
         val headers: Map<String, String>,
@@ -342,6 +401,32 @@ class HttpRangeDataProviderTest {
             captured = true
             onRequest(url, requestMethod, requestHeaders.toMap())
         }
+    }
+
+    private class BlockingResponseHttpURLConnection(
+        url: URL,
+        private val responseStarted: CountDownLatch,
+        private val releaseResponse: CountDownLatch
+    ) : HttpURLConnection(url) {
+        override fun connect() = Unit
+
+        override fun disconnect() = Unit
+
+        override fun usingProxy(): Boolean = false
+
+        override fun getResponseCode(): Int {
+            responseStarted.countDown()
+            while (releaseResponse.count > 0L) {
+                try {
+                    releaseResponse.await()
+                } catch (_: InterruptedException) {
+                    // Simulate a platform connection that ignores thread interruption.
+                }
+            }
+            return 206
+        }
+
+        override fun getInputStream(): InputStream = ByteArrayInputStream(ByteArray(0))
     }
 
     private class ZeroThenPayloadInputStream(

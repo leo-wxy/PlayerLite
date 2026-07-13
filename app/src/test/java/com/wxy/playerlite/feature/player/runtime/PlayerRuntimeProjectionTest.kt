@@ -14,6 +14,167 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class PlayerRuntimeProjectionTest {
     @Test
+    fun updateRemotePlaybackState_afterForwardSeek_shouldIgnoreStaleProgressAfterInitialAcknowledgement() {
+        var elapsedRealtimeMs = 1_000L
+        val runtime = PlayerRuntime(
+            appContext = RuntimeEnvironment.getApplication(),
+            elapsedRealtimeProvider = { elapsedRealtimeMs }
+        )
+        val playable = PlayableItemSnapshot(
+            id = "track-1",
+            title = "在线歌曲",
+            playbackUri = "https://example.com/audio.mp3"
+        )
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 10_000L,
+            durationMs = 120_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = true,
+            currentPlayable = playable,
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+        runtime.onSeekValueChange(90_000L)
+        runtime.finishSeekDrag()
+
+        elapsedRealtimeMs += 50L
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 90_000L,
+            durationMs = 120_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = true,
+            currentPlayable = playable,
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        elapsedRealtimeMs += 50L
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 10_200L,
+            durationMs = 120_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = true,
+            currentPlayable = playable,
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        assertEquals(90_000L, runtime.uiStateFlow.value.displayedSeekMs)
+        elapsedRealtimeMs += 200L
+        runtime.tickRemotePlaybackPosition()
+        assertEquals(90_000L, runtime.uiStateFlow.value.displayedSeekMs)
+
+        elapsedRealtimeMs += 300L
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 90_100L,
+            durationMs = 120_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = true,
+            currentPlayable = playable,
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        assertEquals(90_100L, runtime.uiStateFlow.value.displayedSeekMs)
+    }
+
+    @Test
+    fun updateRemotePlaybackState_afterBackwardSeek_shouldIgnoreStaleProgressAfterInitialAcknowledgement() {
+        var elapsedRealtimeMs = 1_000L
+        val runtime = PlayerRuntime(
+            appContext = RuntimeEnvironment.getApplication(),
+            elapsedRealtimeProvider = { elapsedRealtimeMs }
+        )
+        val playable = PlayableItemSnapshot(
+            id = "track-1",
+            title = "在线歌曲",
+            playbackUri = "https://example.com/audio.mp3"
+        )
+
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 90_000L,
+            durationMs = 120_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = false,
+            currentPlayable = playable,
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+        runtime.onSeekValueChange(20_000L)
+        runtime.finishSeekDrag()
+
+        elapsedRealtimeMs += 50L
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 20_000L,
+            durationMs = 120_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = false,
+            currentPlayable = playable,
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        elapsedRealtimeMs += 50L
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 90_100L,
+            durationMs = 120_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = false,
+            currentPlayable = playable,
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        assertEquals(20_000L, runtime.uiStateFlow.value.displayedSeekMs)
+
+        elapsedRealtimeMs += 500L
+        runtime.updateRemotePlaybackState(
+            playbackState = AUDIO_TRACK_PLAYSTATE_STOPPED,
+            positionMs = 19_900L,
+            durationMs = 120_000L,
+            isSeekSupported = true,
+            playbackSpeed = 1.0f,
+            playbackMode = PlaybackMode.LIST_LOOP,
+            currentMediaId = "track-1",
+            isProgressAdvancing = false,
+            currentPlayable = playable,
+            playbackOutputInfo = null,
+            audioMeta = null
+        )
+
+        assertEquals(19_900L, runtime.uiStateFlow.value.displayedSeekMs)
+    }
+
+    @Test
     fun updateRemotePlaybackState_updatesAudioMetaFromRemoteSnapshot() {
         val runtime = PlayerRuntime(appContext = RuntimeEnvironment.getApplication())
         val audioMeta = AudioMetaDisplay(

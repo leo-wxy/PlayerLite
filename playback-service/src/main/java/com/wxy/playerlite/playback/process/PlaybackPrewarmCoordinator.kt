@@ -9,6 +9,7 @@ import com.wxy.playerlite.cache.core.session.CacheSession
 import com.wxy.playerlite.cache.core.session.OpenSessionParams
 import com.wxy.playerlite.cache.core.session.SessionCacheConfig
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
 import com.wxy.playerlite.playback.model.PlaybackPrewarmSnapshot
@@ -34,6 +35,7 @@ internal data class PlaybackPrewarmContext(
     val currentDurationMs: Long,
     val currentCacheResourceKey: String?,
     val currentCacheContentLengthHintBytes: Long?,
+    val currentCacheProgress: PlaybackCacheProgressSnapshot?,
     val currentItemCacheCompleteOrNoWrite: Boolean,
     val preferredAudioQuality: PlaybackAudioQuality,
     val preferences: PlaybackPrewarmPreferences
@@ -537,9 +539,19 @@ internal fun resolvePrewarmSkipSnapshot(
 internal fun resolvePlaybackPrewarmCandidate(
     context: PlaybackPrewarmContext
 ): PlaybackPrewarmCandidate? {
-    if (!context.currentItemCacheCompleteOrNoWrite) {
+    val currentReadyForNextTrack = context.currentItemCacheCompleteOrNoWrite ||
+        hasStableCurrentBufferForNextTrackPrewarm(
+            currentPositionMs = context.currentPositionMs,
+            currentDurationMs = context.currentDurationMs,
+            cacheProgress = context.currentCacheProgress,
+            preferences = context.preferences
+        )
+    if (!currentReadyForNextTrack) {
         val current = context.tracks.getOrNull(context.activeIndex) ?: return null
         if (!current.isOnlineTrack()) {
+            return null
+        }
+        if (context.currentPositionMs <= 0L) {
             return null
         }
         return PlaybackPrewarmCandidate(
@@ -563,6 +575,29 @@ internal fun resolvePlaybackPrewarmCandidate(
         startOffsetBytes = 0L,
         reason = "下一首首段"
     )
+}
+
+internal fun hasStableCurrentBufferForNextTrackPrewarm(
+    currentPositionMs: Long,
+    currentDurationMs: Long,
+    cacheProgress: PlaybackCacheProgressSnapshot?,
+    preferences: PlaybackPrewarmPreferences
+): Boolean {
+    val progress = cacheProgress ?: return false
+    if (progress.isFullyCached) {
+        return true
+    }
+    if (currentDurationMs <= 0L) {
+        return false
+    }
+    val bufferedEndMs = (progress.normalizedDisplayRatio * currentDurationMs.toDouble())
+        .toLong()
+        .coerceIn(0L, currentDurationMs)
+    val requiredAheadMs = maxOf(
+        MIN_CURRENT_BUFFER_AHEAD_FOR_NEXT_TRACK_MS,
+        preferences.sanitized().readyThresholdDurationMs * 2L
+    )
+    return bufferedEndMs - currentPositionMs.coerceAtLeast(0L) >= requiredAheadMs
 }
 
 internal fun resolveNextPrewarmTrack(
@@ -627,6 +662,8 @@ private fun mergeCompletedRanges(ranges: List<CacheCompletedRange>): List<CacheC
             merged
         }
 }
+
+private const val MIN_CURRENT_BUFFER_AHEAD_FOR_NEXT_TRACK_MS = 15_000L
 
 private fun resolvePrewarmStartOffset(
     candidate: PlaybackPrewarmCandidate,

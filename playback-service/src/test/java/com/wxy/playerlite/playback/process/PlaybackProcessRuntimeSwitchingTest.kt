@@ -43,6 +43,7 @@ class PlaybackProcessRuntimeSwitchingTest {
         val sourceSession = PreparedSourceSession()
         val preparedSource = FakePlaySource()
         sourceSession.markPrepared(itemId = "track-1", source = preparedSource)
+        sourceSession.markPlaybackStarting(itemId = "track-1")
         val state = MutableStateFlow(
             PlaybackProcessState(
                 tracks = listOf(
@@ -92,6 +93,7 @@ class PlaybackProcessRuntimeSwitchingTest {
         val sourceSession = PreparedSourceSession()
         val preparedSource = FakePlaySource()
         sourceSession.markPrepared(itemId = "track-1", source = preparedSource)
+        sourceSession.markPlaybackStarting(itemId = "track-1")
         val state = MutableStateFlow(
             PlaybackProcessState(
                 tracks = listOf(
@@ -123,6 +125,48 @@ class PlaybackProcessRuntimeSwitchingTest {
     }
 
     @Test
+    fun playCurrent_whenSourceWasJustPrepared_shouldNotCancelInitialPrefetchWithRewind() = runBlocking {
+        val runtime = unsafe.allocateInstance(PlaybackProcessRuntime::class.java) as PlaybackProcessRuntime
+        val player = FakeNativePlayer()
+        val playbackCoordinator = PlaybackCoordinator(
+            player = player,
+            scope = serviceScope,
+            queryDispatcher = Dispatchers.Main.immediate
+        )
+        val sourceSession = PreparedSourceSession()
+        val preparedSource = FakePlaySource()
+        sourceSession.markPrepared(itemId = "track-1", source = preparedSource)
+        val state = MutableStateFlow(
+            PlaybackProcessState(
+                tracks = listOf(
+                    PlaybackTrack(
+                        playable = MusicInfo(
+                            id = "track-1",
+                            title = "第一首",
+                            playbackUri = "https://example.com/1.mp3"
+                        )
+                    )
+                ),
+                activeIndex = 0,
+                playWhenReady = true,
+                playbackState = PLAYBACK_STATE_STOPPED,
+                isPreparing = false
+            )
+        )
+
+        setField(runtime, "_state", state)
+        setField(runtime, "sourceSession", sourceSession)
+        setField(runtime, "playbackCoordinator", playbackCoordinator)
+
+        runtime.playCurrent()
+
+        assertEquals(1, preparedSource.openCalls)
+        assertEquals(0, preparedSource.seekCalls)
+        assertEquals(1, player.stopCalls)
+        assertTrue(player.resumeCalls >= 1)
+    }
+
+    @Test
     fun playCurrent_whenPlaybackStateLooksPlayingButNoActivePlaybackTrack_shouldRelaunch() = runBlocking {
         val runtime = unsafe.allocateInstance(PlaybackProcessRuntime::class.java) as PlaybackProcessRuntime
         val player = FakeNativePlayer()
@@ -134,6 +178,7 @@ class PlaybackProcessRuntimeSwitchingTest {
         val sourceSession = PreparedSourceSession()
         val preparedSource = FakePlaySource()
         sourceSession.markPrepared(itemId = "track-1", source = preparedSource)
+        sourceSession.markPlaybackStarting(itemId = "track-1")
         val state = MutableStateFlow(
             PlaybackProcessState(
                 tracks = listOf(

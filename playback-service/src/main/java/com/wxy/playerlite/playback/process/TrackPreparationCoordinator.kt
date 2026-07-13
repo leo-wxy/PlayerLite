@@ -2,7 +2,6 @@ package com.wxy.playerlite.playback.process
 
 import android.net.Uri
 import android.util.Log
-import com.wxy.playerlite.cache.core.CacheCore
 import com.wxy.playerlite.cache.core.provider.RangeDataProvider
 import com.wxy.playerlite.cache.core.session.SessionCacheConfig
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
@@ -105,94 +104,76 @@ internal class TrackPreparationCoordinator(
         } else {
             null
         }
-        var validationAttempt = 0
-        while (true) {
-            val plan = if (planner != null) {
-                planner.buildPlan(
-                    track = item,
-                    preferredAudioQuality = preferredAudioQuality
-                ).getOrElse { error ->
-                    return PreparationResult.Invalid(
-                        message = error.message ?: "Failed to resolve online stream",
-                        failure = error.asOnlinePlaybackFailure()
-                    )
-                }
-            } else {
-                OnlinePlaybackPlan(
-                    resourceKey = item.id.ifBlank { item.uri },
-                    playbackUrl = item.uri,
-                    requestHeaders = item.requestHeaders,
-                    preferredAudioQuality = preferredAudioQuality,
-                    appliedAudioQuality = preferredAudioQuality,
-                    durationHintMs = item.durationHintMs,
-                    contentLengthHintBytes = null,
-                    previewClip = item.previewClip,
-                    useCacheOnlyProvider = false
+        val plan = if (planner != null) {
+            planner.buildPlan(
+                track = item,
+                preferredAudioQuality = preferredAudioQuality
+            ).getOrElse { error ->
+                return PreparationResult.Invalid(
+                    message = error.message ?: "Failed to resolve online stream",
+                    failure = error.asOnlinePlaybackFailure()
                 )
             }
-            if (!plan.useCacheOnlyProvider && plan.playbackUrl.isNullOrBlank()) {
-                return PreparationResult.Invalid("Failed to resolve online stream")
-            }
-            val shouldValidateActualDuration =
-                !item.songId.isNullOrBlank() &&
-                    item.durationHintMs > 0L &&
-                    plan.previewClip == null
-            val result = prepareNetworkSourceInternal(
-                item = item,
-                durationHintMs = plan.durationHintMs,
-                preferActualMetadataWhenHintPresent = shouldValidateActualDuration,
-                createSource = {
-                    createNetworkPlaybackSource(
-                        plan = plan,
-                        onCacheFailure = onCacheFailure
-                    )
-                },
-                createMetadataProbeSource = if (
-                    (!shouldValidateActualDuration && plan.durationHintMs > 0L) || plan.useCacheOnlyProvider
-                ) {
-                    null
-                } else {
-                    {
-                        ProviderBackedNetworkProbeSource(
-                            id = plan.resourceKey,
-                            provider = HttpRangeDataProvider(
-                                url = plan.playbackUrl.orEmpty(),
-                                requestHeaders = plan.requestHeaders
-                            )
-                        )
-                    }
-                },
-                loadAudioMeta = { source ->
-                    playbackCoordinator.loadAudioMetaDisplayFromSource(source)
-                },
-                logInfo = ::safeLogI,
-                logError = ::safeLogE
-            )
-            val ready = result as? PreparationResult.Ready ?: return result
-            if (
-                shouldValidateActualDuration &&
-                looksLikeShortRestrictedClip(item.durationHintMs, ready.mediaMeta.durationMs)
-            ) {
-                ready.source.abort()
-                ready.source.close()
-                invalidateOnlineCache(plan.resourceKey)
-                if (validationAttempt == 0) {
-                    validationAttempt += 1
-                    continue
-                }
-                return PreparationResult.Invalid("Resolved online stream is shorter than expected")
-            }
-            return ready.copy(
-                appliedAudioQuality = plan.appliedAudioQuality,
-                cacheResourceKey = plan.resourceKey,
-                cacheContentLengthHintBytes = plan.contentLengthHintBytes,
-                initialCacheProgress = resolveInitialPlaybackCacheProgressSnapshot(
-                    resourceKey = plan.resourceKey,
-                    totalBytesHint = plan.contentLengthHintBytes,
-                    durationMs = ready.mediaMeta.durationMs
-                )
+        } else {
+            OnlinePlaybackPlan(
+                resourceKey = item.id.ifBlank { item.uri },
+                playbackUrl = item.uri,
+                requestHeaders = item.requestHeaders,
+                preferredAudioQuality = preferredAudioQuality,
+                appliedAudioQuality = preferredAudioQuality,
+                durationHintMs = item.durationHintMs,
+                contentLengthHintBytes = null,
+                previewClip = item.previewClip,
+                useCacheOnlyProvider = false
             )
         }
+        if (!plan.useCacheOnlyProvider && plan.playbackUrl.isNullOrBlank()) {
+            return PreparationResult.Invalid("Failed to resolve online stream")
+        }
+        val result = prepareNetworkSourceInternal(
+            item = item,
+            durationHintMs = plan.durationHintMs,
+            createSource = {
+                createNetworkPlaybackSource(
+                    plan = plan,
+                    onCacheFailure = onCacheFailure
+                )
+            },
+            createMetadataProbeSource = if (
+                !shouldProbeNetworkMetadataBeforePlayback(
+                    durationHintMs = plan.durationHintMs,
+                    useCacheOnlyProvider = plan.useCacheOnlyProvider
+                )
+            ) {
+                null
+            } else {
+                {
+                    ProviderBackedNetworkProbeSource(
+                        id = plan.resourceKey,
+                        provider = HttpRangeDataProvider(
+                            url = plan.playbackUrl.orEmpty(),
+                            requestHeaders = plan.requestHeaders
+                        )
+                    )
+                }
+            },
+            loadAudioMeta = { source ->
+                playbackCoordinator.loadAudioMetaDisplayFromSource(source)
+            },
+            logInfo = ::safeLogI,
+            logError = ::safeLogE
+        )
+        val ready = result as? PreparationResult.Ready ?: return result
+        return ready.copy(
+            appliedAudioQuality = plan.appliedAudioQuality,
+            cacheResourceKey = plan.resourceKey,
+            cacheContentLengthHintBytes = plan.contentLengthHintBytes,
+            initialCacheProgress = resolveInitialPlaybackCacheProgressSnapshot(
+                resourceKey = plan.resourceKey,
+                totalBytesHint = plan.contentLengthHintBytes,
+                durationMs = ready.mediaMeta.durationMs
+            )
+        )
     }
 
     private companion object {
@@ -206,13 +187,12 @@ internal class TrackPreparationCoordinator(
     private fun safeLogE(message: String) {
         runCatching { Log.e(TAG, message) }
     }
-
-    private fun invalidateOnlineCache(resourceKey: String) {
-        CacheCore.lookup(resourceKey)
-            .getOrNull()
-            ?.let(OnlineCacheMetadata::purgeSnapshot)
-    }
 }
+
+internal fun shouldProbeNetworkMetadataBeforePlayback(
+    durationHintMs: Long,
+    useCacheOnlyProvider: Boolean
+): Boolean = durationHintMs <= 0L && !useCacheOnlyProvider
 
 internal fun createNetworkPlaybackSource(
     plan: OnlinePlaybackPlan,

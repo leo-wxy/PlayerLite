@@ -7,6 +7,7 @@ import com.wxy.playerlite.cache.core.session.CacheSession
 import com.wxy.playerlite.cache.core.session.OpenSessionParams
 import com.wxy.playerlite.playback.model.PlayableItemSnapshot
 import com.wxy.playerlite.playback.model.PlaybackAudioQuality
+import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.playback.model.PlaybackMode
 import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
 import com.wxy.playerlite.playback.model.PlaybackPrewarmSnapshot
@@ -42,6 +43,47 @@ class PlaybackPrewarmCoordinatorTest {
 
         assertEquals("track-2", candidate?.track?.id)
         assertEquals(PlaybackPrewarmTargetType.NEXT_TRACK, candidate?.targetType)
+    }
+
+    @Test
+    fun resolveCandidate_whenCurrentHasStableAheadBuffer_shouldUseNextTrack() {
+        val context = prewarmContext(
+            currentItemCacheCompleteOrNoWrite = false,
+            currentPositionMs = 44_000L,
+            currentDurationMs = 198_000L,
+            currentCacheProgress = cacheProgress(displayRatio = 0.39f)
+        )
+
+        val candidate = resolvePlaybackPrewarmCandidate(context)
+
+        assertEquals("track-2", candidate?.track?.id)
+        assertEquals(PlaybackPrewarmTargetType.NEXT_TRACK, candidate?.targetType)
+    }
+
+    @Test
+    fun resolveCandidate_whenCurrentAheadBufferIsShort_shouldKeepCurrentAhead() {
+        val context = prewarmContext(
+            currentItemCacheCompleteOrNoWrite = false,
+            currentPositionMs = 44_000L,
+            currentDurationMs = 198_000L,
+            currentCacheProgress = cacheProgress(displayRatio = 0.28f)
+        )
+
+        val candidate = resolvePlaybackPrewarmCandidate(context)
+
+        assertEquals("track-1", candidate?.track?.id)
+        assertEquals(PlaybackPrewarmTargetType.CURRENT_AHEAD, candidate?.targetType)
+    }
+
+    @Test
+    fun resolveCandidate_whenCurrentTrackHasNotStarted_shouldNotCompeteWithPlaybackPreparation() {
+        val context = prewarmContext(
+            currentItemCacheCompleteOrNoWrite = false,
+            currentPositionMs = 0L,
+            currentCacheProgress = null
+        )
+
+        assertNull(resolvePlaybackPrewarmCandidate(context))
     }
 
     @Test
@@ -425,6 +467,9 @@ class PlaybackPrewarmCoordinatorTest {
     private fun prewarmContext(
         playbackMode: PlaybackMode = PlaybackMode.LIST_LOOP,
         currentItemCacheCompleteOrNoWrite: Boolean = false,
+        currentPositionMs: Long = 10_000L,
+        currentDurationMs: Long = 180_000L,
+        currentCacheProgress: PlaybackCacheProgressSnapshot? = null,
         preferredAudioQuality: PlaybackAudioQuality = PlaybackAudioQuality.EXHIGH,
         currentTrackSongId: String? = "song-1",
         currentTrackUri: String = "https://example.com/track-1.m4a",
@@ -438,13 +483,24 @@ class PlaybackPrewarmCoordinatorTest {
             ),
             activeIndex = 0,
             playbackMode = playbackMode,
-            currentPositionMs = 10_000L,
-            currentDurationMs = 180_000L,
+            currentPositionMs = currentPositionMs,
+            currentDurationMs = currentDurationMs,
             currentCacheResourceKey = "online_song-1_exhigh_full",
             currentCacheContentLengthHintBytes = 9_000_000L,
+            currentCacheProgress = currentCacheProgress,
             currentItemCacheCompleteOrNoWrite = currentItemCacheCompleteOrNoWrite,
             preferredAudioQuality = preferredAudioQuality,
             preferences = PlaybackPrewarmPreferences()
+        )
+    }
+
+    private fun cacheProgress(displayRatio: Float): PlaybackCacheProgressSnapshot {
+        return PlaybackCacheProgressSnapshot(
+            cachedBytes = (displayRatio * 10_000_000L).toLong(),
+            totalBytes = 10_000_000L,
+            displayRatio = displayRatio,
+            isFullyCached = false,
+            isEstimated = false
         )
     }
 

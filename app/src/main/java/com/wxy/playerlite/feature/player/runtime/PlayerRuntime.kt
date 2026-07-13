@@ -68,6 +68,7 @@ internal class PlayerRuntime(
     private var lastRemotePlaybackIds: Set<String> = emptySet()
     private var pendingRemotePlaybackItemId: String? = null
     private var pendingLocalSeekCacheReanchorPositionMs: Long? = null
+    private var pendingLocalSeekDisplay: PendingLocalSeekDisplay? = null
 
     private var uiState: PlayerUiState
         get() = _uiState.value
@@ -216,6 +217,7 @@ internal class PlayerRuntime(
     }
 
     fun finishSeekDrag() {
+        val originPositionMs = uiState.seekPositionMs
         val bounded = if (uiState.durationMs > 0L) {
             uiState.seekDragPositionMs.coerceIn(0L, uiState.durationMs)
         } else {
@@ -227,6 +229,11 @@ internal class PlayerRuntime(
             isSeekDragging = false
         )
         pendingLocalSeekCacheReanchorPositionMs = bounded
+        pendingLocalSeekDisplay = PendingLocalSeekDisplay(
+            originPositionMs = originPositionMs,
+            targetPositionMs = bounded,
+            startedAtElapsedRealtimeMs = elapsedRealtimeProvider()
+        )
         updateRemoteProgressAnchor(bounded)
     }
 
@@ -472,9 +479,34 @@ internal class PlayerRuntime(
         } else {
             uiState.bufferedPositionMs
         }
-        val currentProjectedPosition = uiState.displayedSeekMs
         val sameActiveQueueItem = remoteProjection.queueItem?.id == playlistSession.activeItem?.id
-        val bounded = if (
+        val currentProjectedPosition = uiState.displayedSeekMs
+        val nowElapsedRealtimeMs = elapsedRealtimeProvider()
+        var pendingSeekDisplay = pendingLocalSeekDisplay
+        val pendingSeekExpired = pendingSeekDisplay?.isExpiredAt(nowElapsedRealtimeMs) == true
+        val pendingSeekAcknowledged = pendingSeekDisplay?.isAcknowledgedBy(remoteBoundedPosition) == true
+        if (pendingSeekDisplay != null && pendingSeekAcknowledged) {
+            pendingSeekDisplay = pendingSeekDisplay.withAcknowledgementAt(nowElapsedRealtimeMs)
+            pendingLocalSeekDisplay = pendingSeekDisplay
+        }
+        val pendingSeekStable = pendingSeekAcknowledged &&
+            !isPreparing &&
+            pendingSeekDisplay?.hasStableAcknowledgementAt(nowElapsedRealtimeMs) == true
+        val shouldHoldPendingSeekDisplay = pendingSeekDisplay != null &&
+            shouldApplyRemoteProgress &&
+            sameActiveQueueItem &&
+            !pendingSeekExpired &&
+            !pendingSeekStable
+        if (
+            pendingSeekDisplay != null &&
+            shouldApplyRemoteProgress &&
+            (!sameActiveQueueItem || pendingSeekExpired || pendingSeekStable)
+        ) {
+            pendingLocalSeekDisplay = null
+        }
+        val bounded = if (shouldHoldPendingSeekDisplay) {
+            pendingSeekDisplay.targetPositionMs
+        } else if (
             shouldApplyRemoteProgress &&
             sameActiveQueueItem &&
             isPreparing &&
@@ -510,13 +542,18 @@ internal class PlayerRuntime(
         } else {
             uiState.bufferedPositionMs
         }
+        val cacheProgressRemotePosition = if (shouldHoldPendingSeekDisplay) {
+            remoteBoundedPosition
+        } else {
+            bounded
+        }
         val resolvedCacheProgress = if (shouldApplyRemoteProgress) {
             stabilizeRemoteCacheProgress(
                 previous = uiState.cacheProgress,
                 next = cacheProgress,
                 sameRemotePlaybackIdentity = sameRemotePlaybackIdentity,
                 currentProjectedPositionMs = currentProjectedPosition,
-                remotePositionMs = bounded
+                remotePositionMs = cacheProgressRemotePosition
             )
         } else {
             uiState.cacheProgress
@@ -526,12 +563,15 @@ internal class PlayerRuntime(
             shouldConsumeLocalSeekCacheReanchor(
                 resolved = resolvedCacheProgress,
                 next = cacheProgress,
-                remotePositionMs = bounded
+                remotePositionMs = cacheProgressRemotePosition
             )
         ) {
             pendingLocalSeekCacheReanchorPositionMs = null
         }
-        remoteProgressShouldAdvance = shouldApplyRemoteProgress && isProgressAdvancing && !isPreparing
+        remoteProgressShouldAdvance = shouldApplyRemoteProgress &&
+            isProgressAdvancing &&
+            !isPreparing &&
+            !shouldHoldPendingSeekDisplay
         if (shouldApplyRemoteProgress) {
             updateRemoteProgressAnchor(bounded)
         }
@@ -748,6 +788,13 @@ internal class PlayerRuntime(
     }
 
     fun tickRemotePlaybackPosition() {
+        val pendingSeekDisplay = pendingLocalSeekDisplay
+        if (pendingSeekDisplay != null && !pendingSeekDisplay.isExpiredAt(elapsedRealtimeProvider())) {
+            return
+        }
+        if (pendingSeekDisplay != null) {
+            pendingLocalSeekDisplay = null
+        }
         if (uiState.isSeekDragging || !remoteProgressShouldAdvance) {
             return
         }
@@ -771,6 +818,7 @@ internal class PlayerRuntime(
         pendingPreferredAudioQuality = null
         pendingAudioEffectPreset = null
         pendingLocalSeekCacheReanchorPositionMs = null
+        pendingLocalSeekDisplay = null
         resetRemoteProgressAnchor()
         uiState = uiState.copy(
             audioMeta = emptyAudioMeta(),
@@ -1007,6 +1055,7 @@ internal class PlayerRuntime(
         }
         remoteProgressShouldAdvance = false
         pendingLocalSeekCacheReanchorPositionMs = null
+        pendingLocalSeekDisplay = null
         updateRemoteProgressAnchor(restoredPositionMs)
         uiState = uiState.copy(
             playbackState = AUDIO_TRACK_PLAYSTATE_PAUSED,
@@ -1065,6 +1114,7 @@ internal class PlayerRuntime(
         remoteProgressShouldAdvance = false
         pendingPreferredAudioQuality = null
         pendingLocalSeekCacheReanchorPositionMs = null
+        pendingLocalSeekDisplay = null
         resetRemoteProgressAnchor()
         uiState = uiState.copy(
             audioMeta = emptyAudioMeta(),
@@ -1210,6 +1260,8 @@ internal class PlayerRuntime(
 
 private const val MINOR_REMOTE_PROGRESS_REGRESSION_TOLERANCE_MS = 450L
 private const val REMOTE_CACHE_REANCHOR_POSITION_JUMP_THRESHOLD_MS = 5_000L
+private const val PENDING_LOCAL_SEEK_STABILITY_MS = 400L
+private const val PENDING_LOCAL_SEEK_DISPLAY_TIMEOUT_MS = 5_000L
 private const val PLAYBACK_PREFERENCES_NAME = "player_playback_preferences"
 private const val KEY_RESTORE_LAST_PLAYBACK_ON_STARTUP = "restore_last_playback_on_startup"
 private const val KEY_RESUME_FROM_LAST_POSITION = "resume_from_last_position"
@@ -1218,6 +1270,44 @@ internal data class ExternalQueueSelectionResult(
     val replacedQueue: Boolean,
     val activeItemId: String?
 )
+
+private data class PendingLocalSeekDisplay(
+    val originPositionMs: Long,
+    val targetPositionMs: Long,
+    val startedAtElapsedRealtimeMs: Long,
+    val acknowledgedAtElapsedRealtimeMs: Long? = null
+) {
+    fun isAcknowledgedBy(remotePositionMs: Long): Boolean {
+        return when {
+            targetPositionMs > originPositionMs + MINOR_REMOTE_PROGRESS_REGRESSION_TOLERANCE_MS ->
+                remotePositionMs >= targetPositionMs - MINOR_REMOTE_PROGRESS_REGRESSION_TOLERANCE_MS
+
+            targetPositionMs < originPositionMs - MINOR_REMOTE_PROGRESS_REGRESSION_TOLERANCE_MS ->
+                remotePositionMs <= targetPositionMs + MINOR_REMOTE_PROGRESS_REGRESSION_TOLERANCE_MS
+
+            else -> kotlin.math.abs(remotePositionMs - targetPositionMs) <=
+                MINOR_REMOTE_PROGRESS_REGRESSION_TOLERANCE_MS
+        }
+    }
+
+    fun withAcknowledgementAt(nowElapsedRealtimeMs: Long): PendingLocalSeekDisplay {
+        return if (acknowledgedAtElapsedRealtimeMs == null) {
+            copy(acknowledgedAtElapsedRealtimeMs = nowElapsedRealtimeMs)
+        } else {
+            this
+        }
+    }
+
+    fun hasStableAcknowledgementAt(nowElapsedRealtimeMs: Long): Boolean {
+        val acknowledgedAt = acknowledgedAtElapsedRealtimeMs ?: return false
+        return nowElapsedRealtimeMs - acknowledgedAt >= PENDING_LOCAL_SEEK_STABILITY_MS
+    }
+
+    fun isExpiredAt(nowElapsedRealtimeMs: Long): Boolean {
+        return nowElapsedRealtimeMs - startedAtElapsedRealtimeMs >=
+            PENDING_LOCAL_SEEK_DISPLAY_TIMEOUT_MS
+    }
+}
 
 private data class RemotePlaybackProjection(
     val queueItem: PlaylistItem?,

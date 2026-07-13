@@ -8,7 +8,9 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.CancellationException
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
@@ -29,7 +31,7 @@ internal class HttpRangeDataProvider(
     private val targetUrl = URL(url)
     private val inFlightLock = Any()
     private val dnsResolveExecutor = Executors.newSingleThreadExecutor()
-    private val openCallExecutor = Executors.newSingleThreadExecutor()
+    private val openCallExecutor = Executors.newCachedThreadPool()
 
     @Volatile
     private var closed = false
@@ -48,6 +50,7 @@ internal class HttpRangeDataProvider(
 
     private var activeRead: ActiveRead? = null
     private var openingConnection: HttpURLConnection? = null
+    private var openingResponseFuture: Future<Int>? = null
 
     override fun readAt(offset: Long, size: Int, callback: RangeDataProvider.ReadCallback) {
         callback.onDataBegin(offset, size)
@@ -101,6 +104,7 @@ internal class HttpRangeDataProvider(
     override fun cancelInFlightRead() {
         synchronized(inFlightLock) {
             closeActiveReadLocked()
+            cancelOpeningResponseFutureLocked()
             closeOpeningConnectionLocked()
         }
     }
@@ -196,6 +200,7 @@ internal class HttpRangeDataProvider(
                     setRequestProperty("Host", targetUrl.host)
                 }
             }
+            var responseCodeFuture: Future<Int>? = null
             try {
                 synchronized(inFlightLock) {
                     if (closed) {
@@ -210,11 +215,23 @@ internal class HttpRangeDataProvider(
                 )
                 val openTimeoutMs = (connectTimeoutMs.toLong() + readTimeoutMs.toLong() + 500L)
                     .coerceAtLeast(1_500L)
-                val responseCodeFuture = openCallExecutor.submit<Int> { connection.responseCode }
+                val future = openCallExecutor.submit<Int> { connection.responseCode }
+                responseCodeFuture = future
+                synchronized(inFlightLock) {
+                    if (closed || openingConnection !== connection) {
+                        future.cancel(true)
+                        runCatching { connection.disconnect() }
+                        return null
+                    }
+                    openingResponseFuture = future
+                }
                 val code = try {
-                    responseCodeFuture.get(openTimeoutMs, TimeUnit.MILLISECONDS)
+                    future.get(openTimeoutMs, TimeUnit.MILLISECONDS)
+                } catch (_: CancellationException) {
+                    runCatching { connection.disconnect() }
+                    return null
                 } catch (timeout: TimeoutException) {
-                    responseCodeFuture.cancel(true)
+                    future.cancel(true)
                     runCatching { connection.disconnect() }
                     safeLogE(
                         "openRangeRead timeout: url=$targetUrl offset=$offset waitMs=$openTimeoutMs attempt=${attemptIndex + 1}/$attempts",
@@ -276,6 +293,9 @@ internal class HttpRangeDataProvider(
                 }
             } finally {
                 synchronized(inFlightLock) {
+                    if (openingResponseFuture === responseCodeFuture) {
+                        openingResponseFuture = null
+                    }
                     if (openingConnection === connection) {
                         openingConnection = null
                     }
@@ -384,6 +404,12 @@ internal class HttpRangeDataProvider(
         val opening = openingConnection ?: return
         openingConnection = null
         runCatching { opening.disconnect() }
+    }
+
+    private fun cancelOpeningResponseFutureLocked() {
+        val openingFuture = openingResponseFuture ?: return
+        openingResponseFuture = null
+        openingFuture.cancel(true)
     }
 
     private fun buildPreferredTargetUrl(): URL {

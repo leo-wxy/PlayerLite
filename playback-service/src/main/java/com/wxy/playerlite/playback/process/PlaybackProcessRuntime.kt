@@ -686,7 +686,11 @@ internal class PlaybackProcessRuntime(
         }
         val supportsFastSeek = source.supportFastSeek()
         val effectiveStartPositionMs = if (supportsFastSeek) startPositionMs else 0L
-        if (supportsFastSeek && source.seek(0L, IPlaysource.SEEK_SET) < 0L) {
+        if (
+            supportsFastSeek &&
+            sourceSession.shouldRewindBeforePlayback(item.id) &&
+            source.seek(0L, IPlaysource.SEEK_SET) < 0L
+        ) {
             pendingAudioQualitySwitchTarget = null
             resetPlaybackRetryState(requestedTrackId)
             safeLogE("playCurrent source rewind failed: id=${item.id}")
@@ -717,6 +721,7 @@ internal class PlaybackProcessRuntime(
 
         var completionAction = PlaybackCompletionAction.STOP_WITH_ERROR
         var retryPositionMs = 0L
+        sourceSession.markPlaybackStarting(item.id)
         playbackCoordinator.launchPlay(
             source = source,
             onStarted = {
@@ -1297,6 +1302,7 @@ internal class PlaybackProcessRuntime(
                 currentDurationMs = current.durationMs,
                 currentCacheResourceKey = current.currentCacheResourceKey,
                 currentCacheContentLengthHintBytes = current.currentCacheContentLengthHintBytes,
+                currentCacheProgress = current.cacheProgress,
                 currentItemCacheCompleteOrNoWrite =
                     isCurrentItemCacheCompleteOrNoLongerNeedsWrites(current),
                 preferredAudioQuality = current.preferredAudioQuality,
@@ -1678,8 +1684,18 @@ internal class PlaybackProcessRuntime(
                     current
                 } else {
                     val shouldSchedulePrewarm = current.currentTrack?.isOnlineTrackForPrewarm() == true &&
-                        current.cacheProgress?.isFullyCached != true &&
-                        stabilized?.isFullyCached == true
+                        !hasStableCurrentBufferForNextTrackPrewarm(
+                            currentPositionMs = current.positionMs,
+                            currentDurationMs = current.durationMs,
+                            cacheProgress = current.cacheProgress,
+                            preferences = current.playbackPrewarmPreferences
+                        ) &&
+                        hasStableCurrentBufferForNextTrackPrewarm(
+                            currentPositionMs = current.positionMs,
+                            currentDurationMs = current.durationMs,
+                            cacheProgress = stabilized,
+                            preferences = current.playbackPrewarmPreferences
+                        )
                     emitCacheProgressDebugLog(
                         buildString {
                             append("cacheProgress callback: key=")

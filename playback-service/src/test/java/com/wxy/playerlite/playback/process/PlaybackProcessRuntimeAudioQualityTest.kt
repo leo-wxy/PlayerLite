@@ -220,7 +220,7 @@ class PlaybackProcessRuntimeAudioQualityTest {
         )
         assertEquals(1, firstSource.abortCalls)
         assertEquals(1, firstSource.closeCalls)
-        assertEquals(listOf(0L), secondSource.seekOffsets)
+        assertTrue(secondSource.seekOffsets.isEmpty())
         assertEquals(PlaybackAudioQuality.LOSSLESS, runtime.state.value.preferredAudioQuality)
         assertEquals(PlaybackAudioQuality.LOSSLESS, runtime.state.value.appliedAudioQuality)
         assertEquals("切换音质中：无损", runtime.state.value.statusText)
@@ -447,7 +447,7 @@ class PlaybackProcessRuntimeAudioQualityTest {
         assertEquals(PlaybackAudioQuality.HIRES, runtime.state.value.appliedAudioQuality)
         assertEquals(91_000L, runtime.state.value.positionMs)
         assertEquals("切换音质中：Hi-Res", runtime.state.value.statusText)
-        assertEquals(listOf(0L), refreshedSource.seekOffsets)
+        assertTrue(refreshedSource.seekOffsets.isEmpty())
 
         testScope.cancel()
     }
@@ -509,7 +509,7 @@ class PlaybackProcessRuntimeAudioQualityTest {
         assertEquals(2, trackPreparer.requestedQualities.size)
         assertEquals(1, firstSource.abortCalls)
         assertEquals(1, firstSource.closeCalls)
-        assertEquals(listOf(0L), secondSource.seekOffsets)
+        assertTrue(secondSource.seekOffsets.isEmpty())
         assertEquals(
             neteaseCompatibleConfigJson("https://mirror.example.com/api"),
             runtime.state.value.activeAudioSourceConfigJson

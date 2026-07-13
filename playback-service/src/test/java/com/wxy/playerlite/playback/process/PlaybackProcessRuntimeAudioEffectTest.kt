@@ -232,7 +232,7 @@ class PlaybackProcessRuntimeAudioEffectTest {
         }
 
         assertEquals(1, preparedSource.openCalls)
-        assertEquals(listOf(0L), preparedSource.seekOffsets)
+        assertTrue(preparedSource.seekOffsets.isEmpty())
         assertEquals(listOf(1.2f), nativePlayer.requestedSpeeds)
         assertEquals(listOf(AudioEffectPreset.BASS_BOOST), nativePlayer.requestedPresets)
         assertEquals(1, nativePlayer.playFromSourceCalls)

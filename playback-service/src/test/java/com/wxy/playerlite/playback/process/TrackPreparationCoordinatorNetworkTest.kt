@@ -10,6 +10,22 @@ import org.junit.Test
 
 class TrackPreparationCoordinatorNetworkTest {
     @Test
+    fun networkPreparationPolicy_shouldSkipMetadataProbeWhenDurationIsKnown() {
+        assertTrue(
+            !shouldProbeNetworkMetadataBeforePlayback(
+                durationHintMs = 219_893L,
+                useCacheOnlyProvider = false
+            )
+        )
+        assertTrue(
+            shouldProbeNetworkMetadataBeforePlayback(
+                durationHintMs = 0L,
+                useCacheOnlyProvider = false
+            )
+        )
+    }
+
+    @Test
     fun createNetworkPlaybackSource_shouldUseCacheSourceForNetworkPlayback() {
         val source = createNetworkPlaybackSource(
             plan = OnlinePlaybackPlan(
