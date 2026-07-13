@@ -235,6 +235,7 @@ PATH=/Users/wxy/.nvm/versions/node/v20.20.0/bin:$PATH openspec validate --all
 仓库已预埋基于 GitHub Actions 的 tag 发布流程：
 
 - 推送符合 `v*` 规则的 tag，例如 `v0.1.0`
+- Actions 会从 `vX.Y.Z` tag 自动写入 APK 的 `versionName=X.Y.Z` 和对应 `versionCode`
 - Actions 会自动执行 `./gradlew :app:assembleRelease`
 - 构建成功后，`release APK` 会自动附加到对应的 GitHub Release
 

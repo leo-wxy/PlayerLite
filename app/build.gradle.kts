@@ -6,6 +6,13 @@ plugins {
 val apiBaseUrl = providers.gradleProperty("playerlite.apiBaseUrl")
     .orElse("http://139.9.223.233:3000")
     .get()
+val appVersionName = providers.gradleProperty("playerlite.versionName")
+    .orElse("0.2.0")
+    .get()
+val appVersionCode = providers.gradleProperty("playerlite.versionCode")
+    .map { it.toInt() }
+    .orElse(2000)
+    .get()
 
 android {
     namespace = "com.wxy.playerlite"
@@ -16,8 +23,8 @@ android {
 
     defaultConfig {
         applicationId = "com.wxy.playerlite"
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
