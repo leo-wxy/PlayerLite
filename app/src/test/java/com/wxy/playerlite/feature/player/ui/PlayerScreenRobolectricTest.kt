@@ -2080,7 +2080,7 @@ class PlayerScreenRobolectricTest {
         }
 
         composeRule.onNodeWithTag("player_screen_lyric_summary").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_lyric_summary").assertTextEquals("“第一句”")
+        composeRule.onNodeWithTag("player_screen_lyric_summary").assertTextEquals("“第二句”")
         composeRule.onAllNodesWithTag("player_screen_top_tabs").assertCountEquals(0)
         composeRule.onAllNodesWithText("歌曲").assertCountEquals(0)
         composeRule.onAllNodesWithText("歌词").assertCountEquals(0)
@@ -2104,7 +2104,7 @@ class PlayerScreenRobolectricTest {
         composeRule.onNodeWithTag("player_screen_controls_section").assertIsNotDisplayed()
         composeRule.onNodeWithTag("player_screen_title").assertIsNotDisplayed()
         composeRule.onNodeWithTag("player_screen_artist").assertIsNotDisplayed()
-        composeRule.onNodeWithTag("player_screen_lyrics_line_active_0").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_lyrics_line_active_1").assertIsDisplayed()
     }
 
     @Test
@@ -2159,7 +2159,7 @@ class PlayerScreenRobolectricTest {
         composeRule.runOnIdle {
             seekValueMs = 18_500L
         }
-        composeRule.onNodeWithTag("player_screen_lyric_summary").assertTextEquals("“第18句”")
+        composeRule.onNodeWithTag("player_screen_lyric_summary").assertTextEquals("“第19句”")
         composeRule.onNodeWithTag("player_screen_content_pager").performTouchInput {
             swipeLeft()
         }
@@ -2169,7 +2169,7 @@ class PlayerScreenRobolectricTest {
         composeRule.onNodeWithTag("player_screen_lyrics_page").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_lyrics_viewport").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_progress_section").assertIsNotDisplayed()
-        composeRule.onNodeWithTag("player_screen_lyrics_line_active_17").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_lyrics_line_active_18").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_content_pager").performTouchInput {
             swipeRight()
         }
@@ -2231,7 +2231,7 @@ class PlayerScreenRobolectricTest {
         composeRule.mainClock.advanceTimeByFrame()
 
         composeRule.onNodeWithTag("player_screen_lyrics_page").assertIsDisplayed()
-        composeRule.onNodeWithTag("player_screen_lyrics_line_active_29").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_screen_lyrics_line_active_30").assertIsDisplayed()
     }
 
     @Test

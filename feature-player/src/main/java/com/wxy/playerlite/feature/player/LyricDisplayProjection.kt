@@ -106,10 +106,13 @@ internal fun resolveActiveLyricLineIndex(
     if (lines.isEmpty()) {
         return -1
     }
+    val lyricPositionMs = (currentPositionMs + LYRIC_DISPLAY_LEAD_MS).coerceAtLeast(0L)
     for (index in lines.lastIndex downTo 0) {
-        if (currentPositionMs >= lines[index].timestampMs) {
+        if (lyricPositionMs >= lines[index].timestampMs) {
             return index
         }
     }
     return 0
 }
+
+private const val LYRIC_DISPLAY_LEAD_MS = 500L
