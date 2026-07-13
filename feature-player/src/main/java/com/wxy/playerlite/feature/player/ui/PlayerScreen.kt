@@ -1484,6 +1484,10 @@ private fun PlayerToolActionRow(
 	    } else {
 	        layoutMetrics.toolIconSize
 	    }
+	    val playbackModeIconSize = iconSize * 0.94f
+	    val songDetailIconSize = iconSize * 0.90f
+	    val audioEffectIconSize = iconSize * 0.96f
+	    val playlistIconSize = iconSize * 0.94f
 	    val itemSpacing = if (compact) 8.dp else 12.dp
 	    Row(
 	        modifier = modifier
@@ -1502,7 +1506,7 @@ private fun PlayerToolActionRow(
             icon = playbackMode.modeIcon(),
             contentDescription = playbackMode.modeContentDescription(),
             buttonSize = buttonSize,
-            iconSize = iconSize,
+            iconSize = playbackModeIconSize,
             transparent = true,
             onClick = onPlaybackModeClick
         )
@@ -1513,7 +1517,7 @@ private fun PlayerToolActionRow(
                 icon = Icons.AutoMirrored.Rounded.MenuBook,
                 contentDescription = "打开歌曲详情",
                 buttonSize = buttonSize,
-                iconSize = iconSize,
+                iconSize = songDetailIconSize,
                 transparent = true,
                 onClick = onOpenSongDetail
             )
@@ -1525,7 +1529,7 @@ private fun PlayerToolActionRow(
                 icon = Icons.Rounded.FavoriteBorder,
                 contentDescription = "收藏当前歌曲",
                 buttonSize = buttonSize,
-                iconSize = iconSize,
+                iconSize = playbackModeIconSize,
                 transparent = true,
                 onClick = onFavoriteClick
             )
@@ -1536,7 +1540,7 @@ private fun PlayerToolActionRow(
 	        icon = Icons.Rounded.GraphicEq,
 	        contentDescription = "音效设置",
             buttonSize = buttonSize,
-            iconSize = iconSize,
+            iconSize = audioEffectIconSize,
             transparent = true,
             onClick = onAudioEffectClick
         )
@@ -1546,7 +1550,7 @@ private fun PlayerToolActionRow(
             icon = Icons.AutoMirrored.Rounded.QueueMusic,
             contentDescription = "打开播放列表",
             buttonSize = buttonSize,
-            iconSize = iconSize,
+            iconSize = playlistIconSize,
             transparent = true,
             onClick = onPlaylistClick
         )
@@ -2002,6 +2006,7 @@ private fun PlayerScreenContent(
 	                                Column(
 	                                    modifier = Modifier
 	                                        .fillMaxWidth()
+	                                        .padding(horizontal = layoutMetrics.bottomSectionSideInset)
 	                                        .testTag("player_screen_bottom_section")
 	                                ) {
                                 Column(
@@ -2014,7 +2019,7 @@ private fun PlayerScreenContent(
                                         fontSize = layoutMetrics.progressTimeFontSizeSp.sp
                                     )
                                     val combinedStatusTextStyle = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = layoutMetrics.progressTimeFontSizeSp.sp
+                                        fontSize = layoutMetrics.statusFontSizeSp.sp
                                     )
                                     if (showInlineCombinedStatusRow) {
                                         PlayerCombinedStatusRow(
@@ -2099,7 +2104,12 @@ private fun PlayerScreenContent(
                                         .testTag("player_screen_song_controls_bottom_anchor")
                                 )
 	                                }
-	                                Spacer(modifier = Modifier.height(layoutMetrics.verticalPadding))
+	                                Spacer(
+	                                    modifier = Modifier.height(
+	                                        (layoutMetrics.bottomControlsSafeGap - layoutMetrics.verticalPadding)
+	                                            .coerceAtLeast(0.dp)
+	                                    )
+	                                )
 	                            }
 	                        }
                     }

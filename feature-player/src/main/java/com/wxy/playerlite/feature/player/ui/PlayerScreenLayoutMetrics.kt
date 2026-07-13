@@ -25,14 +25,16 @@ data class PlayerScreenLayoutMetrics(
     val topTabHorizontalPadding: Dp,
     val toolButtonSize: Dp,
     val toolIconSize: Dp,
+    val bottomSectionSideInset: Dp,
+    val bottomControlsSafeGap: Dp,
     val progressSectionSpacing: Dp,
     val lyricBelowCoverSpacing: Dp,
     val qualityBottomSpacing: Dp,
+    val statusFontSizeSp: Float,
     val progressTimeFontSizeSp: Float,
     val lyricsTopInset: Dp,
     val lyricsBottomInset: Dp,
     val summaryTopPadding: Dp,
-    val songPageBottomTopSpacing: Dp,
     val controlsGroupSpacing: Dp,
     val toolsTopSpacing: Dp
 )
@@ -153,6 +155,20 @@ fun resolvePlayerScreenLayoutMetrics(
         min = 25f,
         max = 28f
     )
+    val bottomSectionSideInset = if (viewportWidthDp < 360f) {
+        0.dp
+    } else {
+        clampDp(
+            value = viewportWidthDp * 0.02f,
+            min = 6f,
+            max = 10f
+        )
+    }
+    val bottomControlsSafeGap = clampDp(
+        value = viewportHeightDp * 0.043f,
+        min = if (viewportHeightDp < 700f) 24f else 32f,
+        max = 34f
+    )
     val progressSectionSpacing = clampDp(
         value = viewportHeightDp * 0.008f,
         min = 6f,
@@ -165,18 +181,18 @@ fun resolvePlayerScreenLayoutMetrics(
     )
     val qualityBottomSpacing = clampDp(
         value = viewportHeightDp * 0.021f,
-        min = 16f,
-        max = 22f
+        min = 14f,
+        max = 16f
+    )
+    val statusFontSizeSp = clampSp(
+        value = viewportWidthDp * 0.032f,
+        min = 12f,
+        max = 14f
     )
     val progressTimeFontSizeSp = clampSp(
         value = viewportWidthDp * 0.034f,
         min = 13f,
         max = 16f
-    )
-    val songPageBottomTopSpacing = clampDp(
-        value = viewportHeightDp * 0.018f,
-        min = 12f,
-        max = 18f
     )
     val controlsGroupSpacing = clampDp(
         value = viewportHeightDp * 0.03f,
@@ -209,14 +225,16 @@ fun resolvePlayerScreenLayoutMetrics(
         topTabHorizontalPadding = topTabHorizontalPadding,
         toolButtonSize = toolButtonSize,
         toolIconSize = toolIconSize,
+        bottomSectionSideInset = bottomSectionSideInset,
+        bottomControlsSafeGap = bottomControlsSafeGap,
         progressSectionSpacing = progressSectionSpacing,
         lyricBelowCoverSpacing = lyricBelowCoverSpacing,
         qualityBottomSpacing = qualityBottomSpacing,
+        statusFontSizeSp = statusFontSizeSp,
         progressTimeFontSizeSp = progressTimeFontSizeSp,
         lyricsTopInset = titleTopSpacing,
         lyricsBottomInset = verticalPadding,
         summaryTopPadding = summaryTopPadding,
-        songPageBottomTopSpacing = songPageBottomTopSpacing,
         controlsGroupSpacing = controlsGroupSpacing,
         toolsTopSpacing = toolsTopSpacing
     )

@@ -56,6 +56,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import kotlin.math.abs
 
 @RunWith(RobolectricTestRunner::class)
@@ -64,6 +65,7 @@ class PlayerScreenRobolectricTest {
     val composeRule = createComposeRule()
 
     @Test
+    @Config(qualifiers = "w412dp-h915dp")
     fun activePlayback_shouldUseSongTopBarAndReferenceInspiredInfoLayout() {
         composeRule.setContent {
             PlayerLiteTheme {
@@ -124,6 +126,7 @@ class PlayerScreenRobolectricTest {
         composeRule.onNodeWithTag("player_screen_visual_section").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_cover_card").assertIsDisplayed()
         composeRule.onNodeWithTag("player_screen_bottom_section").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("player_screen_audio_track_name").assertCountEquals(0)
         composeRule.onNodeWithTag("player_screen_info_section").assertIsDisplayed()
         composeRule.onNodeWithText("歌词待补充").assertIsDisplayed()
         composeRule.onAllNodesWithTag("player_screen_favorite_button").assertCountEquals(0)
@@ -1474,6 +1477,7 @@ class PlayerScreenRobolectricTest {
     }
 
     @Test
+    @Config(qualifiers = "w412dp-h915dp")
     fun activePlayback_audioEffectSelection_shouldUseBottomSheetAndUpdateCombinedStatusRow() {
         var showMoreActionsSheet by mutableStateOf(false)
         var showAudioEffectPage by mutableStateOf(false)
@@ -1588,7 +1592,10 @@ class PlayerScreenRobolectricTest {
         composeRule.onNodeWithTag("player_screen_audio_quality_name").assertTextEquals("极高")
         composeRule.onAllNodesWithTag("player_screen_audio_effect_name").assertCountEquals(0)
 
-        composeRule.onNodeWithTag("player_screen_more_button").performClick()
+        composeRule.onNodeWithTag("player_screen_more_button").assertIsDisplayed().performClick()
+        composeRule.runOnIdle {
+            assertTrue("Expected more actions callback to run", showMoreActionsSheet)
+        }
         composeRule.mainClock.advanceTimeBy(400)
         composeRule.waitForIdle()
         composeRule.onNodeWithTag(

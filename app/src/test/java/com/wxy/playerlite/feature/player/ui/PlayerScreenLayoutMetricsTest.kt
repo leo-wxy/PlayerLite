@@ -21,6 +21,7 @@ class PlayerScreenLayoutMetricsTest {
         assertTrue(regular.titleFontSizeSp > compact.titleFontSizeSp)
         assertTrue(regular.bottomSectionReservedHeight > compact.bottomSectionReservedHeight)
         assertTrue(regular.toolButtonSize > compact.toolButtonSize)
+        assertEquals(0.dp, compact.bottomSectionSideInset)
     }
 
     @Test
@@ -39,6 +40,9 @@ class PlayerScreenLayoutMetricsTest {
         assertTrue(metrics.topBarActionButtonSize <= 40.dp)
         assertTrue(metrics.toolButtonSize <= 54.dp)
         assertTrue(metrics.toolIconSize >= 25.dp)
+        assertTrue(metrics.bottomSectionSideInset in 6.dp..10.dp)
+        assertTrue(metrics.bottomControlsSafeGap in 32.dp..34.dp)
+        assertTrue(metrics.statusFontSizeSp in 12f..14f)
     }
 
     @Test
@@ -59,9 +63,8 @@ class PlayerScreenLayoutMetricsTest {
             viewportHeightDp = 915f
         )
 
-        assertTrue(metrics.songPageBottomTopSpacing in 12.dp..18.dp)
         assertTrue(metrics.controlsGroupSpacing in 22.dp..30.dp)
         assertTrue(metrics.toolsTopSpacing in 26.dp..34.dp)
-        assertTrue(metrics.qualityBottomSpacing in 16.dp..22.dp)
+        assertTrue(metrics.qualityBottomSpacing in 14.dp..16.dp)
     }
 }
