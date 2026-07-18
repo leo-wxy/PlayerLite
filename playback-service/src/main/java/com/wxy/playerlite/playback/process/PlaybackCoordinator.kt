@@ -21,6 +21,7 @@ internal class PlaybackCoordinator(
 ) {
     private var playJob: Job? = null
     private var playbackStateJob: Job? = null
+    private var activeSource: IPlaysource? = null
     private var playRequestToken: Long = 0L
 
     fun setProgressListener(listener: ((Long) -> Unit)?) {
@@ -73,10 +74,14 @@ internal class PlaybackCoordinator(
         onFinally: () -> Unit
     ) {
         val token = ++playRequestToken
+        if (playJob?.isActive == true) {
+            activeSource?.stop()
+        }
         playJob?.cancel()
         playJob = scope.launch {
             player.stop()
             player.resume()
+            activeSource = source
             onStarted()
 
             try {
@@ -89,16 +94,19 @@ internal class PlaybackCoordinator(
             } finally {
                 if (token == playRequestToken) {
                     playJob = null
+                    activeSource = null
                     onFinally()
                 }
             }
         }
     }
 
-    fun stopPlayback() {
+    fun stopPlayback(preparedSource: IPlaysource? = null) {
+        (activeSource ?: preparedSource)?.stop()
         player.stop()
         playJob?.cancel()
         playJob = null
+        activeSource = null
     }
 
     fun pause(): Int {

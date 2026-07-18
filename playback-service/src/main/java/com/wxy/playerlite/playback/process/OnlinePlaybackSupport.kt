@@ -12,6 +12,11 @@ import com.wxy.playerlite.playback.model.SongAudioQualityCatalogJsonMapper
 import com.wxy.playerlite.playback.model.SongAudioQualityOption
 import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -476,8 +481,57 @@ internal data class OnlinePlaybackPlan(
     val contentLengthHintBytes: Long?,
     val previewClip: PlaybackPreviewClip?,
     val useCacheOnlyProvider: Boolean,
-    val cacheExtraMetadata: Map<String, String> = emptyMap()
+    val cacheExtraMetadata: Map<String, String> = emptyMap(),
+    val expiresAtMs: Long? = null
 )
+
+internal class OnlinePlaybackPlanMemoryCache(
+    private val maxEntries: Int = DEFAULT_MAX_ENTRIES,
+    private val maxAgeWithoutExpiryMs: Long = DEFAULT_MAX_AGE_WITHOUT_EXPIRY_MS,
+    private val expirySafetyMarginMs: Long = DEFAULT_EXPIRY_SAFETY_MARGIN_MS,
+    private val nowMs: () -> Long = { System.currentTimeMillis() }
+) {
+    private data class Entry(
+        val plan: OnlinePlaybackPlan,
+        val storedAtMs: Long
+    )
+
+    private val entries = object : LinkedHashMap<String, Entry>(maxEntries, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>?): Boolean {
+            return size > maxEntries
+        }
+    }
+
+    @Synchronized
+    fun getIfFresh(key: String): OnlinePlaybackPlan? {
+        val entry = entries[key] ?: return null
+        val now = nowMs()
+        val fresh = entry.plan.expiresAtMs?.let { expiresAt ->
+            now + expirySafetyMarginMs < expiresAt
+        } ?: (now - entry.storedAtMs <= maxAgeWithoutExpiryMs)
+        if (!fresh) {
+            entries.remove(key)
+            return null
+        }
+        return entry.plan
+    }
+
+    @Synchronized
+    fun put(key: String, plan: OnlinePlaybackPlan) {
+        entries[key] = Entry(plan = plan, storedAtMs = nowMs())
+    }
+
+    @Synchronized
+    fun clear() {
+        entries.clear()
+    }
+
+    private companion object {
+        private const val DEFAULT_MAX_ENTRIES = 10
+        private const val DEFAULT_MAX_AGE_WITHOUT_EXPIRY_MS = 10L * 60L * 1000L
+        private const val DEFAULT_EXPIRY_SAFETY_MARGIN_MS = 15_000L
+    }
+}
 
 internal class OnlinePlaybackPreparationPlanner(
     private val cacheLookup: (String) -> Result<CacheLookupSnapshot?> = CacheCore::lookup,
@@ -485,8 +539,19 @@ internal class OnlinePlaybackPreparationPlanner(
     private val resolver: OnlinePlaybackResolver? = null,
     private val audioQualityCatalogProvider: suspend (String, Map<String, String>) -> SongAudioQualityCatalog? = { _, _ -> null },
     private val sourceAdapterProvider: (() -> SourceAdapter)? = null,
-    private val defaultLevel: String = DEFAULT_PLAYBACK_LEVEL
+    private val defaultLevel: String = DEFAULT_PLAYBACK_LEVEL,
+    private val planMemoryCache: OnlinePlaybackPlanMemoryCache = OnlinePlaybackPlanMemoryCache(),
+    private val resolutionScope: CoroutineScope? = null
 ) {
+    private data class InFlightPlanKey(
+        val generation: Long,
+        val cacheKey: String
+    )
+
+    private val inFlightLock = Any()
+    private val inFlightPlans = mutableMapOf<InFlightPlanKey, Deferred<Result<OnlinePlaybackPlan>>>()
+    private var planCacheGeneration: Long = 0L
+
     suspend fun buildPlan(
         track: PlaybackTrack,
         preferredAudioQuality: PlaybackAudioQuality = PlaybackAudioQuality.EXHIGH
@@ -495,6 +560,104 @@ internal class OnlinePlaybackPreparationPlanner(
             ?: return Result.failure(IllegalArgumentException("Missing songId for online track"))
         val sourceAdapter = currentSourceAdapter()
             ?: return Result.failure(IllegalStateException("Online playback source adapter unavailable"))
+        val planCacheKey = buildPlanMemoryCacheKey(
+            track = track,
+            preferredAudioQuality = preferredAudioQuality,
+            sourceAdapter = sourceAdapter
+        )
+        planMemoryCache.getIfFresh(planCacheKey)?.let { cachedPlan ->
+            val reusable = !cachedPlan.useCacheOnlyProvider ||
+                lookupReusableCacheSnapshot(cachedPlan.resourceKey).isCompleteCachedContent()
+            if (reusable) {
+                logOnlinePlaybackSupport(
+                    "buildPlan memory hit: trackId=${track.id}, key=${cachedPlan.resourceKey}, quality=${preferredAudioQuality.wireValue}"
+                )
+                return Result.success(cachedPlan)
+            }
+        }
+
+        val activeResolutionScope = resolutionScope
+        if (activeResolutionScope == null) {
+            val generation = synchronized(inFlightLock) { planCacheGeneration }
+            return resolveAndCachePlan(
+                generation = generation,
+                planCacheKey = planCacheKey,
+                track = track,
+                preferredAudioQuality = preferredAudioQuality,
+                songId = songId,
+                sourceAdapter = sourceAdapter
+            )
+        }
+
+        val (deferred, joined) = synchronized(inFlightLock) {
+            val inFlightKey = InFlightPlanKey(
+                generation = planCacheGeneration,
+                cacheKey = planCacheKey
+            )
+            val existing = inFlightPlans[inFlightKey]
+            if (existing != null) {
+                existing to true
+            } else {
+                val created = activeResolutionScope.async(start = CoroutineStart.LAZY) {
+                    resolveAndCachePlan(
+                        generation = inFlightKey.generation,
+                        planCacheKey = planCacheKey,
+                        track = track,
+                        preferredAudioQuality = preferredAudioQuality,
+                        songId = songId,
+                        sourceAdapter = sourceAdapter
+                    )
+                }
+                inFlightPlans[inFlightKey] = created
+                created.invokeOnCompletion {
+                    synchronized(inFlightLock) {
+                        if (inFlightPlans[inFlightKey] === created) {
+                            inFlightPlans.remove(inFlightKey)
+                        }
+                    }
+                }
+                created to false
+            }
+        }
+        if (joined) {
+            logOnlinePlaybackSupport(
+                "buildPlan in-flight join: trackId=${track.id}, quality=${preferredAudioQuality.wireValue}"
+            )
+        }
+        deferred.start()
+        return deferred.await()
+    }
+
+    private suspend fun resolveAndCachePlan(
+        generation: Long,
+        planCacheKey: String,
+        track: PlaybackTrack,
+        preferredAudioQuality: PlaybackAudioQuality,
+        songId: String,
+        sourceAdapter: SourceAdapter
+    ): Result<OnlinePlaybackPlan> {
+        val result = resolvePlan(
+            track = track,
+            preferredAudioQuality = preferredAudioQuality,
+            songId = songId,
+            sourceAdapter = sourceAdapter
+        )
+        result.getOrNull()?.let { plan ->
+            synchronized(inFlightLock) {
+                if (generation == planCacheGeneration) {
+                    planMemoryCache.put(planCacheKey, plan)
+                }
+            }
+        }
+        return result
+    }
+
+    private suspend fun resolvePlan(
+        track: PlaybackTrack,
+        preferredAudioQuality: PlaybackAudioQuality,
+        songId: String,
+        sourceAdapter: SourceAdapter
+    ): Result<OnlinePlaybackPlan> {
         val actionContext = track.toSourceActionContext(preferredAudioQuality)
         val preview = runCatching {
             sourceAdapter.previewResolveMusicUrl(actionContext).getOrNull()
@@ -518,20 +681,19 @@ internal class OnlinePlaybackPreparationPlanner(
             logOnlinePlaybackSupport(
                 "complete cache hit: phase=initial, trackId=${track.id}, songId=$songId, key=$initialKey, quality=$appliedLevel, mode=${requestedMode.wireValue}, contentLength=${initialSnapshot?.contentLength ?: -1L}, duration=${firstPositive(track.durationHintMs, initialSnapshot?.durationMs)}, useCacheOnly=true, reason=complete_initial_snapshot"
             )
-            return Result.success(
-                OnlinePlaybackPlan(
-                    resourceKey = initialKey,
-                    playbackUrl = track.uri.takeIf { it.isNotBlank() },
-                    requestHeaders = track.requestHeaders,
-                    preferredAudioQuality = preferredAudioQuality,
-                    appliedAudioQuality = preview?.appliedAudioQuality ?: preferredAudioQuality,
-                    durationHintMs = firstPositive(track.durationHintMs, initialSnapshot?.durationMs),
-                    contentLengthHintBytes = initialSnapshot?.contentLength?.takeIf { it > 0L },
-                    previewClip = track.previewClip,
-                    useCacheOnlyProvider = true,
-                    cacheExtraMetadata = OnlineCacheMetadata.buildExtraMetadata(requestedMode)
-                )
+            val plan = OnlinePlaybackPlan(
+                resourceKey = initialKey,
+                playbackUrl = track.uri.takeIf { it.isNotBlank() },
+                requestHeaders = track.requestHeaders,
+                preferredAudioQuality = preferredAudioQuality,
+                appliedAudioQuality = preview?.appliedAudioQuality ?: preferredAudioQuality,
+                durationHintMs = firstPositive(track.durationHintMs, initialSnapshot?.durationMs),
+                contentLengthHintBytes = initialSnapshot?.contentLength?.takeIf { it > 0L },
+                previewClip = track.previewClip,
+                useCacheOnlyProvider = true,
+                cacheExtraMetadata = OnlineCacheMetadata.buildExtraMetadata(requestedMode)
             )
+            return Result.success(plan)
         }
 
         val resolvedMusicUrl = sourceAdapter.handle(
@@ -571,25 +733,58 @@ internal class OnlinePlaybackPreparationPlanner(
             )
         }
 
-        return Result.success(
-            OnlinePlaybackPlan(
-                resourceKey = finalKey,
-                playbackUrl = resolvedMusicUrl.playbackUrl,
-                requestHeaders = resolvedMusicUrl.requestHeaders,
-                preferredAudioQuality = preferredAudioQuality,
-                appliedAudioQuality = resolvedMusicUrl.appliedAudioQuality,
-                durationHintMs = firstPositive(
-                    track.durationHintMs,
-                    resolvedMusicUrl.durationMs,
-                    completeSnapshot?.durationMs
-                ),
-                contentLengthHintBytes = completeSnapshot?.contentLength?.takeIf { it > 0L }
-                    ?: resolvedMusicUrl.contentLengthBytes,
-                previewClip = actualPreviewClip,
-                useCacheOnlyProvider = completeSnapshot != null,
-                cacheExtraMetadata = OnlineCacheMetadata.buildExtraMetadata(actualMode)
-            )
+        val plan = OnlinePlaybackPlan(
+            resourceKey = finalKey,
+            playbackUrl = resolvedMusicUrl.playbackUrl,
+            requestHeaders = resolvedMusicUrl.requestHeaders,
+            preferredAudioQuality = preferredAudioQuality,
+            appliedAudioQuality = resolvedMusicUrl.appliedAudioQuality,
+            durationHintMs = firstPositive(
+                track.durationHintMs,
+                resolvedMusicUrl.durationMs,
+                completeSnapshot?.durationMs
+            ),
+            contentLengthHintBytes = finalSnapshot?.contentLength?.takeIf { it > 0L }
+                ?: resolvedMusicUrl.contentLengthBytes,
+            previewClip = actualPreviewClip,
+            useCacheOnlyProvider = completeSnapshot != null,
+            cacheExtraMetadata = OnlineCacheMetadata.buildExtraMetadata(actualMode),
+            expiresAtMs = resolvedMusicUrl.expiresAtMs
         )
+        return Result.success(plan)
+    }
+
+    fun clearCachedPlans() {
+        val pending = synchronized(inFlightLock) {
+            planCacheGeneration += 1L
+            planMemoryCache.clear()
+            inFlightPlans.values.toList().also {
+                inFlightPlans.clear()
+            }
+        }
+        pending.forEach { deferred ->
+            deferred.cancel(CancellationException("Online playback plans invalidated"))
+        }
+    }
+
+    private fun buildPlanMemoryCacheKey(
+        track: PlaybackTrack,
+        preferredAudioQuality: PlaybackAudioQuality,
+        sourceAdapter: SourceAdapter
+    ): String {
+        val sourceContext = track.playable.sourceContext
+        return listOf(
+            track.id,
+            track.songId.orEmpty(),
+            track.uri,
+            track.requestHeaders.entries.sortedBy { it.key }.joinToString { "${it.key}=${it.value}" },
+            track.previewClip?.toString().orEmpty(),
+            sourceContext?.useDefaultSource ?: true,
+            sourceContext?.sourceConfigJson.orEmpty(),
+            sourceAdapter.metadata.id,
+            sourceAdapter.normalizedConfigJson.orEmpty(),
+            preferredAudioQuality.wireValue
+        ).joinToString("|")
     }
 
     private fun currentSourceAdapter(): SourceAdapter? {

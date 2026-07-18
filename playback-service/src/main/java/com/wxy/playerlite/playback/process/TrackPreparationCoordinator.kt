@@ -9,8 +9,7 @@ import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import com.wxy.playerlite.player.AudioMetaDisplay
 import com.wxy.playerlite.player.source.IPlaysource
 import com.wxy.playerlite.playback.process.source.CachedNetworkSource
-import com.wxy.playerlite.playback.process.source.HttpRangeDataProvider
-import com.wxy.playerlite.playback.process.source.ProviderBackedNetworkProbeSource
+import com.wxy.playerlite.playback.process.source.OkHttpRangeDataProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -133,30 +132,14 @@ internal class TrackPreparationCoordinator(
         val result = prepareNetworkSourceInternal(
             item = item,
             durationHintMs = plan.durationHintMs,
+            loadMetadataBeforePlayback = false,
             createSource = {
                 createNetworkPlaybackSource(
                     plan = plan,
                     onCacheFailure = onCacheFailure
                 )
             },
-            createMetadataProbeSource = if (
-                !shouldProbeNetworkMetadataBeforePlayback(
-                    durationHintMs = plan.durationHintMs,
-                    useCacheOnlyProvider = plan.useCacheOnlyProvider
-                )
-            ) {
-                null
-            } else {
-                {
-                    ProviderBackedNetworkProbeSource(
-                        id = plan.resourceKey,
-                        provider = HttpRangeDataProvider(
-                            url = plan.playbackUrl.orEmpty(),
-                            requestHeaders = plan.requestHeaders
-                        )
-                    )
-                }
-            },
+            createMetadataProbeSource = null,
             loadAudioMeta = { source ->
                 playbackCoordinator.loadAudioMetaDisplayFromSource(source)
             },
@@ -189,11 +172,6 @@ internal class TrackPreparationCoordinator(
     }
 }
 
-internal fun shouldProbeNetworkMetadataBeforePlayback(
-    durationHintMs: Long,
-    useCacheOnlyProvider: Boolean
-): Boolean = durationHintMs <= 0L && !useCacheOnlyProvider
-
 internal fun createNetworkPlaybackSource(
     plan: OnlinePlaybackPlan,
     onCacheFailure: (String) -> Unit = {}
@@ -201,9 +179,10 @@ internal fun createNetworkPlaybackSource(
     val provider = if (plan.useCacheOnlyProvider) {
         CacheOnlyRangeDataProvider(contentLengthHint = plan.contentLengthHintBytes ?: 0L)
     } else {
-        HttpRangeDataProvider(
+        OkHttpRangeDataProvider(
             url = plan.playbackUrl.orEmpty(),
-            requestHeaders = plan.requestHeaders
+            requestHeaders = plan.requestHeaders,
+            initialContentLengthHint = plan.contentLengthHintBytes
         )
     }
     return CachedNetworkSource(
@@ -221,6 +200,7 @@ internal suspend fun prepareNetworkSourceInternal(
     item: PlaybackTrack,
     durationHintMs: Long = 0L,
     preferActualMetadataWhenHintPresent: Boolean = false,
+    loadMetadataBeforePlayback: Boolean = true,
     createSource: () -> IPlaysource,
     createMetadataProbeSource: (() -> IPlaysource)? = null,
     loadAudioMeta: suspend (IPlaysource) -> AudioMetaDisplay,
@@ -249,7 +229,9 @@ internal suspend fun prepareNetworkSourceInternal(
 
         var playbackSourceConsumedForMetadata = false
         val mediaMeta = try {
-            if (durationHintMs > 0L && !preferActualMetadataWhenHintPresent) {
+            if (!loadMetadataBeforePlayback ||
+                (durationHintMs > 0L && !preferActualMetadataWhenHintPresent)
+            ) {
                 placeholderAudioMetaDisplay(durationHintMs)
             } else {
                 val metadataProbe = createMetadataProbeSource?.invoke()

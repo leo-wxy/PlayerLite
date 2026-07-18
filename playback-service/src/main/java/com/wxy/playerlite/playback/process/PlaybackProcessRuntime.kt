@@ -98,7 +98,8 @@ internal class PlaybackProcessRuntime(
         readPersistedPlaybackPrewarmPreferences()
     private val onlinePlaybackPlanner = OnlinePlaybackPreparationPlanner(
         cacheRootDirPath = cacheRootDirPath,
-        sourceAdapterProvider = ::currentSourceAdapter
+        sourceAdapterProvider = ::currentSourceAdapter,
+        resolutionScope = serviceScope
     )
     private val mediaSourceRepository = MediaSourceRepository(appContext)
     private val playbackCoordinator = PlaybackCoordinator(
@@ -990,8 +991,7 @@ internal class PlaybackProcessRuntime(
         pendingSeekPositionMs = null
         pendingAudioQualitySwitchTarget = null
         clearCurrentTrackSourceOverride()
-        sourceSession.stopCurrent()
-        playbackCoordinator.stopPlayback()
+        playbackCoordinator.stopPlayback(sourceSession.currentSource())
         _state.value = _state.value.copy(
             playWhenReady = false,
             playbackState = PLAYBACK_STATE_STOPPED,
@@ -1370,6 +1370,7 @@ internal class PlaybackProcessRuntime(
         adapter: SourceAdapter = currentSourceAdapter()
     ) {
         adapter.clearCaches()
+        onlinePlaybackPlanner.clearCachedPlans()
     }
 
     private fun currentSourceRuntimeForTrack(trackId: String?): ActivePlaybackSourceRuntime {
@@ -1619,27 +1620,8 @@ internal class PlaybackProcessRuntime(
     private fun resolveCurrentCacheProgress(
         state: PlaybackProcessState
     ): PlaybackCacheProgressSnapshot? {
-        val resourceKey = state.currentCacheResourceKey?.takeIf { it.isNotBlank() } ?: run {
-            emitCacheProgressDebugLog(
-                "cacheProgress skipped: missing resourceKey, track=${state.currentTrack?.id ?: "<none>"}, pos=${state.positionMs}, dur=${state.durationMs}"
-            )
-            return null
-        }
+        val resourceKey = state.currentCacheResourceKey?.takeIf { it.isNotBlank() } ?: return null
         val snapshot = CacheCore.lookup(resourceKey).getOrNull()
-        emitCacheProgressDebugLog(
-            buildString {
-                append("cacheProgress resolve: key=")
-                append(resourceKey)
-                append(", pos=")
-                append(state.positionMs)
-                append(", dur=")
-                append(state.durationMs)
-                append(", hint=")
-                append(state.currentCacheContentLengthHintBytes ?: -1L)
-                append(", snapshot=")
-                append(describeCacheSnapshot(snapshot))
-            }
-        )
         return resolvePlaybackCacheProgressSnapshot(
             snapshot = snapshot,
             totalBytesHint = state.currentCacheContentLengthHintBytes,
@@ -1696,16 +1678,6 @@ internal class PlaybackProcessRuntime(
                             cacheProgress = stabilized,
                             preferences = current.playbackPrewarmPreferences
                         )
-                    emitCacheProgressDebugLog(
-                        buildString {
-                            append("cacheProgress callback: key=")
-                            append(normalizedResourceKey)
-                            append(", old=")
-                            append(describeCacheProgress(current.cacheProgress))
-                            append(", new=")
-                            append(describeCacheProgress(stabilized))
-                        }
-                    )
                     pendingCacheProgressSeekReanchorPositionMs = null
                     shouldSchedulePrewarmAfterUpdate = shouldSchedulePrewarm
                     current.copy(cacheProgress = stabilized)
@@ -1911,38 +1883,6 @@ internal class PlaybackProcessRuntime(
 
     private fun safeLogD(message: String) {
         runCatching { Log.d(TAG, message) }
-    }
-
-    private fun emitCacheProgressDebugLog(message: String) {
-        safeLogD(message)
-    }
-
-    private fun describeCacheProgress(snapshot: PlaybackCacheProgressSnapshot?): String {
-        if (snapshot == null) {
-            return "<null>"
-        }
-        return "cached=${snapshot.cachedBytes},total=${snapshot.totalBytes ?: -1L},ratio=${snapshot.normalizedDisplayRatio},full=${snapshot.isFullyCached},estimated=${snapshot.isEstimated}"
-    }
-
-    private fun describeCacheSnapshot(snapshot: com.wxy.playerlite.cache.core.CacheLookupSnapshot?): String {
-        if (snapshot == null) {
-            return "<null>"
-        }
-        val blocks = snapshot.cachedBlocks
-            .sorted()
-            .let { sorted ->
-                if (sorted.size <= 8) {
-                    sorted.joinToString(prefix = "[", postfix = "]")
-                } else {
-                    sorted.take(8).joinToString(prefix = "[", postfix = ", ... size=${sorted.size}]")
-                }
-            }
-        val ranges = snapshot.completedRanges.joinToString(prefix = "[", postfix = "]") {
-            "${it.start}-${it.endExclusive}"
-        }
-        val configPath = snapshot.configFilePath
-        val configExists = configPath.isNotBlank() && File(configPath).exists()
-        return "contentLength=${snapshot.contentLength},duration=${snapshot.durationMs},fileBytes=${snapshot.dataFileSizeBytes},blockSize=${snapshot.blockSizeBytes},blocks=$blocks,ranges=$ranges,configPath=$configPath,configExists=$configExists"
     }
 
     private fun shouldAcceptPendingSeekProgress(

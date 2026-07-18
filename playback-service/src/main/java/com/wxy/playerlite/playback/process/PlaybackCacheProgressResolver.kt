@@ -46,9 +46,6 @@ internal fun resolvePlaybackCacheProgressSnapshot(
             cacheRootDirPath = cacheRootDirPath
         ))?.withConfigSidecarMetadata()
     if (effectiveSnapshot == null && (totalBytesHint == null || totalBytesHint <= 0L)) {
-        logCacheProgressResolver(
-            "resolver result: null reason=no_snapshot_and_no_hint pos=$playbackPositionMs dur=$durationMs hint=${totalBytesHint ?: -1L}"
-        )
         return null
     }
     val resolvedTotalBytes = effectiveSnapshot?.contentLength
@@ -76,7 +73,6 @@ internal fun resolvePlaybackCacheProgressSnapshot(
         playbackByteOffset = playbackByteOffset,
         totalBytes = resolvedTotalBytes
     )
-    val fileSizeBytes = effectiveSnapshot?.dataFileSizeBytes?.coerceAtLeast(0L) ?: 0L
     val cachedBytes = maxOf(
         completedRangeBytes,
         contiguousBlockBytes,
@@ -112,11 +108,6 @@ internal fun resolvePlaybackCacheProgressSnapshot(
             startBytes.coerceAtLeast(0L)
         }
     }
-    val playedRatio = if (durationMs > 0L && playbackPositionMs > 0L) {
-        (playbackPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
     val isFullyCached = resolvedTotalBytes != null &&
         maxOf(completedRangeBytes, contiguousBlockBytes) >= resolvedTotalBytes
     val displayRatio = when {
@@ -141,9 +132,6 @@ internal fun resolvePlaybackCacheProgressSnapshot(
         else -> 0f
     }.coerceIn(0f, displayRatio)
     if (cachedBytes <= 0L && bufferedEndBytes <= 0L && !isFullyCached) {
-        logCacheProgressResolver(
-            "resolver result: null reason=no_cached_bytes key=${effectiveSnapshot?.resourceKey ?: "<none>"} total=${resolvedTotalBytes ?: -1L} fileBytes=$fileSizeBytes blockBytes=$contiguousBlockBytes playbackByte=${playbackByteOffset ?: -1L} blocks=${describeBlocks(effectiveSnapshot)} ranges=${describeRanges(effectiveSnapshot)}"
-        )
         return null
     }
     val resolved = PlaybackCacheProgressSnapshot(
@@ -153,40 +141,6 @@ internal fun resolvePlaybackCacheProgressSnapshot(
         displayRatio = displayRatio,
         isFullyCached = isFullyCached,
         isEstimated = snapshot?.contentLength?.takeIf { it > 0L } == null
-    )
-    logCacheProgressResolver(
-        buildString {
-            append("resolver result: key=")
-            append(effectiveSnapshot?.resourceKey ?: "<none>")
-            append(", total=")
-            append(resolvedTotalBytes ?: -1L)
-            append(", fileBytes=")
-            append(fileSizeBytes)
-            append(", completedBytes=")
-            append(completedRangeBytes)
-            append(", blockBytes=")
-            append(contiguousBlockBytes)
-            append(", cachedBytes=")
-            append(cachedBytes)
-            append(", bufferedEndBytes=")
-            append(bufferedEndBytes)
-            append(", bufferedStartBytes=")
-            append(bufferedStartBytes)
-            append(", playbackByte=")
-            append(playbackByteOffset ?: -1L)
-            append(", blocks=")
-            append(describeBlocks(effectiveSnapshot))
-            append(", ranges=")
-            append(describeRanges(effectiveSnapshot))
-            append(", playedRatio=")
-            append(playedRatio)
-            append(", displayRatio=")
-            append(resolved.normalizedDisplayRatio)
-            append(", full=")
-            append(isFullyCached)
-            append(", estimated=")
-            append(resolved.isEstimated)
-        }
     )
     return resolved
 }
@@ -202,12 +156,6 @@ private data class PlaybackBufferedCoverage(
 
 private fun logCacheProgressResolver(message: String) {
     runCatching { Log.d(TAG, message) }
-}
-
-private fun describeRanges(snapshot: CacheLookupSnapshot?): String {
-    return snapshot?.completedRanges
-        ?.joinToString(prefix = "[", postfix = "]") { "${it.start}-${it.endExclusive}" }
-        ?: "[]"
 }
 
 private fun coveredBytesFromStart(
@@ -376,35 +324,13 @@ private fun coverageFromRange(
     )
 }
 
-private fun describeBlocks(snapshot: CacheLookupSnapshot?): String {
-    val blocks = snapshot?.cachedBlocks.orEmpty()
-    if (blocks.isEmpty()) {
-        return "[]"
-    }
-    val sorted = blocks.sorted()
-    val first = sorted.take(8).joinToString()
-    return if (sorted.size <= 8) {
-        "[$first]"
-    } else {
-        "[$first, ... size=${sorted.size}]"
-    }
-}
-
 private fun CacheLookupSnapshot.withConfigSidecarMetadata(): CacheLookupSnapshot {
     if (contentLength > 0L || cachedBlocks.isNotEmpty() || completedRanges.isNotEmpty()) {
         return this
     }
-    val rawConfigPath = configFilePath.takeIf { it.isNotBlank() } ?: run {
-        logCacheProgressResolver(
-            "resolver sidecar skipped: key=$resourceKey reason=blank_config_path"
-        )
-        return this
-    }
+    val rawConfigPath = configFilePath.takeIf { it.isNotBlank() } ?: return this
     val configFile = File(rawConfigPath)
     if (!configFile.exists() || !configFile.isFile) {
-        logCacheProgressResolver(
-            "resolver sidecar skipped: key=$resourceKey reason=config_missing path=$rawConfigPath"
-        )
         return this
     }
     val parsed = runCatching {
@@ -414,34 +340,18 @@ private fun CacheLookupSnapshot.withConfigSidecarMetadata(): CacheLookupSnapshot
         val parsedBlockSizeBytes = payload.parseLongField("blockSizeBytes")?.toInt() ?: blockSizeBytes
         val parsedBlocks = payload.parseLongArrayField("blocks")
         val parsedRanges = payload.parseRangesField("completedRanges")
-        val parsedRangesDescription = parsedRanges.joinToString(prefix = "[", postfix = "]") {
-            "${it.start}-${it.endExclusive}"
-        }
-        val enriched = copy(
+        copy(
             blockSizeBytes = parsedBlockSizeBytes.takeIf { it > 0 } ?: blockSizeBytes,
             contentLength = parsedContentLength.takeIf { it > 0L } ?: contentLength,
             durationMs = parsedDurationMs.takeIf { it > 0L } ?: durationMs,
             cachedBlocks = if (parsedBlocks.isNotEmpty()) parsedBlocks else cachedBlocks,
             completedRanges = if (parsedRanges.isNotEmpty()) parsedRanges else completedRanges
         )
-        logCacheProgressResolver(
-            "resolver sidecar parsed: key=$resourceKey path=$rawConfigPath parsedContentLength=$parsedContentLength parsedDuration=$parsedDurationMs parsedBlockSize=$parsedBlockSizeBytes parsedBlocks=${parsedBlocks.sorted()} parsedRanges=$parsedRangesDescription"
-        )
-        enriched
     }.getOrElse { error ->
         logCacheProgressResolver(
             "resolver sidecar failed: key=$resourceKey path=$rawConfigPath error=${error.message ?: error::class.java.simpleName}"
         )
         this
-    }
-    if (parsed === this) {
-        logCacheProgressResolver(
-            "resolver sidecar no-op: key=$resourceKey path=$rawConfigPath contentLength=$contentLength blocks=${describeBlocks(this)} ranges=${describeRanges(this)}"
-        )
-    } else {
-        logCacheProgressResolver(
-            "resolver sidecar applied: key=$resourceKey path=$rawConfigPath contentLength=${parsed.contentLength} blocks=${describeBlocks(parsed)} ranges=${describeRanges(parsed)}"
-        )
     }
     return parsed
 }
@@ -457,9 +367,6 @@ private fun readCacheSidecarSnapshot(
     val dataFile = File(root, "$normalizedResourceKey.data")
     val extraFile = File(root, "${normalizedResourceKey}_extra.json")
     if (!configFile.isFile || !dataFile.isFile) {
-        logCacheProgressResolver(
-            "resolver sidecar lookup skipped: key=$normalizedResourceKey reason=missing_file config=${configFile.exists()} data=${dataFile.exists()}"
-        )
         return null
     }
     return runCatching {
@@ -476,10 +383,6 @@ private fun readCacheSidecarSnapshot(
             lastAccessEpochMs = configFile.lastModified(),
             completedRanges = emptyList()
         ).withConfigSidecarMetadata()
-    }.onSuccess { sidecarSnapshot ->
-        logCacheProgressResolver(
-            "resolver sidecar lookup loaded: key=$normalizedResourceKey contentLength=${sidecarSnapshot.contentLength} fileBytes=${sidecarSnapshot.dataFileSizeBytes} ranges=${describeRanges(sidecarSnapshot)}"
-        )
     }.onFailure { error ->
         logCacheProgressResolver(
             "resolver sidecar lookup failed: key=$normalizedResourceKey error=${error.message ?: error::class.java.simpleName}"

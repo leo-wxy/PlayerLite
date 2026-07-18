@@ -31,7 +31,8 @@ bool CacheRuntime::EnsureStorageFilesLocked(
     }
 
     if (!std::filesystem::exists(config_file)) {
-        std::ofstream config_output(config_file, std::ios::binary | std::ios::trunc);
+        const auto temp_config_file = std::filesystem::path(config_file.string() + ".init.tmp");
+        std::ofstream config_output(temp_config_file, std::ios::binary | std::ios::trunc);
         config_output << BuildConfigJson(
                 resource_key,
                 block_size_bytes,
@@ -42,6 +43,13 @@ bool CacheRuntime::EnsureStorageFilesLocked(
                 NowEpochMs());
         config_output.close();
         if (!config_output.good()) {
+            return false;
+        }
+        std::error_code rename_error;
+        std::filesystem::rename(temp_config_file, config_file, rename_error);
+        if (rename_error) {
+            std::error_code remove_error;
+            std::filesystem::remove(temp_config_file, remove_error);
             return false;
         }
     } else {
@@ -56,10 +64,18 @@ bool CacheRuntime::EnsureStorageFilesLocked(
     }
 
     if (!std::filesystem::exists(extra_file)) {
-        std::ofstream extra_output(extra_file, std::ios::binary | std::ios::trunc);
+        const auto temp_extra_file = std::filesystem::path(extra_file.string() + ".init.tmp");
+        std::ofstream extra_output(temp_extra_file, std::ios::binary | std::ios::trunc);
         extra_output << "{\n}\n";
         extra_output.close();
         if (!extra_output.good()) {
+            return false;
+        }
+        std::error_code rename_error;
+        std::filesystem::rename(temp_extra_file, extra_file, rename_error);
+        if (rename_error) {
+            std::error_code remove_error;
+            std::filesystem::remove(temp_extra_file, remove_error);
             return false;
         }
     }
@@ -138,7 +154,9 @@ bool CacheRuntime::PersistConfigLocked(const SessionState& session) {
                 session.storage.block_size_bytes);
     }
 
-    std::ofstream output(session.storage.config_file, std::ios::binary | std::ios::trunc);
+    const auto temp_file = std::filesystem::path(
+            session.storage.config_file.string() + "." + std::to_string(session.session_id) + ".tmp");
+    std::ofstream output(temp_file, std::ios::binary | std::ios::trunc);
     output << BuildConfigJson(
             session.resource_key,
             session.storage.block_size_bytes,
@@ -148,7 +166,20 @@ bool CacheRuntime::PersistConfigLocked(const SessionState& session) {
             ranges,
             session.storage.last_access_epoch_ms > 0 ? session.storage.last_access_epoch_ms : NowEpochMs());
     output.close();
-    return output.good();
+    if (!output.good()) {
+        std::error_code remove_error;
+        std::filesystem::remove(temp_file, remove_error);
+        return false;
+    }
+
+    std::error_code rename_error;
+    std::filesystem::rename(temp_file, session.storage.config_file, rename_error);
+    if (rename_error) {
+        std::error_code remove_error;
+        std::filesystem::remove(temp_file, remove_error);
+        return false;
+    }
+    return true;
 }
 
 }  // namespace cachecore

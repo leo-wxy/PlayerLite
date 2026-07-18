@@ -8,6 +8,7 @@ import com.wxy.playerlite.player.source.IPlaysource
 import com.wxy.playerlite.playback.process.OnlineCacheMetadata
 import com.wxy.playerlite.playback.model.PlaybackCacheProgressSnapshot
 import java.io.File
+import java.nio.ByteBuffer
 import java.nio.file.Files
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -45,6 +46,47 @@ class CachedNetworkSourceTest {
         assertArrayEquals("hello".encodeToByteArray(), buffer)
         source.close()
         assertTrue(provider.closed)
+    }
+
+    @Test
+    fun repeatedCloseShouldNotReleaseProviderAgain() {
+        val root = createRoot()
+        CacheCore.init(CacheCoreConfig(cacheRootDirPath = root.absolutePath)).getOrThrow()
+        val provider = RecordingProvider("close-once".encodeToByteArray())
+        val source = CachedNetworkSource(
+            resourceKey = "song_cached_source_close_once",
+            provider = provider,
+            sessionConfig = SessionCacheConfig(blockSizeBytes = 8)
+        )
+
+        assertEquals(IPlaysource.AudioSourceCode.ASC_SUCCESS, source.open())
+        source.close()
+        val closeCallsAfterFirstClose = provider.closeCalls
+
+        source.close()
+
+        assertTrue(closeCallsAfterFirstClose > 0)
+        assertEquals(closeCallsAfterFirstClose, provider.closeCalls)
+    }
+
+    @Test
+    fun directReadWritesIntoCallerBufferWithoutArrayBridge() {
+        val root = createRoot()
+        CacheCore.init(CacheCoreConfig(cacheRootDirPath = root.absolutePath)).getOrThrow()
+        val source = CachedNetworkSource(
+            resourceKey = "song_cached_source_direct",
+            provider = RecordingProvider("direct-cache-read".encodeToByteArray()),
+            sessionConfig = SessionCacheConfig(blockSizeBytes = 8)
+        )
+        val buffer = ByteBuffer.allocateDirect(6)
+
+        assertEquals(IPlaysource.AudioSourceCode.ASC_SUCCESS, source.open())
+        assertEquals(6, source.readDirect(buffer, buffer.remaining()))
+        buffer.flip()
+        val actual = ByteArray(buffer.remaining())
+        buffer.get(actual)
+
+        assertArrayEquals("direct".encodeToByteArray(), actual)
     }
 
     @Test
@@ -135,6 +177,27 @@ class CachedNetworkSourceTest {
         val progress = requireNotNull(emitted)
         assertEquals(12L, progress.cachedBytes)
         assertEquals(8f / payload.size.toFloat(), progress.displayRatio, 0.0001f)
+    }
+
+    @Test
+    fun seekInsideCachedDataShouldNotCancelProvider() {
+        val root = createRoot()
+        CacheCore.init(CacheCoreConfig(cacheRootDirPath = root.absolutePath)).getOrThrow()
+        val payload = ByteArray(100) { it.toByte() }
+        val provider = RecordingProvider(payload)
+        val source = CachedNetworkSource(
+            resourceKey = "song_cached_source_cached_seek",
+            provider = provider,
+            sessionConfig = SessionCacheConfig(blockSizeBytes = 8),
+            contentLengthHint = payload.size.toLong()
+        )
+
+        assertEquals(IPlaysource.AudioSourceCode.ASC_SUCCESS, source.open())
+        assertEquals(16, source.read(ByteArray(16), 16))
+        val cancelCallsBeforeSeek = provider.cancelInFlightReadCalls
+
+        assertEquals(8L, source.seek(8L, IPlaysource.SEEK_SET))
+        assertEquals(cancelCallsBeforeSeek, provider.cancelInFlightReadCalls)
     }
 
     @Test
@@ -265,7 +328,9 @@ class CachedNetworkSourceTest {
         private val payload: ByteArray
     ) : RangeDataProvider {
         var closed: Boolean = false
+        var closeCalls: Int = 0
         var queryContentLengthCalls: Int = 0
+        var cancelInFlightReadCalls: Int = 0
 
         override fun readAt(offset: Long, size: Int, callback: RangeDataProvider.ReadCallback) {
             callback.onDataBegin(offset, size)
@@ -284,7 +349,9 @@ class CachedNetworkSourceTest {
             callback.onDataEnd(true)
         }
 
-        override fun cancelInFlightRead() = Unit
+        override fun cancelInFlightRead() {
+            cancelInFlightReadCalls += 1
+        }
 
         override fun queryContentLength(): Long? {
             queryContentLengthCalls += 1
@@ -293,6 +360,7 @@ class CachedNetworkSourceTest {
 
         override fun close() {
             closed = true
+            closeCalls += 1
         }
     }
 

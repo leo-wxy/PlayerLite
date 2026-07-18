@@ -629,8 +629,7 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
                 return Result.failure(IllegalStateException("session already closed"))
             }
             return runCatching {
-                provider.cancelInFlightRead()
-                synchronized(lock) {
+                val targetIsCached = synchronized(lock) {
                     val base = when (whence) {
                         0 -> 0L
                         1 -> currentOffset
@@ -638,9 +637,18 @@ internal class JvmFakeCacheCoreEngine : CacheCoreEngine {
                         else -> throw IllegalArgumentException("unsupported whence: $whence")
                     }
                     currentOffset = (base + offset).coerceAtLeast(0L)
-                    memoryBlocks.clear()
-                    currentOffset
+                    val blockIndex = currentOffset / storage.blockSizeBytes
+                    val atEof = storage.contentLength >= 0L && currentOffset >= storage.contentLength
+                    atEof || memoryBlocks.containsKey(blockIndex) ||
+                        storage.cachedBlocks.contains(blockIndex)
                 }
+                if (!targetIsCached) {
+                    provider.cancelInFlightRead()
+                    synchronized(lock) {
+                        memoryBlocks.clear()
+                    }
+                }
+                synchronized(lock) { currentOffset }
             }
         }
 

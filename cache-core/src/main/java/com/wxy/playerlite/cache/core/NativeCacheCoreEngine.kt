@@ -6,6 +6,7 @@ import com.wxy.playerlite.cache.core.session.CacheProgressChunk
 import com.wxy.playerlite.cache.core.session.CacheProgressChunkEmitter
 import com.wxy.playerlite.cache.core.session.OpenSessionParams
 import java.util.concurrent.ConcurrentHashMap
+import java.nio.ByteBuffer
 import kotlin.concurrent.thread
 
 internal class NativeCacheCoreEngine : CacheCoreEngine {
@@ -171,6 +172,31 @@ internal class NativeCacheCoreEngine : CacheCoreEngine {
             return Result.success(bytes)
         }
 
+        override fun readAtDirect(offset: Long, buffer: ByteBuffer, size: Int): Result<Int> {
+            if (offset < 0L) {
+                return Result.failure(IllegalArgumentException("offset must be >= 0"))
+            }
+            if (closed) {
+                return Result.failure(IllegalStateException("session already closed"))
+            }
+            if (!buffer.isDirect) {
+                return Result.failure(IllegalArgumentException("buffer must be direct"))
+            }
+            val maxRead = size.coerceAtMost(buffer.remaining())
+            if (maxRead <= 0) {
+                return Result.success(0)
+            }
+            val startPosition = buffer.position()
+            val target = buffer.slice().apply { limit(maxRead) }
+            val read = CacheCoreNativeBridge.readAtDirect(sessionId, offset, target, maxRead)
+            return if (read >= 0) {
+                buffer.position(startPosition + read)
+                Result.success(read)
+            } else {
+                Result.failure(IllegalStateException("native direct readAt failed"))
+            }
+        }
+
         override fun seek(offset: Long, whence: Int): Result<Long> {
             if (closed) {
                 return Result.failure(IllegalStateException("session already closed"))
@@ -246,7 +272,7 @@ internal class NativeCacheCoreEngine : CacheCoreEngine {
             if (raw.isBlank() || raw == "[]") {
                 return emptyList()
             }
-            val objectRegex = Regex("\\{[\\s\\S]*?}")
+            val objectRegex = Regex("\\{[\\s\\S]*?\\}")
             return objectRegex.findAll(raw)
                 .mapNotNull { match -> parseLookupSnapshot(match.value) }
                 .toList()
@@ -310,7 +336,7 @@ internal class NativeCacheCoreEngine : CacheCoreEngine {
             if (body.isBlank()) {
                 return emptyList()
             }
-            val objectRegex = Regex("\\{[^}]*}")
+            val objectRegex = Regex("\\{[^}]*\\}")
             return objectRegex.findAll(body)
                 .mapNotNull { match ->
                     val start = parseLongField(match.value, "start") ?: return@mapNotNull null

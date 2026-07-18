@@ -2,6 +2,7 @@ package com.wxy.playerlite.player
 
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.wxy.playerlite.player.source.IPlaysource
 
 class NativePlayer : INativePlayer {
@@ -10,6 +11,11 @@ class NativePlayer : INativePlayer {
     private var progressListener: ((Long) -> Unit)? = null
     @Volatile
     private var playbackOutputInfoListener: ((PlaybackOutputInfo) -> Unit)? = null
+    private val startupMetricsLock = Any()
+    private var startupSourceId: String = ""
+    private var startupStartNs: Long = 0L
+    private var outputConfigLogged = false
+    private var firstProgressLogged = false
     @Suppress("unused")
     private var nativeContextHandle: Long = 0L
 
@@ -46,6 +52,13 @@ class NativePlayer : INativePlayer {
     }
 
     override fun playFromSource(source: IPlaysource): Int {
+        synchronized(startupMetricsLock) {
+            startupSourceId = source.sourceId
+            startupStartNs = System.nanoTime()
+            outputConfigLogged = false
+            firstProgressLogged = false
+        }
+        safeLogI("play start: source=${source.sourceId}")
         return nativePlayFromSource(source)
     }
 
@@ -75,21 +88,13 @@ class NativePlayer : INativePlayer {
 
     override fun loadAudioMetaFromSource(source: IPlaysource): AudioMeta {
         source.seek(0L, IPlaysource.SEEK_SET)
-        var meta = nativeGetAudioMetadataFromSource(source) ?: AudioMeta(
+        return nativeGetAudioMetadataFromSource(source) ?: AudioMeta(
             codec = "-",
             sampleRateHz = 0,
             channels = 0,
             bitRate = 0L,
             durationMs = 0L
         )
-        if (meta.durationMs <= 0L) {
-            source.seek(0L, IPlaysource.SEEK_SET)
-            val durationMs = nativeGetDurationFromSource(source)
-            if (durationMs > 0L) {
-                meta = meta.copy(durationMs = durationMs)
-            }
-        }
-        return meta
     }
 
     override fun loadAudioMetaDisplayFromSource(source: IPlaysource): AudioMetaDisplay {
@@ -142,6 +147,7 @@ class NativePlayer : INativePlayer {
 
     @Suppress("unused")
     fun onNativeProgress(progressMs: Long) {
+        reportStartupMilestone("first_progress", progressMs)
         val listener = progressListener ?: return
         mainHandler.post {
             listener(progressMs)
@@ -158,6 +164,7 @@ class NativePlayer : INativePlayer {
         outputEncodingCode: Int,
         usesResampler: Boolean
     ) {
+        reportStartupMilestone("output_config")
         val listener = playbackOutputInfoListener ?: return
         val info = PlaybackOutputInfo(
             inputSampleRateHz = inputSampleRateHz,
@@ -181,7 +188,55 @@ class NativePlayer : INativePlayer {
         }
     }
 
+    private fun reportStartupMilestone(name: String, progressMs: Long? = null) {
+        val message = synchronized(startupMetricsLock) {
+            val shouldLog = when (name) {
+                "output_config" -> markFirstOutputConfig()
+                "first_progress" -> markFirstProgress()
+                else -> false
+            }
+            if (!shouldLog || startupStartNs <= 0L) {
+                return
+            }
+            val elapsedMs = (System.nanoTime() - startupStartNs) / 1_000_000L
+            buildString {
+                append("startup milestone=")
+                append(name)
+                append(" source=")
+                append(startupSourceId)
+                append(" elapsedMs=")
+                append(elapsedMs)
+                if (progressMs != null) {
+                    append(" progressMs=")
+                    append(progressMs)
+                }
+            }
+        }
+        safeLogI(message)
+    }
+
+    private fun markFirstOutputConfig(): Boolean {
+        if (outputConfigLogged) {
+            return false
+        }
+        outputConfigLogged = true
+        return true
+    }
+
+    private fun markFirstProgress(): Boolean {
+        if (firstProgressLogged) {
+            return false
+        }
+        firstProgressLogged = true
+        return true
+    }
+
+    private fun safeLogI(message: String) {
+        runCatching { Log.i(TAG, message) }
+    }
+
     companion object {
+        private const val TAG = "NativePlayer"
         private const val ENCODING_PCM_16 = 0
         private const val ENCODING_PCM_FLOAT = 1
 

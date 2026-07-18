@@ -1,5 +1,8 @@
 #include "cache_core_jni_shared.h"
 
+#include <algorithm>
+#include <cstring>
+
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_wxy_playerlite_cache_core_CacheCoreNativeBridge_nativeOpenSession(
         JNIEnv* env,
@@ -57,6 +60,38 @@ Java_com_wxy_playerlite_cache_core_CacheCoreNativeBridge_nativeReadAt(
             static_cast<int64_t>(offset),
             static_cast<int32_t>(size));
     return cachecore::jni::ToByteArray(env, bytes);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_wxy_playerlite_cache_core_CacheCoreNativeBridge_nativeReadAtDirect(
+        JNIEnv* env,
+        jclass,
+        jlong session_id,
+        jlong offset,
+        jobject buffer,
+        jint size) {
+    if (env == nullptr || session_id <= 0 || offset < 0 || buffer == nullptr || size <= 0) {
+        return static_cast<jint>(-1);
+    }
+    auto* destination = static_cast<uint8_t*>(env->GetDirectBufferAddress(buffer));
+    const jlong capacity = env->GetDirectBufferCapacity(buffer);
+    if (destination == nullptr || capacity <= 0) {
+        return static_cast<jint>(-1);
+    }
+
+    const int32_t requested = static_cast<int32_t>(
+            std::min<jlong>(capacity, static_cast<jlong>(size)));
+    const auto bytes = cachecore::jni::Runtime().ReadAt(
+            static_cast<int64_t>(session_id),
+            static_cast<int64_t>(offset),
+            requested);
+    const auto copied = static_cast<int32_t>(std::min<std::size_t>(
+            bytes.size(),
+            static_cast<std::size_t>(requested)));
+    if (copied > 0) {
+        std::memcpy(destination, bytes.data(), static_cast<std::size_t>(copied));
+    }
+    return static_cast<jint>(copied);
 }
 
 extern "C" JNIEXPORT jlong JNICALL

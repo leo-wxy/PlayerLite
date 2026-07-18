@@ -83,10 +83,11 @@ bool CacheRuntime::CloseSession(int64_t session_id) {
         provider_bridge_->CancelInFlightRead(session->provider_handle);
     }
 
-    (void) write_loop_.WaitIdle();
-
     {
-        std::lock_guard<std::mutex> lock(session->mutex);
+        std::unique_lock<std::mutex> lock(session->mutex);
+        session->data_cv.wait(lock, [session]() {
+            return session->pending_persist_tasks == 0;
+        });
         PersistConfigLocked(*session);
     }
 
@@ -194,13 +195,6 @@ int64_t CacheRuntime::Seek(int64_t session_id, int64_t offset, int32_t whence) {
         return -1;
     }
 
-    const uint64_t next_generation = session->read_generation.fetch_add(1) + 1;
-    session->data_cv.notify_all();
-
-    if (provider_bridge_ != nullptr && session->provider_handle > 0) {
-        provider_bridge_->CancelInFlightRead(session->provider_handle);
-    }
-
     int64_t base = 0;
     if (whence == 2) {
         const int64_t length = RefreshContentLengthFromProvider(session);
@@ -208,6 +202,8 @@ int64_t CacheRuntime::Seek(int64_t session_id, int64_t offset, int32_t whence) {
     }
 
     int64_t target_offset = -1;
+    uint64_t next_generation = 0;
+    bool target_is_cached = false;
     {
         std::lock_guard<std::mutex> lock(session->mutex);
         if (session->closed.load()) {
@@ -228,16 +224,40 @@ int64_t CacheRuntime::Seek(int64_t session_id, int64_t offset, int32_t whence) {
         }
 
         target_offset = std::max<int64_t>(0, base + offset);
+        const int64_t window_start = session->memory_cache.WindowStart();
+        const int64_t window_end = session->memory_cache.WindowEnd();
+        const bool memory_hit =
+                target_offset >= window_start && target_offset < window_end;
+        const bool disk_hit =
+                session->local_cache.GetTrunkIndex().AvailableSize(target_offset) > 0;
+        const bool at_eof =
+                session->storage.content_length >= 0 &&
+                target_offset >= session->storage.content_length;
+        target_is_cached = memory_hit || disk_hit || at_eof;
+
         session->cursor.offset = target_offset;
         session->prefetch_cursor_offset = target_offset;
         session->prefetch_failed = false;
         session->prefetch_failure_generation = 0;
         session->prefetch_failure_offset = -1;
-        // Reset the in-memory window so a backward seek can immediately warm
-        // around the new target instead of staying biased to the previous tail.
-        session->memory_cache.Clear();
-        session->memory_cached_bytes.store(0);
-        session->data_cv.notify_all();
+        if (!target_is_cached) {
+            next_generation = session->read_generation.fetch_add(1) + 1;
+            // A cache miss moves the network anchor. Drop the old memory window
+            // so reads cannot stay biased toward the previous range.
+            session->memory_cache.Clear();
+            session->memory_cached_bytes.store(0);
+        }
+    }
+    session->data_cv.notify_all();
+
+    if (target_is_cached) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        TouchMemorySessionLocked(session_id);
+        return target_offset;
+    }
+
+    if (provider_bridge_ != nullptr && session->provider_handle > 0) {
+        provider_bridge_->CancelInFlightRead(session->provider_handle);
     }
 
     {

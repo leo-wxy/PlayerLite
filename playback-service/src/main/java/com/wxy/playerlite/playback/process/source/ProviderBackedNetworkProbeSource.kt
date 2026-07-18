@@ -30,7 +30,9 @@ internal class ProviderBackedNetworkProbeSource(
         }
     }
 
-    override fun stop() = Unit
+    override fun stop() {
+        provider.cancelInFlightRead()
+    }
 
     override fun abort() {
         synchronized(this) {

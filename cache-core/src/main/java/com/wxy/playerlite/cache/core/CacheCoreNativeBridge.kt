@@ -1,6 +1,7 @@
 package com.wxy.playerlite.cache.core
 
 import com.wxy.playerlite.cache.core.provider.RangeDataProvider
+import java.nio.ByteBuffer
 
 internal object CacheCoreNativeBridge {
     private const val LIB_NAME = "cachecore"
@@ -89,6 +90,15 @@ internal object CacheCoreNativeBridge {
             return null
         }
         return runCatching { nativeReadAt(sessionId, offset, size) }.getOrNull()
+    }
+
+    fun readAtDirect(sessionId: Long, offset: Long, buffer: ByteBuffer, size: Int): Int {
+        if (!nativeLoaded || sessionId <= 0L || offset < 0L || size <= 0 || !buffer.isDirect) {
+            return -1
+        }
+        return runCatching {
+            nativeReadAtDirect(sessionId, offset, buffer, size.coerceAtMost(buffer.remaining()))
+        }.getOrDefault(-1)
     }
 
     fun seek(sessionId: Long, offset: Long, whence: Int): Long {
@@ -235,6 +245,13 @@ internal object CacheCoreNativeBridge {
     private external fun nativeRead(sessionId: Long, size: Int): ByteArray?
 
     private external fun nativeReadAt(sessionId: Long, offset: Long, size: Int): ByteArray?
+
+    private external fun nativeReadAtDirect(
+        sessionId: Long,
+        offset: Long,
+        buffer: ByteBuffer,
+        size: Int
+    ): Int
 
     private external fun nativeSeek(sessionId: Long, offset: Long, whence: Int): Long
 

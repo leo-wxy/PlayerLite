@@ -28,6 +28,12 @@ Java_com_wxy_playerlite_cache_core_CacheCoreNativeBridge_nativeInit(
     const std::string path(raw_path);
     env->ReleaseStringUTFChars(cache_root_path, raw_path);
 
+    // Resolve the bridge while this thread still carries the app ClassLoader.
+    // Native worker threads cannot reliably FindClass for application classes.
+    if (!cachecore::jni::ProviderBridge().PrepareJavaBindings(env)) {
+        return -1;
+    }
+
     const bool ok = cachecore::jni::Runtime().Init(
             path,
             static_cast<int64_t>(memory_cache_cap_bytes),

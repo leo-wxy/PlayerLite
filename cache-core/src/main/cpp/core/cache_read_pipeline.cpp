@@ -11,9 +11,11 @@ namespace {
 // decode thread usually hits memory/disk.
 constexpr int32_t kProviderFetchMaxBytes = 256 * 1024;
 constexpr int32_t kPrefetchChunkBytes = 256 * 1024;
-constexpr int64_t kPrefetchAheadMinBytes = 8 * 1024 * 1024;
 constexpr int32_t kReadWaitTimeoutMs = 120;
 constexpr int32_t kReadStallFailMs = 12 * 1000;
+constexpr int64_t kMetadataPersistIntervalBytes = 1024 * 1024;
+constexpr int64_t kPrefetchSummaryMinDiskBytes = 1024 * 1024;
+constexpr int64_t kPrefetchSummaryMinNetworkBytes = 256 * 1024;
 
 constexpr const char* kLogTag = "CacheReadPipeline";
 }
@@ -103,14 +105,6 @@ void CacheRuntime::EnsurePrefetch(
         std::lock_guard<std::mutex> lock(session->mutex);
         session->prefetch_running = false;
         session->prefetch_generation = 0;
-    } else {
-        __android_log_print(
-                ANDROID_LOG_INFO,
-                kLogTag,
-                "EnsurePrefetch start: session=%lld expectedGen=%llu offset=%lld",
-                static_cast<long long>(session->session_id),
-                static_cast<unsigned long long>(expected_generation),
-                static_cast<long long>(offset));
     }
 }
 
@@ -121,12 +115,9 @@ void CacheRuntime::PrefetchLoop(
     if (session == nullptr) {
         return;
     }
-    __android_log_print(
-            ANDROID_LOG_INFO,
-            kLogTag,
-            "PrefetchLoop enter: session=%lld expectedGen=%llu",
-            static_cast<long long>(session->session_id),
-            static_cast<unsigned long long>(expected_generation));
+    int64_t disk_cache_bytes = 0;
+    int64_t network_bytes = 0;
+    int32_t network_requests = 0;
 
     while (true) {
         int64_t cursor = 0;
@@ -136,6 +127,7 @@ void CacheRuntime::PrefetchLoop(
         int64_t fetch_offset = 0;
         int32_t fetch_size = 0;
         int64_t provider_handle = -1;
+        std::vector<uint8_t> disk_segment;
 
         {
             std::unique_lock<std::mutex> lock(session->mutex);
@@ -155,10 +147,7 @@ void CacheRuntime::PrefetchLoop(
                 break;
             }
 
-            const int64_t target_ahead = std::min<int64_t>(
-                    capacity,
-                    std::max<int64_t>(kPrefetchAheadMinBytes, capacity));
-            target_end = cursor + target_ahead;
+            target_end = cursor + capacity;
             if (content_length >= 0) {
                 if (cursor >= content_length) {
                     // EOF.
@@ -181,6 +170,32 @@ void CacheRuntime::PrefetchLoop(
                     kPrefetchChunkBytes,
                     target_end - fetch_offset));
             fetch_size = std::max<int32_t>(1, fetch_size);
+
+            const int64_t disk_available =
+                    session->local_cache.GetTrunkIndex().AvailableSize(fetch_offset);
+            if (disk_available > 0) {
+                const int32_t disk_read_size = static_cast<int32_t>(std::min<int64_t>(
+                        fetch_size,
+                        disk_available));
+                disk_segment = session->local_cache.Read(fetch_offset, disk_read_size);
+                if (!disk_segment.empty()) {
+                    session->memory_cache.Write(fetch_offset, disk_segment);
+                    session->memory_cached_bytes.store(
+                            static_cast<int64_t>(session->memory_cache.Size()));
+                }
+            }
+        }
+
+        if (!disk_segment.empty()) {
+            disk_cache_bytes += static_cast<int64_t>(disk_segment.size());
+            session->data_cv.notify_all();
+            std::lock_guard<std::mutex> lock(mutex_);
+            TouchMemorySessionLocked(session->session_id);
+            ReportSessionMemoryBytesLocked(
+                    session->session_id,
+                    session->memory_cached_bytes.load());
+            EvictMemoryIfNeededLocked(session->session_id);
+            continue;
         }
 
         if (provider_bridge_ == nullptr || provider_handle <= 0) {
@@ -249,14 +264,8 @@ void CacheRuntime::PrefetchLoop(
                 fetch_offset,
                 fetch_size,
                 callbacks);
-        __android_log_print(
-                ANDROID_LOG_INFO,
-                kLogTag,
-                "PrefetchLoop fetch done: session=%lld offset=%lld size=%d delivered=%d",
-                static_cast<long long>(session->session_id),
-                static_cast<long long>(fetch_offset),
-                fetch_size,
-                delivered.load());
+        network_requests += 1;
+        network_bytes += static_cast<int64_t>(delivered.load());
 
         {
             std::lock_guard<std::mutex> lock(session->mutex);
@@ -300,6 +309,17 @@ void CacheRuntime::PrefetchLoop(
         }
     }
     session->data_cv.notify_all();
+    if (disk_cache_bytes >= kPrefetchSummaryMinDiskBytes ||
+        network_bytes >= kPrefetchSummaryMinNetworkBytes) {
+        __android_log_print(
+                ANDROID_LOG_INFO,
+                kLogTag,
+                "Prefetch summary: session=%lld diskBytes=%lld networkRequests=%d networkBytes=%lld",
+                static_cast<long long>(session->session_id),
+                static_cast<long long>(disk_cache_bytes),
+                network_requests,
+                static_cast<long long>(network_bytes));
+    }
 }
 
 std::vector<uint8_t> CacheRuntime::ReadAtInternal(
@@ -314,20 +334,10 @@ std::vector<uint8_t> CacheRuntime::ReadAtInternal(
     // available, and block until at least 1 byte is readable (unless EOF/close).
     const auto stall_start = std::chrono::steady_clock::now();
     while (true) {
-        int64_t known_content_length = -1;
-        {
-            std::lock_guard<std::mutex> lock(session->mutex);
-            known_content_length = session->storage.content_length;
-        }
-        if (known_content_length < 0 || offset >= known_content_length) {
-            (void) RefreshContentLengthFromProvider(session);
-        }
-
         if (session->closed.load()) {
             return {};
         }
         const uint64_t generation = session->read_generation.load();
-        EnsurePrefetch(session, offset, generation);
 
         int64_t content_length = -1;
         {
@@ -575,50 +585,52 @@ void CacheRuntime::ScheduleBlockPersist(
         return;
     }
 
+    {
+        std::lock_guard<std::mutex> lock(session->mutex);
+        if (session->closed.load()) {
+            return;
+        }
+        session->pending_persist_tasks += 1;
+    }
+
     const std::weak_ptr<SessionState> weak_session(session);
-    const bool posted = write_loop_.Post([this, weak_session, block_start_offset, bytes = std::move(bytes)]() mutable {
+    auto shared_bytes = std::make_shared<std::vector<uint8_t>>(std::move(bytes));
+    auto persist_task = [this, weak_session, block_start_offset, shared_bytes]() {
         auto locked = weak_session.lock();
         if (locked == nullptr) {
             return;
         }
 
-        std::lock_guard<std::mutex> lock(locked->mutex);
-        if (!locked->local_cache.Write(block_start_offset, bytes)) {
-            return;
-        }
+        {
+            std::lock_guard<std::mutex> lock(locked->mutex);
+            if (locked->local_cache.Write(block_start_offset, *shared_bytes)) {
+                locked->storage.completed_ranges = locked->local_cache.GetTrunkIndex().Ranges();
+                locked->storage.cached_blocks =
+                        locked->local_cache.GetTrunkIndex().ToBlockSet(locked->storage.block_size_bytes);
 
-        locked->storage.completed_ranges = locked->local_cache.GetTrunkIndex().Ranges();
-        locked->storage.cached_blocks =
-                locked->local_cache.GetTrunkIndex().ToBlockSet(locked->storage.block_size_bytes);
+                if (provider_bridge_ != nullptr && locked->provider_handle > 0) {
+                    const auto content_length = provider_bridge_->QueryContentLength(locked->provider_handle);
+                    if (content_length > 0 &&
+                        (locked->storage.content_length < 0 || content_length > locked->storage.content_length)) {
+                        locked->storage.content_length = content_length;
+                    }
+                }
 
-        if (provider_bridge_ != nullptr && locked->provider_handle > 0) {
-            const auto content_length = provider_bridge_->QueryContentLength(locked->provider_handle);
-            if (content_length > 0 &&
-                (locked->storage.content_length < 0 || content_length > locked->storage.content_length)) {
-                locked->storage.content_length = content_length;
-            }
-        }
-
-        locked->storage.last_access_epoch_ms = NowEpochMs();
-        PersistConfigLocked(*locked);
-    });
-
-    if (!posted) {
-        std::lock_guard<std::mutex> lock(session->mutex);
-        if (session->local_cache.Write(block_start_offset, bytes)) {
-            session->storage.completed_ranges = session->local_cache.GetTrunkIndex().Ranges();
-            session->storage.cached_blocks =
-                    session->local_cache.GetTrunkIndex().ToBlockSet(session->storage.block_size_bytes);
-            if (provider_bridge_ != nullptr && session->provider_handle > 0) {
-                const auto content_length = provider_bridge_->QueryContentLength(session->provider_handle);
-                if (content_length > 0 &&
-                    (session->storage.content_length < 0 || content_length > session->storage.content_length)) {
-                    session->storage.content_length = content_length;
+                locked->storage.last_access_epoch_ms = NowEpochMs();
+                locked->bytes_since_metadata_persist += static_cast<int64_t>(shared_bytes->size());
+                if (locked->bytes_since_metadata_persist >= kMetadataPersistIntervalBytes) {
+                    PersistConfigLocked(*locked);
+                    locked->bytes_since_metadata_persist = 0;
                 }
             }
-            session->storage.last_access_epoch_ms = NowEpochMs();
-            PersistConfigLocked(*session);
+            locked->pending_persist_tasks -= 1;
         }
+        locked->data_cv.notify_all();
+    };
+
+    const bool posted = write_loop_.Post(persist_task);
+    if (!posted) {
+        persist_task();
     }
 }
 

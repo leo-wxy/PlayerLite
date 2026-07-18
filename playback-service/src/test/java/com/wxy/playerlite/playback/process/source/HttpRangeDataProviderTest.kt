@@ -17,6 +17,16 @@ import org.junit.Test
 
 class HttpRangeDataProviderTest {
     @Test
+    fun okHttpProviderUsesInitialContentLengthWithoutNetworkProbe() {
+        val provider = OkHttpRangeDataProvider(
+            url = "https://example.com/audio.flac",
+            initialContentLengthHint = 30_089_505L
+        )
+
+        assertEquals(30_089_505L, provider.queryContentLength())
+    }
+
+    @Test
     fun readAtUsesOpenEndedRangeHeaderAndReturnsBody() {
         val factory = FakeConnectionFactory(
             listOf(
@@ -159,6 +169,32 @@ class HttpRangeDataProviderTest {
     }
 
     @Test
+    fun queryContentLengthIgnoresPartialLengthWithoutTotalAndRetries() {
+        val factory = FakeConnectionFactory(
+            listOf(
+                FakeResponse(
+                    code = 206,
+                    headers = mapOf("Content-Length" to "1"),
+                    body = byteArrayOf(0x01)
+                ),
+                FakeResponse(
+                    code = 206,
+                    headers = mapOf("Content-Range" to "bytes 0-0/12345", "Content-Length" to "1"),
+                    body = byteArrayOf(0x01)
+                )
+            )
+        )
+        val provider = HttpRangeDataProvider(
+            url = "https://example.com/audio.mp3",
+            connectionFactory = factory::create
+        )
+
+        assertEquals(null, provider.queryContentLength())
+        assertEquals(12345L, provider.queryContentLength())
+        assertEquals(2, factory.requests.size)
+    }
+
+    @Test
     fun httpsReadShouldKeepOriginalHostnameInsteadOfResolvedIpv4() {
         val factory = FakeConnectionFactory(
             listOf(
@@ -267,6 +303,61 @@ class HttpRangeDataProviderTest {
 
         assertArrayEquals("hello".encodeToByteArray(), bytes)
         assertEquals(1, factory.requests.size)
+    }
+
+    @Test
+    fun mismatchedContentRangeStartShouldRejectResponse() {
+        val factory = FakeConnectionFactory(
+            listOf(
+                FakeResponse(
+                    code = 206,
+                    headers = mapOf("Content-Range" to "bytes 1025-1029/4096"),
+                    body = "wrong".encodeToByteArray()
+                )
+            )
+        )
+        val provider = HttpRangeDataProvider(
+            url = "https://example.com/audio.mp3",
+            connectionFactory = factory::create
+        )
+
+        val bytes = provider.readAtBytes(offset = 1024L, size = 5)
+
+        assertTrue(bytes.isEmpty())
+        assertEquals(1, factory.requests.size)
+    }
+
+    @Test
+    fun changedEtagShouldRejectRangeAndSendIfRangeValidator() {
+        val factory = FakeConnectionFactory(
+            listOf(
+                FakeResponse(
+                    code = 206,
+                    headers = mapOf(
+                        "Content-Range" to "bytes 0-1/8",
+                        "ETag" to "\"version-1\""
+                    ),
+                    body = "ab".encodeToByteArray()
+                ),
+                FakeResponse(
+                    code = 206,
+                    headers = mapOf(
+                        "Content-Range" to "bytes 4-5/8",
+                        "ETag" to "\"version-2\""
+                    ),
+                    body = "ef".encodeToByteArray()
+                )
+            )
+        )
+        val provider = HttpRangeDataProvider(
+            url = "https://example.com/audio.mp3",
+            connectionFactory = factory::create
+        )
+
+        assertArrayEquals("ab".encodeToByteArray(), provider.readAtBytes(offset = 0L, size = 2))
+        assertTrue(provider.readAtBytes(offset = 4L, size = 2).isEmpty())
+
+        assertEquals("\"version-1\"", factory.requests[1].headers["If-Range"])
     }
 
     @Test

@@ -7,6 +7,7 @@ import java.io.InputStream
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import okhttp3.Call
 import okhttp3.Dns
 import okhttp3.OkHttpClient
@@ -16,25 +17,27 @@ import okhttp3.Response
 internal class OkHttpRangeDataProvider(
     url: String,
     private val requestHeaders: Map<String, String> = emptyMap(),
+    initialContentLengthHint: Long? = null,
     private val connectTimeoutMs: Int = 2_000,
     private val readTimeoutMs: Int = 8_000,
     private val maxReadBurstBytes: Int = 256 * 1024,
-    private val streamChunkBytes: Int = 32 * 1024
+    private val streamChunkBytes: Int = 256 * 1024
 ) : RangeDataProvider {
     private val targetUrl = url
     private val inFlightLock = Any()
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = SHARED_CLIENT.newBuilder()
         .connectTimeout(connectTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(readTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-        .retryOnConnectionFailure(true)
-        .dns(Ipv4FirstDns)
         .build()
+    private val resourceIdentity = HttpResourceIdentityGuard()
+    private val physicalRequestCount = AtomicLong(0L)
+    private val totalReadBytes = AtomicLong(0L)
 
     @Volatile
     private var closed = false
 
     @Volatile
-    private var cachedContentLength: Long? = null
+    private var cachedContentLength: Long? = initialContentLengthHint?.takeIf { it > 0L }
 
     @Volatile
     private var contentLengthProbeAttempted = false
@@ -43,6 +46,9 @@ internal class OkHttpRangeDataProvider(
     private var activeResponse: Response? = null
     private var activeStream: InputStream? = null
     private var activeNextOffset: Long = -1L
+    private var activeRequestId: Long = 0L
+    private var activeRequestStartNs: Long = 0L
+    private var activeFirstByteReported = false
     private var openingCall: Call? = null
 
     override fun readAt(offset: Long, size: Int, callback: RangeDataProvider.ReadCallback) {
@@ -61,7 +67,8 @@ internal class OkHttpRangeDataProvider(
         val consumed = readFromStream(
             input = stream,
             size = size,
-            callback = callback
+            callback = callback,
+            onBytesRead = { bytesRead -> reportBytesRead(stream, bytesRead) }
         )
         val success = consumed >= 0
         val consumedBytes = consumed.coerceAtLeast(0).toLong()
@@ -74,7 +81,7 @@ internal class OkHttpRangeDataProvider(
                 }
             }
         }
-        callback.onDataEnd(success && !closed)
+        callback.onDataEnd(success && consumedBytes > 0L && !closed)
     }
 
     override fun cancelInFlightRead() {
@@ -94,10 +101,12 @@ internal class OkHttpRangeDataProvider(
             safeLogD("queryContentLength skipped on main thread: url=$targetUrl")
             return null
         }
-        if (contentLengthProbeAttempted) {
-            return cachedContentLength
+        synchronized(inFlightLock) {
+            if (contentLengthProbeAttempted) {
+                return cachedContentLength
+            }
+            contentLengthProbeAttempted = true
         }
-        contentLengthProbeAttempted = true
 
         val request = Request.Builder()
             .url(targetUrl)
@@ -106,14 +115,26 @@ internal class OkHttpRangeDataProvider(
             .header("Range", "bytes=0-0")
             .applyRequestHeaders()
             .build()
-        return runCatching {
+        val requestId = physicalRequestCount.incrementAndGet()
+        val requestStartNs = System.nanoTime()
+        val resolved = runCatching {
             client.newCall(request).execute().use { response ->
                 val code = response.code
                 val contentRange = response.header("Content-Range")
                 val contentLengthHeader = response.header("Content-Length")
-                updateContentLength(contentRange = contentRange, contentLengthHeader = contentLengthHeader)
+                val identityAccepted = resourceIdentity.accept(
+                    responseEtag = response.header("ETag"),
+                    responseLastModified = response.header("Last-Modified")
+                )
+                if (identityAccepted && isValidRangeResponse(0L, code, contentRange)) {
+                    updateContentLength(
+                        responseCode = code,
+                        contentRange = contentRange,
+                        contentLengthHeader = contentLengthHeader
+                    )
+                }
                 safeLogD(
-                    "queryContentLength: url=$targetUrl code=$code contentRange=$contentRange contentLength=$contentLengthHeader"
+                    "queryContentLength: request=$requestId url=$targetUrl code=$code contentRange=$contentRange contentLength=$contentLengthHeader elapsedMs=${elapsedMs(requestStartNs)}"
                 )
             }
             cachedContentLength
@@ -121,11 +142,27 @@ internal class OkHttpRangeDataProvider(
             safeLogE("queryContentLength exception: url=$targetUrl", error)
             cachedContentLength
         }
+        if (resolved == null) {
+            synchronized(inFlightLock) {
+                contentLengthProbeAttempted = false
+            }
+        }
+        return resolved
     }
 
     override fun close() {
-        closed = true
-        cancelInFlightRead()
+        synchronized(inFlightLock) {
+            if (closed) {
+                return
+            }
+            closed = true
+            closeActiveReadLocked()
+            openingCall?.cancel()
+            openingCall = null
+        }
+        safeLogD(
+            "close metrics: url=$targetUrl physicalRequests=${physicalRequestCount.get()} readBytes=${totalReadBytes.get()}"
+        )
     }
 
     private fun obtainActiveRead(offset: Long): InputStream? {
@@ -143,91 +180,98 @@ internal class OkHttpRangeDataProvider(
     }
 
     private fun openRangeRead(offset: Long): InputStream? {
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(targetUrl)
             .get()
             .header("Accept-Encoding", "identity")
             .header("Range", "bytes=$offset-")
             .applyRequestHeaders()
-            .build()
+        if (offset > 0L) {
+            resourceIdentity.ifRangeValue()?.let { requestBuilder.header("If-Range", it) }
+        }
+        val request = requestBuilder.build()
+        val requestId = physicalRequestCount.incrementAndGet()
+        val requestStartNs = System.nanoTime()
         val call = client.newCall(request)
         synchronized(inFlightLock) {
             if (closed) {
                 call.cancel()
                 return null
             }
+            openingCall?.cancel()
             openingCall = call
         }
 
         var response: Response? = null
         try {
-            safeLogD(
-                "openRangeRead start: url=$targetUrl offset=$offset timeout=${connectTimeoutMs}/${readTimeoutMs}ms"
-            )
             response = call.execute()
             val code = response.code
             val contentRange = response.header("Content-Range")
             val contentLengthHeader = response.header("Content-Length")
-            updateContentLength(contentRange = contentRange, contentLengthHeader = contentLengthHeader)
-            safeLogD(
-                "openRangeRead: url=$targetUrl offset=$offset code=$code contentRange=$contentRange contentLength=$contentLengthHeader"
+            val identityAccepted = resourceIdentity.accept(
+                responseEtag = response.header("ETag"),
+                responseLastModified = response.header("Last-Modified")
             )
+            val responseElapsedMs = elapsedMs(requestStartNs)
+            if (responseElapsedMs >= SLOW_REQUEST_LOG_THRESHOLD_MS) {
+                safeLogD(
+                    "slow range response: request=$requestId url=$targetUrl offset=$offset code=$code contentRange=$contentRange contentLength=$contentLengthHeader elapsedMs=$responseElapsedMs"
+                )
+            }
 
-                if (code !in 200..299) {
+            if (code !in 200..299) {
                 safeLogE(
                     "openRangeRead failed with non-2xx: url=$targetUrl offset=$offset code=$code",
                     IllegalStateException("HTTP $code")
                 )
                 response.close()
-                    return null
-                }
+                return null
+            }
+            if (!identityAccepted) {
+                safeLogE(
+                    "openRangeRead rejected changed resource: url=$targetUrl offset=$offset code=$code",
+                    IllegalStateException("resource validator changed")
+                )
+                response.close()
+                return null
+            }
+            if (!isValidRangeResponse(offset, code, contentRange)) {
+                safeLogE(
+                    "openRangeRead rejected mismatched range: url=$targetUrl offset=$offset code=$code contentRange=$contentRange",
+                    IllegalStateException("response range does not match requested offset")
+                )
+                response.close()
+                return null
+            }
+            updateContentLength(
+                responseCode = code,
+                contentRange = contentRange,
+                contentLengthHeader = contentLengthHeader
+            )
 
-                val stream = response.body?.byteStream() ?: run {
-                    safeLogE(
-                        "openRangeRead empty body: url=$targetUrl offset=$offset",
-                        IllegalStateException("empty response body")
+            val stream = response.body?.byteStream() ?: run {
+                safeLogE(
+                    "openRangeRead empty body: url=$targetUrl offset=$offset",
+                    IllegalStateException("empty response body")
                 )
                 response.close()
                 return null
             }
 
             synchronized(inFlightLock) {
-                if (closed) {
+                if (closed || openingCall !== call) {
                     response.close()
                     return null
                 }
 
-                if (offset > 0L && code != 206) {
-                    if (code == 200) {
-                        // Some servers ignore Range and always return full-body 200.
-                        // Fallback by discarding bytes until requested offset so seek
-                        // can still progress instead of hard failing.
-                        val skipped = skipFully(stream, offset)
-                        if (!skipped) {
-                            safeLogE(
-                                "openRangeRead skip fallback failed: url=$targetUrl offset=$offset code=$code",
-                                IllegalStateException("failed to skip to target offset")
-                            )
-                            response.close()
-                            return null
-                        }
-                        safeLogD(
-                            "openRangeRead fallback: url=$targetUrl offset=$offset code=$code skipped=$offset"
-                        )
-                    } else {
-                        safeLogE(
-                            "openRangeRead rejected non-partial response: url=$targetUrl offset=$offset code=$code",
-                            IllegalStateException("HTTP $code without partial content")
-                        )
-                        response.close()
-                        return null
-                    }
-                }
                 openingCall = null
                 activeCall = call
                 activeResponse = response
                 activeStream = stream
                 activeNextOffset = offset
+                activeRequestId = requestId
+                activeRequestStartNs = requestStartNs
+                activeFirstByteReported = false
             }
             return stream
         } catch (error: Exception) {
@@ -247,12 +291,19 @@ internal class OkHttpRangeDataProvider(
     }
 
     private fun updateContentLength(
+        responseCode: Int,
         contentRange: String?,
         contentLengthHeader: String?
     ) {
-        val fromRange = parseContentRangeTotal(contentRange)
+        if (responseCode !in 200..299) {
+            return
+        }
+        val fromRange = parseContentRange(contentRange)?.totalLength
         if (fromRange != null && fromRange >= 0L) {
             cachedContentLength = fromRange
+            return
+        }
+        if (responseCode != 200) {
             return
         }
         val fromHeader = contentLengthHeader?.toLongOrNull()
@@ -270,21 +321,11 @@ internal class OkHttpRangeDataProvider(
         return this
     }
 
-    private fun parseContentRangeTotal(contentRange: String?): Long? {
-        if (contentRange.isNullOrBlank()) {
-            return null
-        }
-        val slashIndex = contentRange.lastIndexOf('/')
-        if (slashIndex <= 0 || slashIndex >= contentRange.length - 1) {
-            return null
-        }
-        return contentRange.substring(slashIndex + 1).trim().toLongOrNull()
-    }
-
     private fun readFromStream(
         input: InputStream,
         size: Int,
-        callback: RangeDataProvider.ReadCallback
+        callback: RangeDataProvider.ReadCallback,
+        onBytesRead: (Int) -> Unit
     ): Int {
         if (size <= 0) {
             return 0
@@ -300,6 +341,7 @@ internal class OkHttpRangeDataProvider(
             if (read <= 0) {
                 break
             }
+            onBytesRead(read)
             val accepted = runCatching { callback.onDataSend(buffer, read) }.getOrDefault(false)
             if (!accepted) {
                 return -1
@@ -317,23 +359,36 @@ internal class OkHttpRangeDataProvider(
         runCatching { activeResponse?.close() }
         activeResponse = null
         activeNextOffset = -1L
+        activeRequestId = 0L
+        activeRequestStartNs = 0L
+        activeFirstByteReported = false
     }
 
-    private fun skipFully(input: InputStream, bytesToSkip: Long): Boolean {
-        if (bytesToSkip <= 0L) {
-            return true
+    private fun reportBytesRead(stream: InputStream, bytesRead: Int) {
+        if (bytesRead <= 0) {
+            return
         }
-        var remaining = bytesToSkip
-        val scratch = ByteArray(streamChunkBytes.coerceIn(4 * 1024, 256 * 1024))
-        while (remaining > 0L && !closed) {
-            val step = remaining.coerceAtMost(scratch.size.toLong()).toInt()
-            val read = runCatching { input.read(scratch, 0, step) }.getOrElse { return false }
-            if (read <= 0) {
-                return false
+        val total = totalReadBytes.addAndGet(bytesRead.toLong())
+        synchronized(inFlightLock) {
+            if (stream !== activeStream || activeFirstByteReported) {
+                return
             }
-            remaining -= read.toLong()
+            activeFirstByteReported = true
+            val firstByteElapsedMs = elapsedMs(activeRequestStartNs)
+            if (firstByteElapsedMs >= SLOW_REQUEST_LOG_THRESHOLD_MS) {
+                safeLogD(
+                    "slow first byte: request=$activeRequestId url=$targetUrl elapsedMs=$firstByteElapsedMs totalReadBytes=$total"
+                )
+            }
         }
-        return remaining <= 0L
+    }
+
+    private fun elapsedMs(startNs: Long): Long {
+        return if (startNs > 0L) {
+            (System.nanoTime() - startNs) / 1_000_000L
+        } else {
+            -1L
+        }
     }
 
     private object Ipv4FirstDns : Dns {
@@ -350,6 +405,11 @@ internal class OkHttpRangeDataProvider(
 
     private companion object {
         private const val TAG = "OkHttpRangeProvider"
+        private const val SLOW_REQUEST_LOG_THRESHOLD_MS = 500L
+        private val SHARED_CLIENT = OkHttpClient.Builder()
+            .retryOnConnectionFailure(true)
+            .dns(Ipv4FirstDns)
+            .build()
     }
 
     private fun isMainThread(): Boolean {

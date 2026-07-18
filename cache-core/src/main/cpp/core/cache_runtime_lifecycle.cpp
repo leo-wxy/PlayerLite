@@ -50,7 +50,8 @@ bool CacheRuntime::Init(
             disk_cache_clean_range_min_,
             disk_cache_clean_range_max_);
 
-    render_loop_.Start("cache-render");
+    // Playback and next-track prewarm each need an independent network lane.
+    render_loop_.Start("cache-render", 2);
     write_loop_.Start("cache-write");
 
     initialized_ = EnsureRootDirLocked();

@@ -15,7 +15,7 @@ import com.wxy.playerlite.playback.model.PlaybackPrewarmPreferences
 import com.wxy.playerlite.playback.model.PlaybackPrewarmSnapshot
 import com.wxy.playerlite.playback.model.PlaybackPrewarmState
 import com.wxy.playerlite.playback.model.PlaybackPrewarmTargetType
-import com.wxy.playerlite.playback.process.source.HttpRangeDataProvider
+import com.wxy.playerlite.playback.process.source.OkHttpRangeDataProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -63,7 +63,7 @@ internal class PlaybackPrewarmCoordinator(
     private val cacheLookup: (String) -> Result<CacheLookupSnapshot?> = CacheCore::lookup,
     private val openSession: (OpenSessionParams) -> Result<CacheSession> = CacheCore::openSession,
     private val providerFactory: (OnlinePlaybackPlan) -> RangeDataProvider = { plan ->
-        HttpRangeDataProvider(
+        OkHttpRangeDataProvider(
             url = plan.playbackUrl.orEmpty(),
             requestHeaders = plan.requestHeaders
         )
@@ -78,6 +78,7 @@ internal class PlaybackPrewarmCoordinator(
     private var lastFinishedSignature: String? = null
     private var activeSnapshot: PlaybackPrewarmSnapshot? = null
     private var activeResourceKey: String? = null
+    private var lastLoggedSnapshot: PrewarmLogMarker? = null
 
     fun schedule(context: PlaybackPrewarmContext) {
         val preferences = context.preferences.sanitized()
@@ -109,7 +110,11 @@ internal class PlaybackPrewarmCoordinator(
             preferences.readyThresholdDurationMs,
             preferences.readyThresholdBytes,
             context.preferredAudioQuality.wireValue,
-            context.currentItemCacheCompleteOrNoWrite,
+            if (candidate.targetType == PlaybackPrewarmTargetType.CURRENT_AHEAD) {
+                context.currentItemCacheCompleteOrNoWrite
+            } else {
+                true
+            },
             if (candidate.targetType == PlaybackPrewarmTargetType.CURRENT_AHEAD) {
                 context.currentPositionMs / CURRENT_AHEAD_SIGNATURE_BUCKET_MS
             } else {
@@ -444,10 +449,38 @@ internal class PlaybackPrewarmCoordinator(
             return
         }
         activeSnapshot = snapshot
-        debugLogger(
-            "prewarm snapshot: signature=${signature.orEmpty()}, key=${resourceKey ?: "<resolving>"}, target=${snapshot.targetId}, type=${snapshot.targetType.wireValue}, state=${snapshot.state.wireValue}, cached=${snapshot.cachedBytes}, target=${snapshot.targetBytes ?: -1L}, ready=${snapshot.isReady}, completed=${snapshot.isCompleted}, reason=${snapshot.reason.orEmpty()}"
-        )
+        val logMarker = snapshot.toLogMarker(signature, resourceKey)
+        if (logMarker != lastLoggedSnapshot) {
+            lastLoggedSnapshot = logMarker
+            debugLogger(
+                "prewarm snapshot: signature=${signature.orEmpty()}, key=${resourceKey ?: "<resolving>"}, target=${snapshot.targetId}, type=${snapshot.targetType.wireValue}, state=${snapshot.state.wireValue}, cached=${snapshot.cachedBytes}, target=${snapshot.targetBytes ?: -1L}, progressBucket=${logMarker.progressBucket}, ready=${snapshot.isReady}, completed=${snapshot.isCompleted}, reason=${snapshot.reason.orEmpty()}"
+            )
+        }
         onSnapshot(snapshot)
+    }
+
+    private fun PlaybackPrewarmSnapshot.toLogMarker(
+        signature: String?,
+        resourceKey: String?
+    ): PrewarmLogMarker {
+        val progressBucket = targetBytes
+            ?.takeIf { it > 0L }
+            ?.let { target ->
+                ((cachedBytes.coerceIn(0L, target).toDouble() / target.toDouble()) * 10.0)
+                    .toInt()
+                    .coerceIn(0, 10)
+            }
+            ?: -1
+        return PrewarmLogMarker(
+            signature = signature,
+            resourceKey = resourceKey,
+            targetId = targetId,
+            state = state,
+            progressBucket = progressBucket,
+            isReady = isReady,
+            isCompleted = isCompleted,
+            reason = reason
+        )
     }
 
     private fun cancelActive(reason: String, publishCanceled: Boolean) {
@@ -519,6 +552,17 @@ internal class PlaybackPrewarmCoordinator(
             runCatching { Log.d(TAG, message) }
         }
     }
+
+    private data class PrewarmLogMarker(
+        val signature: String?,
+        val resourceKey: String?,
+        val targetId: String?,
+        val state: PlaybackPrewarmState,
+        val progressBucket: Int,
+        val isReady: Boolean,
+        val isCompleted: Boolean,
+        val reason: String?
+    )
 }
 
 internal fun resolvePrewarmSkipSnapshot(
@@ -547,19 +591,9 @@ internal fun resolvePlaybackPrewarmCandidate(
             preferences = context.preferences
         )
     if (!currentReadyForNextTrack) {
-        val current = context.tracks.getOrNull(context.activeIndex) ?: return null
-        if (!current.isOnlineTrack()) {
-            return null
-        }
-        if (context.currentPositionMs <= 0L) {
-            return null
-        }
-        return PlaybackPrewarmCandidate(
-            track = current,
-            targetType = PlaybackPrewarmTargetType.CURRENT_AHEAD,
-            startOffsetBytes = null,
-            reason = "当前曲前方窗口"
-        )
+        // cache-core already keeps an 8 MiB window ahead of the current cursor.
+        // A second session for the same resource can overwrite range metadata.
+        return null
     }
     val next = resolveNextPrewarmTrack(
         tracks = context.tracks,

@@ -8,11 +8,13 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CancellationException
-import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicInteger
 
 internal class HttpRangeDataProvider(
     url: String,
@@ -24,14 +26,15 @@ internal class HttpRangeDataProvider(
     private val connectTimeoutMs: Int = 2_000,
     private val readTimeoutMs: Int = 8_000,
     private val maxReadBurstBytes: Int = 256 * 1024,
-    private val streamChunkBytes: Int = 32 * 1024,
+    private val streamChunkBytes: Int = 256 * 1024,
     private val openRetryCount: Int = 0,
     private val openRetryBackoffMs: Long = 120L
 ) : RangeDataProvider {
     private val targetUrl = URL(url)
     private val inFlightLock = Any()
-    private val dnsResolveExecutor = Executors.newSingleThreadExecutor()
-    private val openCallExecutor = Executors.newCachedThreadPool()
+    private val dnsResolveExecutor = SHARED_DNS_EXECUTOR
+    private val openCallExecutor = SHARED_OPEN_EXECUTOR
+    private val resourceIdentity = HttpResourceIdentityGuard()
 
     @Volatile
     private var closed = false
@@ -118,10 +121,12 @@ internal class HttpRangeDataProvider(
             safeLogD("queryContentLength skipped on main thread: url=$targetUrl")
             return null
         }
-        if (contentLengthProbeAttempted) {
-            return cachedContentLength
+        synchronized(inFlightLock) {
+            if (contentLengthProbeAttempted) {
+                return cachedContentLength
+            }
+            contentLengthProbeAttempted = true
         }
-        contentLengthProbeAttempted = true
 
         val connection = connectionFactory(targetUrl).apply {
             requestMethod = "GET"
@@ -131,14 +136,23 @@ internal class HttpRangeDataProvider(
             useCaches = false
             applyRequestHeaders()
             setRequestProperty("Accept-Encoding", "identity")
-            setRequestProperty("Connection", "close")
             setRequestProperty("Range", "bytes=0-0")
         }
-        return try {
+        val resolved = try {
             val code = connection.responseCode
             val contentRange = connection.getHeaderField("Content-Range")
             val contentLengthHeader = connection.getHeaderField("Content-Length")
-            updateContentLength(contentRange = contentRange, contentLengthHeader = contentLengthHeader)
+            val identityAccepted = resourceIdentity.accept(
+                responseEtag = connection.getHeaderField("ETag"),
+                responseLastModified = connection.getHeaderField("Last-Modified")
+            )
+            if (identityAccepted && isValidRangeResponse(0L, code, contentRange)) {
+                updateContentLength(
+                    responseCode = code,
+                    contentRange = contentRange,
+                    contentLengthHeader = contentLengthHeader
+                )
+            }
             safeLogD(
                 "queryContentLength: url=$targetUrl code=$code contentRange=$contentRange contentLength=$contentLengthHeader"
             )
@@ -149,13 +163,24 @@ internal class HttpRangeDataProvider(
         } finally {
             runCatching { connection.disconnect() }
         }
+        if (resolved == null) {
+            synchronized(inFlightLock) {
+                contentLengthProbeAttempted = false
+            }
+        }
+        return resolved
     }
 
     override fun close() {
-        closed = true
-        cancelInFlightRead()
-        dnsResolveExecutor.shutdownNow()
-        openCallExecutor.shutdownNow()
+        synchronized(inFlightLock) {
+            if (closed) {
+                return
+            }
+            closed = true
+            closeActiveReadLocked()
+            cancelOpeningResponseFutureLocked()
+            closeOpeningConnectionLocked()
+        }
     }
 
     private fun obtainActiveRead(offset: Long): ActiveRead? {
@@ -186,6 +211,7 @@ internal class HttpRangeDataProvider(
         val attempts = (openRetryCount + 1).coerceAtLeast(1)
         repeat(attempts) { attemptIndex ->
             val preferredUrl = buildPreferredTargetUrl()
+            val ifRangeValue = resourceIdentity.ifRangeValue()
             val connection = connectionFactory(preferredUrl).apply {
                 requestMethod = "GET"
                 connectTimeout = connectTimeoutMs
@@ -194,8 +220,10 @@ internal class HttpRangeDataProvider(
                 useCaches = false
                 applyRequestHeaders()
                 setRequestProperty("Accept-Encoding", "identity")
-                setRequestProperty("Connection", "close")
                 setRequestProperty("Range", "bytes=$offset-")
+                if (offset > 0L && ifRangeValue != null) {
+                    setRequestProperty("If-Range", ifRangeValue)
+                }
                 if (preferredUrl.host != targetUrl.host) {
                     setRequestProperty("Host", targetUrl.host)
                 }
@@ -210,9 +238,6 @@ internal class HttpRangeDataProvider(
                     openingConnection = connection
                 }
                 val startNs = System.nanoTime()
-                safeLogD(
-                    "openRangeRead start: url=$targetUrl resolvedUrl=$preferredUrl offset=$offset timeout=${connectTimeoutMs}/${readTimeoutMs}ms attempt=${attemptIndex + 1}/$attempts"
-                )
                 val openTimeoutMs = (connectTimeoutMs.toLong() + readTimeoutMs.toLong() + 500L)
                     .coerceAtLeast(1_500L)
                 val future = openCallExecutor.submit<Int> { connection.responseCode }
@@ -245,11 +270,16 @@ internal class HttpRangeDataProvider(
                 }
                 val contentRange = connection.getHeaderField("Content-Range")
                 val contentLengthHeader = connection.getHeaderField("Content-Length")
-                updateContentLength(contentRange = contentRange, contentLengthHeader = contentLengthHeader)
-                val elapsedMs = (System.nanoTime() - startNs) / 1_000_000L
-                safeLogD(
-                    "openRangeRead: url=$targetUrl offset=$offset code=$code contentRange=$contentRange contentLength=$contentLengthHeader elapsedMs=$elapsedMs attempt=${attemptIndex + 1}/$attempts"
+                val identityAccepted = resourceIdentity.accept(
+                    responseEtag = connection.getHeaderField("ETag"),
+                    responseLastModified = connection.getHeaderField("Last-Modified")
                 )
+                val elapsedMs = (System.nanoTime() - startNs) / 1_000_000L
+                if (elapsedMs >= SLOW_REQUEST_LOG_THRESHOLD_MS) {
+                    safeLogD(
+                        "slow range response: url=$targetUrl offset=$offset code=$code contentRange=$contentRange contentLength=$contentLengthHeader elapsedMs=$elapsedMs attempt=${attemptIndex + 1}/$attempts"
+                    )
+                }
 
                 if (code !in 200..299) {
                     safeLogE(
@@ -263,10 +293,18 @@ internal class HttpRangeDataProvider(
                     }
                     return null
                 }
-                if (offset > 0L && code != HttpURLConnection.HTTP_PARTIAL) {
+                if (!identityAccepted) {
                     safeLogE(
-                        "openRangeRead rejected non-partial response: url=$targetUrl offset=$offset code=$code attempt=${attemptIndex + 1}/$attempts",
-                        IllegalStateException("HTTP $code without partial content")
+                        "openRangeRead rejected changed resource: url=$targetUrl offset=$offset code=$code",
+                        IllegalStateException("resource validator changed")
+                    )
+                    runCatching { connection.disconnect() }
+                    return null
+                }
+                if (!isValidRangeResponse(offset, code, contentRange)) {
+                    safeLogE(
+                        "openRangeRead rejected mismatched range: url=$targetUrl offset=$offset code=$code contentRange=$contentRange attempt=${attemptIndex + 1}/$attempts",
+                        IllegalStateException("response range does not match requested offset")
                     )
                     runCatching { connection.disconnect() }
                     if (attemptIndex < attempts - 1 && !closed) {
@@ -275,6 +313,11 @@ internal class HttpRangeDataProvider(
                     }
                     return null
                 }
+                updateContentLength(
+                    responseCode = code,
+                    contentRange = contentRange,
+                    contentLengthHeader = contentLengthHeader
+                )
 
                 val stream = connection.inputStream
                 return ActiveRead(
@@ -306,29 +349,25 @@ internal class HttpRangeDataProvider(
     }
 
     private fun updateContentLength(
+        responseCode: Int,
         contentRange: String?,
         contentLengthHeader: String?
     ) {
-        val fromRange = parseContentRangeTotal(contentRange)
+        if (responseCode !in 200..299) {
+            return
+        }
+        val fromRange = parseContentRange(contentRange)?.totalLength
         if (fromRange != null && fromRange >= 0L) {
             cachedContentLength = fromRange
+            return
+        }
+        if (responseCode != HttpURLConnection.HTTP_OK) {
             return
         }
         val fromHeader = contentLengthHeader?.toLongOrNull()
         if (fromHeader != null && fromHeader >= 0L) {
             cachedContentLength = fromHeader
         }
-    }
-
-    private fun parseContentRangeTotal(contentRange: String?): Long? {
-        if (contentRange.isNullOrBlank()) {
-            return null
-        }
-        val slashIndex = contentRange.lastIndexOf('/')
-        if (slashIndex <= 0 || slashIndex >= contentRange.length - 1) {
-            return null
-        }
-        return contentRange.substring(slashIndex + 1).trim().toLongOrNull()
     }
 
     private fun readUpTo(
@@ -476,12 +515,49 @@ internal class HttpRangeDataProvider(
 
     private companion object {
         private const val TAG = "HttpRangeDataProvider"
+        private const val SLOW_REQUEST_LOG_THRESHOLD_MS = 500L
         private const val UNEXPECTED_EMPTY_READ_RETRY_COUNT = 1
         private const val ZERO_BYTE_READ_RETRY_COUNT = 4
+        private val SHARED_DNS_EXECUTOR = newBoundedExecutor(
+            coreThreads = 1,
+            maxThreads = 2,
+            queueCapacity = 8,
+            threadPrefix = "range-dns"
+        )
+        private val SHARED_OPEN_EXECUTOR = newBoundedExecutor(
+            coreThreads = 2,
+            maxThreads = 4,
+            queueCapacity = 8,
+            threadPrefix = "range-open"
+        )
         private val DEFAULT_IPV4_RESOLVER: (String) -> String? = { host ->
             InetAddress.getAllByName(host)
                 .firstOrNull { it is Inet4Address }
                 ?.hostAddress
+        }
+
+        private fun newBoundedExecutor(
+            coreThreads: Int,
+            maxThreads: Int,
+            queueCapacity: Int,
+            threadPrefix: String
+        ): ThreadPoolExecutor {
+            val threadNumber = AtomicInteger(0)
+            return ThreadPoolExecutor(
+                coreThreads,
+                maxThreads,
+                30L,
+                TimeUnit.SECONDS,
+                ArrayBlockingQueue(queueCapacity),
+                { task ->
+                    Thread(task, "$threadPrefix-${threadNumber.incrementAndGet()}").apply {
+                        isDaemon = true
+                    }
+                },
+                ThreadPoolExecutor.AbortPolicy()
+            ).apply {
+                allowCoreThreadTimeOut(true)
+            }
         }
     }
 

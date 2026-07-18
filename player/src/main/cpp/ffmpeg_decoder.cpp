@@ -422,12 +422,14 @@ private:
 
     std::vector<FilterStep> BuildFilterSteps(int speed_tenths, int effect_code) const {
         std::vector<FilterStep> steps;
-        char tempo_value[16] = {0};
-        snprintf(tempo_value, sizeof(tempo_value), "%.1f", speed_tenths / 10.0);
-        steps.push_back(FilterStep{
-                "atempo",
-                "tempo",
-                std::string("tempo=") + tempo_value});
+        if (speed_tenths != 10) {
+            char tempo_value[16] = {0};
+            snprintf(tempo_value, sizeof(tempo_value), "%.1f", speed_tenths / 10.0);
+            steps.push_back(FilterStep{
+                    "atempo",
+                    "tempo",
+                    std::string("tempo=") + tempo_value});
+        }
 
         switch (NormalizeAudioEffectPresetCode(effect_code)) {
             case kAudioEffectPresetBassBoost:
@@ -516,6 +518,7 @@ int WriteResampledFrame(
         int output_sample_rate,
         AVSampleFormat output_sample_format,
         int output_channels,
+        std::vector<uint8_t>* reusable_output_buffer,
         AudioFilterProcessor* tempo_processor,
         PcmConsumer* consumer,
         std::string* error_message) {
@@ -527,19 +530,20 @@ int WriteResampledFrame(
             input_sample_rate,
             AV_ROUND_UP));
 
-    // 每帧按需申请输出缓冲，写完立刻释放，避免跨帧状态污染。
-    uint8_t** output_data = nullptr;
-    int output_line_size = 0;
-    int result = av_samples_alloc_array_and_samples(
-            &output_data,
-            &output_line_size,
+    if (reusable_output_buffer == nullptr) {
+        return AVERROR(EINVAL);
+    }
+    const int output_buffer_size = av_samples_get_buffer_size(
+            nullptr,
             output_channels,
             dst_nb_samples,
             output_sample_format,
-            0);
-    if (result < 0) {
-        return result;
+            1);
+    if (output_buffer_size < 0) {
+        return output_buffer_size;
     }
+    reusable_output_buffer->resize(static_cast<std::size_t>(output_buffer_size));
+    uint8_t* output_data[] = {reusable_output_buffer->data()};
 
     const int converted = swr_convert(
             swr,
@@ -548,14 +552,11 @@ int WriteResampledFrame(
             const_cast<const uint8_t**>(decoded_frame->extended_data),
             decoded_frame->nb_samples);
     if (converted < 0) {
-        av_freep(&output_data[0]);
-        av_freep(&output_data);
         return converted;
     }
 
-    int result_to_return = 0;
     if (tempo_processor != nullptr && consumer != nullptr) {
-        result_to_return = tempo_processor->ProcessInterleaved(
+        return tempo_processor->ProcessInterleaved(
                 output_data[0],
                 converted,
                 output_layout,
@@ -565,10 +566,18 @@ int WriteResampledFrame(
                 consumer,
                 error_message);
     }
-
-    av_freep(&output_data[0]);
-    av_freep(&output_data);
-    return result_to_return;
+    const int converted_bytes = av_samples_get_buffer_size(
+            nullptr,
+            output_channels,
+            converted,
+            output_sample_format,
+            1);
+    if (converted_bytes < 0) {
+        return converted_bytes;
+    }
+    return consumer != nullptr && consumer->Consume(output_data[0], converted_bytes, error_message)
+            ? 0
+            : kConsumeFailedCode;
 }
 
 int WriteFrameWithoutResample(
@@ -594,7 +603,18 @@ int WriteFrameWithoutResample(
     }
 
     if (tempo_processor == nullptr) {
-        return 0;
+        const int output_size = av_samples_get_buffer_size(
+                nullptr,
+                output_channels,
+                decoded_frame->nb_samples,
+                output_sample_format,
+                1);
+        if (output_size < 0) {
+            return output_size;
+        }
+        return consumer->Consume(output_buffer, output_size, error_message)
+                ? 0
+                : kConsumeFailedCode;
     }
 
     return tempo_processor->ProcessInterleaved(
@@ -867,6 +887,8 @@ int FfmpegDecoder::DecodeAndConsume(
     PcmOutputConfig output_config;
     AVSampleFormat output_sample_format = kFallbackOutputSampleFormat;
     AudioFilterProcessor tempo_processor;
+    std::vector<uint8_t> resample_output_buffer;
+    bool filters_active = false;
     bool use_resampler = false;
 
     auto ConsumeDecodedFrame = [&](AVFrame* frame_to_consume) -> int {
@@ -880,6 +902,18 @@ int FfmpegDecoder::DecodeAndConsume(
                         : codec_context->sample_rate;
         const AVSampleFormat input_sample_format =
                 static_cast<AVSampleFormat>(frame_to_consume->format);
+        const bool needs_filters =
+                NormalizePlaybackSpeedTenths(consumer->CurrentPlaybackSpeedTenths()) != 10 ||
+                NormalizeAudioEffectPresetCode(consumer->CurrentAudioEffectPresetCode()) !=
+                        kAudioEffectPresetOff;
+        if (!needs_filters && filters_active) {
+            tempo_processor.Reset();
+            filters_active = false;
+        } else if (needs_filters) {
+            filters_active = true;
+        }
+        AudioFilterProcessor* active_filter_processor =
+                needs_filters ? &tempo_processor : nullptr;
 
         if (input_layout == nullptr || input_layout->nb_channels <= 0 ||
             input_sample_rate <= 0 ||
@@ -910,7 +944,7 @@ int FfmpegDecoder::DecodeAndConsume(
                     output_config.sample_rate,
                     output_sample_format,
                     output_config.channels,
-                    &tempo_processor,
+                    active_filter_processor,
                     consumer,
                     error_message);
         }
@@ -972,7 +1006,8 @@ int FfmpegDecoder::DecodeAndConsume(
                 output_config.sample_rate,
                 output_sample_format,
                 output_config.channels,
-                &tempo_processor,
+                &resample_output_buffer,
+                active_filter_processor,
                 consumer,
                 error_message);
     };

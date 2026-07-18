@@ -11,12 +11,265 @@ import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.file.Files
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OnlinePlaybackPreparationPlannerTest {
+    @Test
+    fun buildPlan_shouldReuseFreshPlanResolvedBySourceAdapter() = runBlocking {
+        var nowMs = 1_000L
+        val adapter = FakePlanningSourceAdapter(
+            Result.success(
+                SourceActionResult.MusicUrl(
+                    playbackUrl = "https://example.com/reused.flac",
+                    contentLengthBytes = 8_000_000L,
+                    durationMs = 180_000L,
+                    expiresAtMs = 120_000L,
+                    appliedAudioQuality = PlaybackAudioQuality.EXHIGH
+                )
+            )
+        )
+        val planner = OnlinePlaybackPreparationPlanner(
+            cacheLookup = { Result.success(null) },
+            sourceAdapterProvider = { adapter },
+            planMemoryCache = OnlinePlaybackPlanMemoryCache(nowMs = { nowMs })
+        )
+        val track = PlaybackTrack(
+            playable = MusicInfo(
+                id = "queue-plan-reuse",
+                songId = "1001",
+                title = "Reuse",
+                durationMs = 180_000L,
+                playbackUri = ""
+            )
+        )
+
+        val first = planner.buildPlan(track).getOrThrow()
+        nowMs = 2_000L
+        val second = planner.buildPlan(track).getOrThrow()
+
+        assertEquals(first, second)
+        assertEquals(1, adapter.handleCalls)
+        assertEquals(120_000L, second.expiresAtMs)
+    }
+
+    @Test
+    fun buildPlan_shouldRefreshPlanNearExpiry() = runBlocking {
+        var nowMs = 1_000L
+        val adapter = FakePlanningSourceAdapter(
+            Result.success(
+                SourceActionResult.MusicUrl(
+                    playbackUrl = "https://example.com/expiring.flac",
+                    expiresAtMs = 20_000L,
+                    appliedAudioQuality = PlaybackAudioQuality.EXHIGH
+                )
+            )
+        )
+        val planner = OnlinePlaybackPreparationPlanner(
+            cacheLookup = { Result.success(null) },
+            sourceAdapterProvider = { adapter },
+            planMemoryCache = OnlinePlaybackPlanMemoryCache(nowMs = { nowMs })
+        )
+        val track = PlaybackTrack(
+            playable = MusicInfo(
+                id = "queue-plan-expiry",
+                songId = "1002",
+                title = "Expiry",
+                playbackUri = ""
+            )
+        )
+
+        planner.buildPlan(track).getOrThrow()
+        nowMs = 6_000L
+        planner.buildPlan(track).getOrThrow()
+
+        assertEquals(2, adapter.handleCalls)
+    }
+
+    @Test
+    fun buildPlan_shouldKeepPreferredAudioQualitiesIsolated() = runBlocking {
+        val adapter = FakePlanningSourceAdapter(
+            Result.success(
+                SourceActionResult.MusicUrl(
+                    playbackUrl = "https://example.com/quality.flac",
+                    expiresAtMs = 120_000L,
+                    appliedAudioQuality = PlaybackAudioQuality.LOSSLESS
+                )
+            )
+        )
+        val planner = OnlinePlaybackPreparationPlanner(
+            cacheLookup = { Result.success(null) },
+            sourceAdapterProvider = { adapter },
+            planMemoryCache = OnlinePlaybackPlanMemoryCache(nowMs = { 1_000L })
+        )
+        val track = PlaybackTrack(
+            playable = MusicInfo(
+                id = "queue-plan-quality",
+                songId = "1003",
+                title = "Quality",
+                playbackUri = ""
+            )
+        )
+
+        planner.buildPlan(track, PlaybackAudioQuality.EXHIGH).getOrThrow()
+        planner.buildPlan(track, PlaybackAudioQuality.HIRES).getOrThrow()
+
+        assertEquals(2, adapter.handleCalls)
+    }
+
+    @Test
+    fun buildPlan_shouldShareInFlightResolutionForSameTrack() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val adapter = ControllablePlanningSourceAdapter {
+            entered.complete(Unit)
+            release.await()
+            Result.success(
+                SourceActionResult.MusicUrl(
+                    playbackUrl = "https://example.com/shared.flac",
+                    expiresAtMs = 120_000L,
+                    appliedAudioQuality = PlaybackAudioQuality.EXHIGH
+                )
+            )
+        }
+        val planner = OnlinePlaybackPreparationPlanner(
+            cacheLookup = { Result.success(null) },
+            sourceAdapterProvider = { adapter },
+            planMemoryCache = OnlinePlaybackPlanMemoryCache(nowMs = { 1_000L }),
+            resolutionScope = this
+        )
+        val track = onlineTrack(id = "queue-in-flight", songId = "2001")
+
+        val first = async { planner.buildPlan(track).getOrThrow() }
+        entered.await()
+        val second = async { planner.buildPlan(track).getOrThrow() }
+        yield()
+
+        assertEquals(1, adapter.handleCalls)
+        release.complete(Unit)
+        assertEquals(first.await(), second.await())
+        assertEquals(1, adapter.handleCalls)
+    }
+
+    @Test
+    fun buildPlan_shouldKeepSharedResolutionAliveWhenFirstCallerIsCanceled() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val adapter = ControllablePlanningSourceAdapter {
+            entered.complete(Unit)
+            release.await()
+            Result.success(
+                SourceActionResult.MusicUrl(
+                    playbackUrl = "https://example.com/cancellation-isolated.flac",
+                    expiresAtMs = 120_000L,
+                    appliedAudioQuality = PlaybackAudioQuality.EXHIGH
+                )
+            )
+        }
+        val planner = OnlinePlaybackPreparationPlanner(
+            cacheLookup = { Result.success(null) },
+            sourceAdapterProvider = { adapter },
+            planMemoryCache = OnlinePlaybackPlanMemoryCache(nowMs = { 1_000L }),
+            resolutionScope = this
+        )
+        val track = onlineTrack(id = "queue-cancellation", songId = "2002")
+
+        val prewarmCaller = launch { planner.buildPlan(track) }
+        entered.await()
+        prewarmCaller.cancelAndJoin()
+        val playbackCaller = async { planner.buildPlan(track).getOrThrow() }
+        yield()
+
+        assertEquals(1, adapter.handleCalls)
+        release.complete(Unit)
+        assertEquals(
+            "https://example.com/cancellation-isolated.flac",
+            playbackCaller.await().playbackUrl
+        )
+        assertEquals(1, adapter.handleCalls)
+    }
+
+    @Test
+    fun buildPlan_shouldRetryAfterSharedResolutionFailure() = runBlocking {
+        var attempt = 0
+        val adapter = ControllablePlanningSourceAdapter {
+            attempt += 1
+            if (attempt == 1) {
+                Result.failure(IOException("temporary resolution failure"))
+            } else {
+                Result.success(
+                    SourceActionResult.MusicUrl(
+                        playbackUrl = "https://example.com/retried.flac",
+                        expiresAtMs = 120_000L,
+                        appliedAudioQuality = PlaybackAudioQuality.EXHIGH
+                    )
+                )
+            }
+        }
+        val planner = OnlinePlaybackPreparationPlanner(
+            cacheLookup = { Result.success(null) },
+            sourceAdapterProvider = { adapter },
+            planMemoryCache = OnlinePlaybackPlanMemoryCache(nowMs = { 1_000L }),
+            resolutionScope = this
+        )
+        val track = onlineTrack(id = "queue-retry", songId = "2003")
+
+        assertTrue(planner.buildPlan(track).isFailure)
+        assertEquals(
+            "https://example.com/retried.flac",
+            planner.buildPlan(track).getOrThrow().playbackUrl
+        )
+        assertEquals(2, adapter.handleCalls)
+    }
+
+    @Test
+    fun clearCachedPlans_shouldCancelInFlightResolutionAndAllowFreshRetry() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        var attempt = 0
+        val adapter = ControllablePlanningSourceAdapter {
+            attempt += 1
+            if (attempt == 1) {
+                entered.complete(Unit)
+                awaitCancellation()
+            } else {
+                Result.success(
+                    SourceActionResult.MusicUrl(
+                        playbackUrl = "https://example.com/after-clear.flac",
+                        expiresAtMs = 120_000L,
+                        appliedAudioQuality = PlaybackAudioQuality.EXHIGH
+                    )
+                )
+            }
+        }
+        val planner = OnlinePlaybackPreparationPlanner(
+            cacheLookup = { Result.success(null) },
+            sourceAdapterProvider = { adapter },
+            planMemoryCache = OnlinePlaybackPlanMemoryCache(nowMs = { 1_000L }),
+            resolutionScope = this
+        )
+        val track = onlineTrack(id = "queue-clear", songId = "2004")
+
+        val staleCaller = async { planner.buildPlan(track) }
+        entered.await()
+        planner.clearCachedPlans()
+        staleCaller.join()
+
+        assertTrue(staleCaller.isCancelled)
+        assertEquals(
+            "https://example.com/after-clear.flac",
+            planner.buildPlan(track).getOrThrow().playbackUrl
+        )
+        assertEquals(2, adapter.handleCalls)
+    }
+
     @Test
     fun buildPlan_shouldConsumeMusicUrlFromCurrentSourceAdapter() = runBlocking {
         val adapter = FakePlanningSourceAdapter(
@@ -394,7 +647,7 @@ class OnlinePlaybackPreparationPlannerTest {
                 ResolvedOnlineStream(
                     playbackUrl = "https://example.com/fresh-full.mp3",
                     requestHeaders = emptyMap(),
-                    contentLengthBytes = contentLength,
+                    contentLengthBytes = null,
                     durationMs = 288_733L,
                     expiresAtMs = 5_000L
                 )
@@ -419,6 +672,7 @@ class OnlinePlaybackPreparationPlannerTest {
 
         assertTrue(!plan.useCacheOnlyProvider)
         assertEquals("https://example.com/fresh-full.mp3", plan.playbackUrl)
+        assertEquals(contentLength, plan.contentLengthHintBytes)
         assertEquals(1, resolver.calls)
     }
 
@@ -469,6 +723,7 @@ class OnlinePlaybackPreparationPlannerTest {
         )
         override val normalizedConfigJson: String? = null
         var lastContext: SourceActionContext? = null
+        var handleCalls: Int = 0
 
         override fun init(): Result<SourceState> = Result.success(SourceState())
 
@@ -476,9 +731,42 @@ class OnlinePlaybackPreparationPlannerTest {
             action: SourceAction,
             context: SourceActionContext
         ): Result<SourceActionResult> {
+            handleCalls += 1
             lastContext = context
             return result.map { it as SourceActionResult }
         }
+    }
+
+    private class ControllablePlanningSourceAdapter(
+        private val onHandle: suspend () -> Result<SourceActionResult.MusicUrl>
+    ) : SourceAdapter {
+        override val metadata: SourceMetadata = SourceMetadata(
+            id = "controllable-planning-source",
+            name = "Controllable Planning Source"
+        )
+        override val normalizedConfigJson: String? = null
+        var handleCalls: Int = 0
+
+        override fun init(): Result<SourceState> = Result.success(SourceState())
+
+        override suspend fun handle(
+            action: SourceAction,
+            context: SourceActionContext
+        ): Result<SourceActionResult> {
+            handleCalls += 1
+            return onHandle().map { it as SourceActionResult }
+        }
+    }
+
+    private fun onlineTrack(id: String, songId: String): PlaybackTrack {
+        return PlaybackTrack(
+            playable = MusicInfo(
+                id = id,
+                songId = songId,
+                title = id,
+                playbackUri = ""
+            )
+        )
     }
 
     private fun completeSnapshot(root: File, resourceKey: String): CacheLookupSnapshot {

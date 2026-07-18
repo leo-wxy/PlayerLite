@@ -28,8 +28,12 @@ internal class CachedNetworkSource(
     private var sourceMode: IPlaysource.SourceMode = IPlaysource.SourceMode.NORMAL
     private var opened = false
     private var aborted = false
+    private var closed = false
     private var position = 0L
     private var seekSerial = 0L
+    private var seekCallbackCount = 0L
+    private var seekFailureCount = 0L
+    private var lastLoggedCacheProgressBucket = -1
     private var contentLength: Long = contentLengthHint?.takeIf { it > 0L } ?: -1L
     private var session: CacheSession? = null
     private val cacheProgressTracker = ObservedCacheProgressTracker()
@@ -51,14 +55,15 @@ internal class CachedNetworkSource(
         cacheProgressListener = listener
         if (listener == null) {
             lastEmittedCacheProgress = null
+            lastLoggedCacheProgressBucket = -1
             return
         }
-        emitCacheProgress()
+        emitCacheProgress(force = true)
     }
 
     override fun open(): IPlaysource.AudioSourceCode {
         synchronized(this) {
-            if (aborted) {
+            if (aborted || closed) {
                 return IPlaysource.AudioSourceCode.ASC_ABORT
             }
             if (opened && session != null) {
@@ -105,15 +110,24 @@ internal class CachedNetworkSource(
             }
             (openedSession as? CacheProgressChunkEmitter)?.setCacheProgressChunkListener(::onCacheProgressChunk)
             safeLogI("open success: key=$resourceKey, cachedLengthHint=$cachedLengthHint")
-            emitCacheProgress()
+            emitCacheProgress(force = true)
             return IPlaysource.AudioSourceCode.ASC_SUCCESS
         }
     }
 
-    override fun stop() = Unit
+    override fun stop() {
+        synchronized(this) {
+            if (!aborted) {
+                session?.cancelPendingRead()
+            }
+        }
+    }
 
     override fun abort() {
         synchronized(this) {
+            if (aborted || closed) {
+                return
+            }
             aborted = true
             safeLogI("abort: key=$resourceKey")
             close()
@@ -122,7 +136,13 @@ internal class CachedNetworkSource(
 
     override fun close() {
         synchronized(this) {
-            safeLogI("close: key=$resourceKey")
+            if (closed) {
+                return
+            }
+            closed = true
+            safeLogI(
+                "close: key=$resourceKey, seekCallbacks=$seekCallbackCount, seekFailures=$seekFailureCount"
+            )
             opened = false
             (session as? CacheProgressChunkEmitter)?.setCacheProgressChunkListener(null)
             session?.close()
@@ -230,12 +250,80 @@ internal class CachedNetworkSource(
         if (size <= 0 || !buffer.hasRemaining()) {
             return 0
         }
-        val temp = ByteArray(size.coerceAtMost(buffer.remaining()))
-        val read = read(temp, temp.size)
-        if (read > 0) {
-            buffer.put(temp, 0, read)
+        while (true) {
+            val currentSession: CacheSession
+            val readOffset: Long
+            val maxRead: Int
+            val readSeekSerial: Long
+            synchronized(this) {
+                if (!opened) {
+                    val openCode = open()
+                    if (openCode != IPlaysource.AudioSourceCode.ASC_SUCCESS) {
+                        return -1
+                    }
+                }
+                if (aborted) {
+                    return 0
+                }
+                maxRead = size.coerceAtMost(buffer.remaining())
+                currentSession = session ?: return -1
+                readOffset = position
+                readSeekSerial = seekSerial
+                if (contentLength > 0L && readOffset >= contentLength) {
+                    refreshContentLength()
+                }
+            }
+
+            val target = buffer.slice()
+            target.limit(maxRead)
+            val result = currentSession.readAtDirect(readOffset, target, maxRead)
+            if (result.isFailure) {
+                val retry = synchronized(this) {
+                    !aborted && session === currentSession && seekSerial != readSeekSerial
+                }
+                if (retry) {
+                    continue
+                }
+                onCacheFailure(
+                    "读取缓存数据失败: ${result.exceptionOrNull()?.message ?: "unknown"}"
+                )
+                return -1
+            }
+
+            val read = result.getOrThrow().coerceAtMost(maxRead)
+            if (read <= 0) {
+                val retry = synchronized(this) {
+                    !aborted && session === currentSession && seekSerial != readSeekSerial
+                }
+                if (retry) {
+                    continue
+                }
+                val resolvedLength = refreshContentLength()
+                if (resolvedLength <= 0L || readOffset < resolvedLength) {
+                    onCacheFailure("读取缓存数据为空: offset=$readOffset")
+                    return -1
+                }
+                return 0
+            }
+
+            refreshContentLength()
+            val accepted = synchronized(this) {
+                if (aborted || session !== currentSession ||
+                    seekSerial != readSeekSerial || position != readOffset
+                ) {
+                    false
+                } else {
+                    position += read
+                    buffer.position(buffer.position() + read)
+                    true
+                }
+            }
+            if (!accepted) {
+                continue
+            }
+            emitCacheProgress()
+            return read
         }
-        return read
     }
 
     override fun seek(offset: Long, whence: Int): Long {
@@ -243,6 +331,7 @@ internal class CachedNetworkSource(
             if (aborted) {
                 return -1L
             }
+            seekCallbackCount += 1
             if ((whence and IPlaysource.SEEK_SIZE) != 0) {
                 return size()
             }
@@ -250,22 +339,27 @@ internal class CachedNetworkSource(
                 IPlaysource.SEEK_SET -> 0L
                 IPlaysource.SEEK_CUR -> position
                 IPlaysource.SEEK_END -> size()
-                else -> return -1L
+                else -> {
+                    seekFailureCount += 1
+                    return -1L
+                }
             }
             val target = (base + offset).coerceAtLeast(0L)
             val bounded = if (size() > 0L) target.coerceAtMost(size()) else target
-            val currentSession = session ?: return -1L
+            val currentSession = session ?: run {
+                seekFailureCount += 1
+                return -1L
+            }
             seekSerial += 1
-            currentSession.cancelPendingRead()
             val seekResult = currentSession.seek(bounded, IPlaysource.SEEK_SET)
             if (seekResult.isFailure) {
+                seekFailureCount += 1
                 safeLogE(
                     "seek failed: key=$resourceKey, target=$bounded, error=${seekResult.exceptionOrNull()?.message}"
                 )
                 return -1L
             }
             val newOffset = seekResult.getOrThrow()
-            safeLogI("seek success: key=$resourceKey, from=$position, target=$bounded, actual=$newOffset")
             position = newOffset
             return newOffset
         }
@@ -291,7 +385,7 @@ internal class CachedNetworkSource(
         synchronized(this) {
             cacheProgressTracker.onPlaybackSeekAccepted(anchorOffset)
         }
-        emitCacheProgress()
+        emitCacheProgress(force = true)
     }
 
     private fun safeLogI(message: String) {
@@ -317,28 +411,47 @@ internal class CachedNetworkSource(
         emitCacheProgress()
     }
 
-    private fun emitCacheProgress() {
+    private fun emitCacheProgress(force: Boolean = false) {
         val listener = cacheProgressListener ?: return
-        val (observedRanges, resolved) = synchronized(this) {
+        val emission = synchronized(this) {
             val totalBytes = contentLength.takeIf { it > 0L } ?: contentLengthHint?.takeIf { it > 0L }
-            Pair(
-                cacheProgressTracker.observedRanges(),
-                cacheProgressTracker.snapshot(totalBytes)
+            val resolved = cacheProgressTracker.snapshot(totalBytes) ?: return
+            val previous = lastEmittedCacheProgress
+            if (!force && previous != null && !resolved.isFullyCached) {
+                val minimumByteDelta = totalBytes
+                    ?.let { total -> (total / 100L).coerceIn(1L, MAX_PROGRESS_EMIT_DELTA_BYTES) }
+                    ?: MAX_PROGRESS_EMIT_DELTA_BYTES
+                val cachedByteDelta = kotlin.math.abs(resolved.cachedBytes - previous.cachedBytes)
+                if (cachedByteDelta < minimumByteDelta) {
+                    return
+                }
+            }
+            if (resolved == previous) {
+                return
+            }
+            lastEmittedCacheProgress = resolved
+            val progressBucket = (resolved.normalizedDisplayRatio * PROGRESS_LOG_BUCKET_COUNT)
+                .toInt()
+                .coerceIn(0, PROGRESS_LOG_BUCKET_COUNT)
+            val shouldLog = resolved.isFullyCached || progressBucket > lastLoggedCacheProgressBucket
+            if (shouldLog) {
+                lastLoggedCacheProgressBucket = progressBucket
+            }
+            Triple(cacheProgressTracker.observedRanges(), resolved, shouldLog)
+        }
+        val (observedRanges, resolved, shouldLog) = emission
+        if (shouldLog) {
+            safeLogI(
+                "cacheProgress: key=$resourceKey, progress=${describeCacheProgress(resolved)}, observed=${describeObservedRanges(observedRanges)}"
             )
         }
-        resolved ?: return
-        if (resolved == lastEmittedCacheProgress) {
-            return
-        }
-        lastEmittedCacheProgress = resolved
-        safeLogI(
-            "cacheProgress emit: key=$resourceKey, source=chunk, progress=${describeCacheProgress(resolved)}, observed=${describeObservedRanges(observedRanges)}"
-        )
         listener(resolved)
     }
 
     private companion object {
         private const val TAG = "CachedNetworkSource"
+        private const val MAX_PROGRESS_EMIT_DELTA_BYTES = 256L * 1024L
+        private const val PROGRESS_LOG_BUCKET_COUNT = 10
 
         private fun describeCacheProgress(snapshot: PlaybackCacheProgressSnapshot?): String {
             if (snapshot == null) {

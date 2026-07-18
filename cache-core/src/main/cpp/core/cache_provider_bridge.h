@@ -16,6 +16,7 @@ namespace cachecore {
 class JniProviderBridge final : public ProviderBridge {
 public:
     void SetJavaVm(JavaVM* vm);
+    bool PrepareJavaBindings(JNIEnv* env);
 
     std::vector<uint8_t> ReadAt(int64_t provider_handle, int64_t offset, int32_t size) override;
     bool ReadAtStream(

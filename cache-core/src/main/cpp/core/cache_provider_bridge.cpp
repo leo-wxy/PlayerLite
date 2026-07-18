@@ -10,6 +10,10 @@ void JniProviderBridge::SetJavaVm(JavaVM* vm) {
     jvm_ = vm;
 }
 
+bool JniProviderBridge::PrepareJavaBindings(JNIEnv* env) {
+    return EnsureResolved(env);
+}
+
 std::vector<uint8_t> JniProviderBridge::ReadAt(int64_t provider_handle, int64_t offset, int32_t size) {
     std::vector<uint8_t> output;
     std::mutex output_mutex;

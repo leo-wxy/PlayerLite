@@ -15,8 +15,10 @@ import com.wxy.playerlite.playback.model.PlaybackPrewarmState
 import com.wxy.playerlite.playback.model.PlaybackPrewarmTargetType
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -26,13 +28,12 @@ import org.junit.Test
 
 class PlaybackPrewarmCoordinatorTest {
     @Test
-    fun resolveCandidate_whenCurrentCacheIncomplete_shouldUseCurrentAhead() {
+    fun resolveCandidate_whenCurrentCacheIncomplete_shouldLetCoreOwnCurrentAheadWindow() {
         val context = prewarmContext(currentItemCacheCompleteOrNoWrite = false)
 
         val candidate = resolvePlaybackPrewarmCandidate(context)
 
-        assertEquals("track-1", candidate?.track?.id)
-        assertEquals(PlaybackPrewarmTargetType.CURRENT_AHEAD, candidate?.targetType)
+        assertNull(candidate)
     }
 
     @Test
@@ -61,7 +62,7 @@ class PlaybackPrewarmCoordinatorTest {
     }
 
     @Test
-    fun resolveCandidate_whenCurrentAheadBufferIsShort_shouldKeepCurrentAhead() {
+    fun resolveCandidate_whenCurrentAheadBufferIsShort_shouldNotOpenDuplicateSession() {
         val context = prewarmContext(
             currentItemCacheCompleteOrNoWrite = false,
             currentPositionMs = 44_000L,
@@ -71,8 +72,7 @@ class PlaybackPrewarmCoordinatorTest {
 
         val candidate = resolvePlaybackPrewarmCandidate(context)
 
-        assertEquals("track-1", candidate?.track?.id)
-        assertEquals(PlaybackPrewarmTargetType.CURRENT_AHEAD, candidate?.targetType)
+        assertNull(candidate)
     }
 
     @Test
@@ -407,6 +407,85 @@ class PlaybackPrewarmCoordinatorTest {
     }
 
     @Test
+    fun schedule_shouldThrottleRunningProgressLogsByTenPercentBuckets() = runBlocking {
+        val snapshots = SnapshotRecorder(
+            awaitedTargetId = "track-2",
+            awaitedState = PlaybackPrewarmState.COMPLETED
+        )
+        val logs = mutableListOf<String>()
+        val coordinator = PlaybackPrewarmCoordinator(
+            scope = CoroutineScope(Dispatchers.Default),
+            planner = OnlinePlaybackPreparationPlanner(
+                cacheLookup = { Result.success(null) },
+                sourceAdapterProvider = {
+                    FakePrewarmSourceAdapter(
+                        blockingSongId = "never-block",
+                        blockingEntered = CountDownLatch(1),
+                        blockingDelayMs = 0L
+                    )
+                }
+            ),
+            cacheLookup = { Result.success(null) },
+            openSession = { params ->
+                Result.success(SmallChunkCacheSession(resourceKey = params.resourceKey))
+            },
+            providerFactory = { StaticRangeDataProvider(contentLength = 1_048_576L) },
+            onSnapshot = snapshots::record,
+            debugLogger = logs::add,
+            ioDispatcher = Dispatchers.Default
+        )
+
+        coordinator.schedule(prewarmContext(currentItemCacheCompleteOrNoWrite = true))
+
+        assertTrue(snapshots.await())
+        val progressLogs = logs.filter { log ->
+            log.startsWith("prewarm snapshot:") &&
+                log.contains("target=track-2") &&
+                (log.contains("state=running") || log.contains("state=ready"))
+        }
+        assertTrue("Expected bucketed logs, actual=${progressLogs.size}", progressLogs.size <= 13)
+        assertTrue(logs.any { it.contains("state=completed") })
+    }
+
+    @Test
+    fun schedule_whenCurrentCacheCompletionChanges_shouldNotRepeatNextTrackPrewarm() = runBlocking {
+        val snapshots = SnapshotRecorder(
+            awaitedTargetId = "track-2",
+            awaitedState = PlaybackPrewarmState.COMPLETED
+        )
+        val adapter = FakePrewarmSourceAdapter(
+            blockingSongId = "never-block",
+            blockingEntered = CountDownLatch(1),
+            blockingDelayMs = 0L
+        )
+        val coordinator = PlaybackPrewarmCoordinator(
+            scope = CoroutineScope(Dispatchers.Default),
+            planner = OnlinePlaybackPreparationPlanner(
+                cacheLookup = { Result.success(null) },
+                sourceAdapterProvider = { adapter }
+            ),
+            cacheLookup = { Result.success(null) },
+            openSession = { params ->
+                Result.success(DelayedCacheSession(resourceKey = params.resourceKey))
+            },
+            providerFactory = { StaticRangeDataProvider(contentLength = 1_048_576L) },
+            onSnapshot = snapshots::record,
+            ioDispatcher = Dispatchers.Default
+        )
+        val bufferedContext = prewarmContext(
+            currentItemCacheCompleteOrNoWrite = false,
+            currentCacheProgress = cacheProgress(displayRatio = 0.6f)
+        )
+
+        coordinator.schedule(bufferedContext)
+        assertTrue(snapshots.await())
+        coordinator.schedule(bufferedContext.copy(currentItemCacheCompleteOrNoWrite = true))
+        delay(100L)
+
+        assertEquals(1, adapter.handleCalls.get())
+    }
+
+    @Test
     fun schedule_whenOldResolveReturnsAfterNewStarts_shouldNotLogOldResourceKeyForNewSnapshots() = runBlocking {
         val snapshots = SnapshotRecorder(
             awaitedTargetId = "track-3",
@@ -590,6 +669,26 @@ class PlaybackPrewarmCoordinatorTest {
         override fun close() = Unit
     }
 
+    private class SmallChunkCacheSession(
+        override val resourceKey: String
+    ) : CacheSession {
+        override val sessionId: Long = resourceKey.hashCode().toLong()
+
+        override fun read(size: Int): Result<ByteArray> {
+            return readAt(0L, size)
+        }
+
+        override fun readAt(offset: Long, size: Int): Result<ByteArray> {
+            return Result.success(ByteArray(size.coerceAtMost(32 * 1024)))
+        }
+
+        override fun seek(offset: Long, whence: Int): Result<Long> = Result.success(offset)
+
+        override fun cancelPendingRead() = Unit
+
+        override fun close() = Unit
+    }
+
     private class StaticRangeDataProvider(
         private val contentLength: Long
     ) : RangeDataProvider {
@@ -611,6 +710,7 @@ class PlaybackPrewarmCoordinatorTest {
         private val blockingDelayMs: Long,
         private val failingSongIds: Set<String> = emptySet()
     ) : SourceAdapter {
+        val handleCalls = AtomicInteger(0)
         override val metadata: SourceMetadata = SourceMetadata(
             id = "fake-prewarm-source",
             name = "Fake Prewarm Source"
@@ -623,6 +723,7 @@ class PlaybackPrewarmCoordinatorTest {
             action: SourceAction,
             context: SourceActionContext
         ): Result<SourceActionResult> {
+            handleCalls.incrementAndGet()
             if (
                 context.songId == blockingSongId &&
                 (blockingQuality == null || context.preferredAudioQuality == blockingQuality)

@@ -87,6 +87,14 @@ void RingBufferWindow::Write(int64_t offset, const std::vector<uint8_t>& bytes) 
     }
     const int64_t write_end = offset + static_cast<int64_t>(bytes.size());
 
+    // The window represents one contiguous byte range. A disjoint write must
+    // start a new window; otherwise the unwritten gap would look readable.
+    if (has_window_ && (write_start > window_end_ || write_end < window_start_)) {
+        has_window_ = false;
+        window_start_ = 0;
+        window_end_ = 0;
+    }
+
     if (!has_window_) {
         has_window_ = true;
         window_start_ = write_start;

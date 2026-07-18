@@ -10,19 +10,24 @@ import org.junit.Test
 
 class TrackPreparationCoordinatorNetworkTest {
     @Test
-    fun networkPreparationPolicy_shouldSkipMetadataProbeWhenDurationIsKnown() {
-        assertTrue(
-            !shouldProbeNetworkMetadataBeforePlayback(
-                durationHintMs = 219_893L,
-                useCacheOnlyProvider = false
-            )
+    fun prepareNetworkSourceCanSkipBlockingMetadataBeforePlayback() = runBlocking {
+        val source = FakePlaySource()
+        val result = prepareNetworkSourceInternal(
+            item = PlaybackTrack(
+                playable = com.wxy.playerlite.playback.model.MusicInfo(
+                    id = "net-fast-start",
+                    title = "Fast start",
+                    playbackUri = "https://example.com/fast.mp3"
+                )
+            ),
+            loadMetadataBeforePlayback = false,
+            createSource = { source },
+            loadAudioMeta = { error("metadata must not block playback") }
         )
-        assertTrue(
-            shouldProbeNetworkMetadataBeforePlayback(
-                durationHintMs = 0L,
-                useCacheOnlyProvider = false
-            )
-        )
+
+        val ready = result as PreparationResult.Ready
+        assertEquals(0L, ready.mediaMeta.durationMs)
+        assertTrue(source.seekCalls.isEmpty())
     }
 
     @Test

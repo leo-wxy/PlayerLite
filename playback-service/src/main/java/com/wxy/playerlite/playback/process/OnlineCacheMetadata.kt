@@ -33,7 +33,7 @@ internal object OnlineCacheMetadata {
             payload[key] = value
         }
         file.parentFile?.mkdirs()
-        file.writeText(
+        val content =
             payload.entries.joinToString(
                 prefix = "{\n",
                 postfix = "\n}\n",
@@ -41,7 +41,12 @@ internal object OnlineCacheMetadata {
             ) { (key, value) ->
                 "  \"$key\": \"${escape(value)}\""
             }
-        )
+        val tempFile = File("${file.absolutePath}.tmp")
+        tempFile.writeText(content)
+        if (!tempFile.renameTo(file)) {
+            tempFile.delete()
+            error("Failed to atomically persist online cache metadata")
+        }
     }
 
     fun purgeSnapshot(snapshot: CacheLookupSnapshot) {

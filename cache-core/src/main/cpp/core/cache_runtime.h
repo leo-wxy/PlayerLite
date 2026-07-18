@@ -136,6 +136,8 @@ private:
         bool prefetch_failed = false;
         uint64_t prefetch_failure_generation = 0;
         int64_t prefetch_failure_offset = -1;
+        int32_t pending_persist_tasks = 0;
+        int64_t bytes_since_metadata_persist = 0;
         std::vector<Range> pending_progress_chunks;
     };
 
