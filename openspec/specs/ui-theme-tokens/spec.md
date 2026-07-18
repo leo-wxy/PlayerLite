@@ -20,7 +20,7 @@
 - **AND** 不直接把浅色 `neutral` 作为深色大面积背景使用
 
 ### Requirement: 应用通过共享主题 contract 暴露默认皮肤
-系统 SHALL 通过稳定的共享主题 contract 暴露默认皮肤，使 `app` 与 `feature-search` 使用同一主题源，而不是各自维护一套平行的色板定义。
+系统 SHALL 通过稳定的共享主题 contract 暴露默认皮肤，使 `app` 与 `feature-discovery` 使用同一主题源，而不是各自维护一套平行的色板定义。
 
 #### Scenario: 多模块复用同一主题源
 - **WHEN** app 主壳层与独立搜索页分别初始化 Compose 主题

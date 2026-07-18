@@ -1,6 +1,6 @@
 # PlayerLite
 
-一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、歌曲详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要、系统 `MediaSession` 动态展示链路，以及当前音源管理、在线音质切换、默认音效 preset、横屏播放器独立沉浸布局、首页每日推荐站内入口与每日推荐歌曲页、首页横向歌曲推荐区块、搜索页共享主题统一和网页歌单导入等较完整的播放能力。在线播放链路已补充当前播放项缓存进度投影、完整缓存本地优先起播、有限 current-ahead / next-track 预热和预热状态隔离，`minibar` 与播放页可在同一进度条上展示已播放、已缓存未播放和未缓存状态，并支持 seek 后基于缓存 range 展示新的缓存段。近期进一步完成了项目结构重构：播放器展示层拆到 `:feature-player`，首页发现流拆到 `:feature-home`，播放列表域拆到 `:playlist-core`，应用侧播放编排拆到 `:playback-orchestrator`，`app` 退回到宿主、装配与入口适配职责。
+一个面向 Android 的音频播放器示例工程，基于 Compose、Media3、FFmpeg、JNI 和 Native Cache Core 构建。项目当前已经覆盖播放器主链路、首页发现、搜索、歌手 / 歌单 / 专辑详情、歌曲详情、登录与用户中心等核心能力，并补齐了独立 `PlayerActivity` 播放器页、首页 / 详情页 `minibar`、播放页歌词、共享歌词摘要、系统 `MediaSession` 动态展示链路，以及当前音源管理、在线音质切换、默认音效 preset、横屏播放器独立沉浸布局、首页每日推荐站内入口与每日推荐歌曲页、首页横向歌曲推荐区块、搜索页共享主题统一和网页歌单导入等较完整的播放能力。在线播放链路已补充当前播放项缓存进度投影、完整缓存本地优先起播、有限 current-ahead / next-track 预热和预热状态隔离，`minibar` 与播放页可在同一进度条上展示已播放、已缓存未播放和未缓存状态，并支持 seek 后基于缓存 range 展示新的缓存段。项目结构已收敛为 10 个业务模块：发现流、详情能力、数据层和应用侧播放 API 分别聚合，`app` 继续只承担宿主、装配与入口适配职责。
 
 ## 主要能力
 
@@ -50,44 +50,26 @@
 
 - `:app`
   - 应用壳层、`Application`、`MainActivity` 双 Tab 主壳、`PlayerActivity` 宿主、`LikedContentActivity`、`RecentSongsActivity`、跨 feature 路由、Activity 适配器与 composition root
-- `:feature-home`
-  - 首页发现流模块，承载首页 screen、状态模型、ViewModel、repository、首页 JSON mapper、首页动作模型与宿主依赖契约
-- `:playlist-core`
-  - 播放列表域核心，承载 `PlaylistController`、`PlaylistStorage`、状态编解码、active-index / shuffle / 重排规则
-- `:playback-orchestrator`
-  - 应用侧播放编排层，承载队列同步、transport / settings / queue 控制器、detail 播放 gateway 与远端播放状态协同
+- `:feature-discovery`
+  - 首页与搜索发现流，承载 screen、状态模型、ViewModel、repository、JSON mapper、动作模型与宿主依赖契约
+- `:feature-details`
+  - 歌单、专辑、艺人和歌曲详情，以及共享 detail scaffold、分页、滚动接力和 hero UI 能力
 - `:feature-player`
   - 播放器 feature 展示层，承载 `PlayerScreen`、播放器页面态模型、歌词展示辅助、播放器入口 contract 与宿主 callbacks
-- `build-logic`
-  - 共享 Gradle convention plugin，集中治理 Android application / library / Compose 构建约束
-- `:feature-detail-support`
-  - 详情页共享 UI 支撑：`MusicDetailScaffold`、paging footer、vertical scroll handoff、hero brush、状态卡与 detail chrome 基础能力
-- `:feature-playlist-detail`
-  - 歌单详情页 feature：repository、mapper、UI state、ViewModel、screen composable
-- `:feature-album-detail`
-  - 专辑详情页 feature：repository、mapper、UI state、ViewModel、screen composable
-- `:feature-artist-detail`
-  - 艺人详情页 feature：repository、mapper、UI state、ViewModel、screen composable
-- `:feature-search`
-  - 独立搜索页模块，承载热搜、搜索建议、结果分页、详情路由与搜索状态管理
-- `:feature-song-detail`
-  - 独立歌曲详情模块，承载统一 `SongRef`、歌曲详情状态、在线 / 本地歌曲详情屏、相似歌曲 / 相关歌单内容、歌曲动作与宿主回调契约
-- `:design-system`
-  - 共享主题 contract、语义色 token 与首页/搜索/播放器复用的视觉基础
-- `:network-core`
-  - `OkHttp + kotlinx.serialization` 网络基础设施、统一错误映射
-- `:user`
-  - 登录、用户资料、会话持久化与恢复等账户 / 会话能力
-- `:playback-client`
-  - 前台到播放服务的 `MediaController` 桥接与稳定播放客户端边界
-- `:playback-contract`
-  - 跨模块共享的播放协议、DTO、Session command、队列与播放域共享模型，包括缓存进度和预热快照等 MediaSession extras contract
+- `:core-data`
+  - 网络基础设施、用户会话，以及播放列表控制、持久化、active-index / shuffle / 重排规则
+- `:playback-api`
+  - 跨进程播放协议与共享模型、MediaController 客户端桥接、队列同步及 transport / settings / queue 编排
 - `:playback-service`
   - 独立播放进程、`MediaSessionService`、播放运行时、在线缓存进度解析、完整缓存本地优先起播、预热调度与后台播放宿主实现
 - `:player`
   - Kotlin 播放器 API 与 JNI 桥接，驱动 Native C++ + FFmpeg
 - `:cache-core`
   - Native-first 缓存核心，提供 Range 缓存、会话能力、缓存进度事件、完整缓存 lookup 与有限 ahead 预读窗口
+- `:design-system`
+  - 共享主题 contract、语义色 token 与首页/搜索/播放器复用的视觉基础
+- `build-logic`
+  - 共享 Gradle convention plugin，集中治理 Android application / library / Compose 构建约束
 
 ## 支持的数据源
 
@@ -111,7 +93,7 @@ HomeOverviewScreen / DetailMiniPlayerBar / MediaSession content intent
 
 ```text
 ArtistDetailActivity / AlbumDetailActivity / PlaylistDetailActivity
-  -> feature-artist-detail / feature-album-detail / feature-playlist-detail
+  -> feature-details
   -> MusicDetailScaffold / DetailVerticalScrollHandoff
   -> DetailMiniPlayerBar
   -> PlayerActivity / PlaylistBottomSheet (:feature-player)
@@ -121,10 +103,10 @@ ArtistDetailActivity / AlbumDetailActivity / PlaylistDetailActivity
 
 ```text
 MainActivity / PlayerActivity / BasePlaybackDetailActivity
-  -> PlayerViewModel / HomeViewModel (:feature-home)
+  -> PlayerViewModel / HomeViewModel (:feature-discovery)
   -> AppPlaybackGraph / PlayerRuntime (:app)
-  -> playback-orchestrator
-  -> PlayerServiceBridge (:playback-client)
+  -> playback-api
+  -> PlayerServiceBridge (:playback-api)
   -> PlayerMediaSessionService (:playback-service)
   -> PlaybackProcessRuntime
   -> NativePlayer
@@ -135,7 +117,7 @@ MainActivity / PlayerActivity / BasePlaybackDetailActivity
 
 ```text
 PlayerRuntime / PlayerViewModel / DetailPlaybackGateway
-  -> PlaylistController (:playlist-core)
+  -> PlaylistController (:core-data)
   -> PlaylistStorage / SharedPreferencesPlaylistStorage
   -> active-index / reorder / shuffle state
 ```
@@ -204,8 +186,10 @@ bash scripts/build_ffmpeg_android.sh
 ## 常用验证命令
 
 ```bash
-./gradlew :playlist-core:testDebugUnitTest
-./gradlew :playback-orchestrator:testDebugUnitTest
+./gradlew :core-data:testDebugUnitTest
+./gradlew :playback-api:testDebugUnitTest
+./gradlew :feature-discovery:testDebugUnitTest
+./gradlew :feature-details:testDebugUnitTest
 ./gradlew :feature-player:testDebugUnitTest
 ./gradlew :cache-core:testDebugUnitTest
 ./gradlew :playback-service:testDebugUnitTest
@@ -222,12 +206,12 @@ PATH=/Users/wxy/.nvm/versions/node/v20.20.0/bin:$PATH openspec validate --all
 ## 架构说明
 
 - `app` 已从“播放器 UI + 首页发现流 + 播放域核心 + 宿主壳”收口为应用入口、Activity 宿主、装配与 composition root；当前仍保留 `PlayerViewModel`、`PlayerRuntime` 与 `AppPlaybackGraph` 这类应用侧宿主逻辑。
-- `feature-home` 承载首页发现流的页面、状态、数据解析与首页动作模型；宿主通过 `HomeHostDependencies` 和桥接函数接入，不再在 `app` 内保留首页核心实现副本。
-- `playlist-core` 承载播放列表域规则和持久化契约，不再把 `PlaylistController` 留在 `app/core/playlist`。
-- `playback-orchestrator` 负责应用侧播放编排，不把队列同步、transport、settings 和 detail 播放协同继续堆在页面层。
+- `feature-discovery` 聚合首页与搜索发现流，保留各自 package 和宿主依赖边界，减少重复的 Android Library 构建任务。
+- `core-data` 聚合网络、用户会话和播放列表域，保持原有 package、持久化 key 与序列化协议不变。
+- `playback-api` 聚合共享播放模型、客户端桥接和应用侧编排，`playback-service` 仍作为独立进程实现模块存在。
 - `feature-player` 负责播放器页的 presentation 层、入口 contract 与宿主 callbacks，不再把播放器 UI 主体留在 `app/feature/player/ui`。
-- 歌单 / 专辑 / 艺人详情页已拆分到各自独立模块，共享的 detail shell 能力收敛到 `:feature-detail-support`。
-- 播放服务实现细节收口在播放层，宿主通过 `:playback-client` / `:playback-contract` 接入；`playback-contract` 当前也承担播放域共享模型层，而不仅是轻量常量层，并承载缓存进度与预热快照的跨进程 extras 协议。
+- `feature-details` 聚合歌单、专辑、艺人、歌曲详情和共享 detail shell，页面内部仍按 package 保持领域分区。
+- 播放服务实现细节收口在播放层，宿主通过 `:playback-api` 接入缓存进度、预热快照、MediaSession command 和队列协议。
 - 共享 Android 构建约束由 `build-logic` 提供，模块脚本主要保留命名空间、依赖和 native 等差异配置。
 
 ## GitHub 发布
@@ -285,21 +269,12 @@ python3 scripts/range_http_server.py --port 18080 --directory .
 player-lite/
 ├── app/
 ├── build-logic/
-├── feature-home/
-├── playlist-core/
-├── playback-orchestrator/
+├── core-data/
+├── feature-discovery/
+├── feature-details/
 ├── feature-player/
-├── feature-detail-support/
-├── feature-playlist-detail/
-├── feature-album-detail/
-├── feature-artist-detail/
-├── feature-search/
-├── feature-song-detail/
 ├── design-system/
-├── network-core/
-├── user/
-├── playback-client/
-├── playback-contract/
+├── playback-api/
 ├── playback-service/
 ├── player/
 ├── cache-core/

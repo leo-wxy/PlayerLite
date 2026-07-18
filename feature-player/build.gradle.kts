@@ -9,7 +9,7 @@ android {
 
 dependencies {
     implementation(project(":design-system"))
-    implementation(project(":playback-contract"))
+    implementation(project(":playback-api"))
     implementation(project(":player"))
     implementation(libs.androidx.core.ktx)
     implementation(platform(libs.androidx.compose.bom))

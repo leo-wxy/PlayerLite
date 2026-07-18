@@ -8,8 +8,8 @@ android {
 
 dependencies {
     implementation(project(":cache-core"))
-    implementation(project(":network-core"))
-    implementation(project(":playback-contract"))
+    implementation(project(":core-data"))
+    implementation(project(":playback-api"))
     implementation(project(":player"))
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.core.ktx)
